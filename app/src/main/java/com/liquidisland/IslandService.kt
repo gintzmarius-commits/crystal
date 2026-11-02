@@ -76,6 +76,7 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
     private var downY = 0f
     private var downX = 0f
+    private var lastDy = 0f
     private var tracking = false
     private var moved = false
     private var longFired = false
@@ -126,12 +127,14 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
                 longFired = false
                 downX = e.x
                 downY = e.y
+                lastDy = 0f
                 gestures?.press(true)
                 postDelayed(longRunnable, longPressMs)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!tracking) return
                 val dy = e.y - downY
+                lastDy = dy
                 // Seul le deplacement vertical compte (la fenetre peut s'elargir pendant l'appui)
                 if (!moved && abs(dy) > slop) {
                     moved = true
@@ -146,7 +149,9 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
                 removeCallbacks(longRunnable)
                 if (longFired) return
                 if (moved) {
-                    gestures?.release(if (e.actionMasked == MotionEvent.ACTION_UP) e.y - downY else 0f)
+                    // Android peut interrompre (CANCEL) un glissement parti du haut de l'ecran :
+                    // on garde alors la distance deja parcourue pour reconnaitre le geste.
+                    gestures?.release(if (e.actionMasked == MotionEvent.ACTION_UP) e.y - downY else lastDy)
                 } else {
                     gestures?.press(false)
                 }
@@ -702,7 +707,7 @@ class IslandService : Service(), IslandGestures {
             return
         }
         when {
-            dy > dp(40) -> openNote(floating = true)
+            dy > dp(30) -> openNote(floating = true)
             dy < -dp(24) -> collapse("glisser vers le haut")
             else -> {
                 animateIsland(ew.toFloat(), eh.toFloat(), 1f, opening = true)
