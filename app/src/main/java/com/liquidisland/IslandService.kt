@@ -490,7 +490,7 @@ class IslandService : Service(), IslandGestures {
         iconView.scaleY = 0.3f
         val pop = Spring.POP
         iconView.animate().scaleX(1f).scaleY(1f).setStartDelay(150).setDuration(pop.durationMs).setInterpolator(pop).start()
-        main.postDelayed(collapseRunnable, 5000)
+        main.postDelayed(collapseRunnable, 6000)
         Log.i(TAG, "Notification affichee : ${n.title}")
     }
 
@@ -686,6 +686,13 @@ class IslandService : Service(), IslandGestures {
     override fun drag(dy: Float) {
         if (mode != Mode.NOTIF) return
         val v = view ?: return
+        // Assez tire vers le bas : on ouvre tout de suite, sans attendre que le doigt se leve
+        // (Android peut s'approprier un glissement parti du haut de l'ecran).
+        if (dy > dp(56)) {
+            Log.i(TAG, "Geste glisser vers le bas dy=$dy")
+            openNote(floating = true)
+            return
+        }
         main.removeCallbacks(collapseRunnable)
         stopAnims()
         // Etirement elastique : resiste de plus en plus

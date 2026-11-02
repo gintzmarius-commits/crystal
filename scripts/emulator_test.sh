@@ -51,8 +51,7 @@ shot 6-referme
 
 # Toucher la notif => ouvre l'appli concernee (ici Wave Island)
 adb shell am start -W -n $P/.MainActivity --es ci testbg
-sleep 2
-shot 9a-notif-sur-accueil
+sleep 1.5
 adb shell input tap 540 121
 sleep 2
 shot 9-toucher-ouvre-appli
@@ -62,7 +61,7 @@ adb shell input keyevent KEYCODE_HOME
 sleep 6
 adb shell am start -W -n $P/.MainActivity --es ci testbg
 sleep 2
-adb shell input swipe 540 110 540 520 350
+adb shell input swipe 540 110 540 520 600
 sleep 2
 shot 10-glisser-ouvre
 
