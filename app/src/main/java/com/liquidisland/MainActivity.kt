@@ -39,6 +39,7 @@ class MainActivity : Activity() {
 
     private lateinit var heroStatus: TextView
     private lateinit var heroButton: TextView
+    private lateinit var accessWarn: LinearLayout
     private lateinit var preview: IslandPreview
     private lateinit var segIsland: TextView
     private lateinit var segNotch: TextView
@@ -370,6 +371,7 @@ class MainActivity : Activity() {
         val running = IslandService.instance != null
         heroStatus.text = if (running) "Affiché en permanence" else "Arrêté"
         heroButton.text = if (running) "Arrêter" else "Démarrer"
+        accessWarn.visibility = if (accessibilityEnabled()) View.GONE else View.VISIBLE
         if (waitingInstallPermission && packageManager.canRequestPackageInstalls()) {
             waitingInstallPermission = false
             checkUpdate(manual = true)
@@ -624,6 +626,26 @@ class MainActivity : Activity() {
         c.addView(text("L'îlot", 22f, Color.WHITE, bold = true))
         heroStatus = text("", 15f, Color.argb(225, 255, 255, 255))
         c.addView(heroStatus)
+
+        // Sans l'accessibilite, la barre d'etat recoit les touchers a la place de l'ilot
+        accessWarn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Glass.card(d, dpf(20), strong = true)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            visibility = View.GONE
+        }
+        accessWarn.addView(text("Toucher l'îlot ouvre le volet des réglages ?", 15f, Glass.INK, bold = true))
+        accessWarn.addView(text(
+            "Active « Accessibilité › Wave Island » : l'îlot passe alors au-dessus de la barre d'état et répond à tes doigts. " +
+                "Si c'est grisé, suis l'aide « paramètre restreint » plus bas.",
+            13f, Glass.INK_SOFT
+        ).apply { setPadding(0, dp(4), 0, 0) })
+        accessWarn.addView(glassButton("Activer l'accessibilité", primary = true) {
+            open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }, buttonLp(top = 10))
+        c.addView(accessWarn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(14)
+        })
 
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL

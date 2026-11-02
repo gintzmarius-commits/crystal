@@ -541,10 +541,58 @@ class IslandService : Service(), IslandGestures {
         Log.i(TAG, "Notification affichee : ${n.title}")
     }
 
-    /** Ouvre l'appli de la notification, en plein ecran ou en fenetre flottante. */
+    private var opening = false
+
+    /**
+     * Ouvre l'appli de la notification : l'ilot s'etire vers le bas, puis l'appli s'ouvre
+     * en grandissant depuis l'ilot jusqu'au plein ecran.
+     */
     private fun openNote(floating: Boolean) {
         val n = note ?: return
-        val opts = ActivityOptions.makeBasic()
+        val v = view ?: return
+        if (opening) return
+        opening = true
+        main.removeCallbacks(collapseRunnable)
+        stopAnims()
+        content.animate().cancel()
+        content.animate().alpha(0f).setDuration(90).setStartDelay(0).start()
+        val w0 = v.pw
+        val h0 = v.ph
+        val w1 = ew + dp(6).toFloat()
+        val h1 = min((eh + dp(40)).toFloat(), (max(eh, mh) + bottomPad - dp(2)).toFloat())
+        val stretch = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 150
+            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                v.pw = w0 + (w1 - w0) * f
+                v.ph = h0 + (h1 - h0) * f
+                v.invalidate()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    launchNote(n, floating)
+                    // L'ilot reprend sa place une fois l'appli lancee
+                    main.postDelayed({
+                        opening = false
+                        collapse("ouverture")
+                    }, 220)
+                }
+            })
+        }
+        running.add(stretch)
+        stretch.start()
+    }
+
+    private fun launchNote(n: IslandNote, floating: Boolean) {
+        val v = view
+        // L'appli s'ouvre en grandissant depuis la forme actuelle de l'ilot
+        val opts = if (v != null && v.isAttachedToWindow) {
+            val l = ((v.width - v.pw) / 2f).toInt()
+            ActivityOptions.makeClipRevealAnimation(v, l, 0, v.pw.toInt(), v.ph.toInt())
+        } else {
+            ActivityOptions.makeBasic()
+        }
         // Taille de fenetre seulement si le telephone gere les fenetres libres (sinon Android peut mal le prendre)
         val canFloat = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
         if (floating && canFloat) {
@@ -554,8 +602,6 @@ class IslandService : Service(), IslandGestures {
             val h = (sh * 0.55f).toInt()
             val top = dp(90)
             opts.setLaunchBounds(Rect((sw - w) / 2, top, (sw + w) / 2, top + h))
-            // Taille de fenetre demandee : respectee par les telephones qui ont les fenetres libres.
-            // (Forcer le mode flottant passe par une fonction cachee d'Android, trop risquee.)
         }
         if (Build.VERSION.SDK_INT >= 34) {
             @Suppress("DEPRECATION")
@@ -583,7 +629,6 @@ class IslandService : Service(), IslandGestures {
         }
         Log.i(TAG, "Ouverture ${n.pkg} (flottante=$floating, ok=$ok, fenetres libres=$canFloat)")
         if (ok && n.autoCancel && n.key != null) NotifListener.cancel(n.key)
-        collapse("ouverture")
     }
 
     // ---------- Menu ----------
@@ -714,6 +759,7 @@ class IslandService : Service(), IslandGestures {
 
     override fun tap() {
         Log.i(TAG, "Geste toucher mode=$mode")
+        if (opening) return
         when (mode) {
             Mode.NOTIF -> openNote(floating = false)
             Mode.MENU -> collapse("toucher le menu")
@@ -724,7 +770,7 @@ class IslandService : Service(), IslandGestures {
     override fun longPress() = showMenu()
 
     override fun drag(dy: Float) {
-        if (mode != Mode.NOTIF) return
+        if (mode != Mode.NOTIF || opening) return
         val v = view ?: return
         // Assez tire vers le bas : on ouvre tout de suite, sans attendre que le doigt se leve
         // (Android peut s'approprier un glissement parti du haut de l'ecran).
