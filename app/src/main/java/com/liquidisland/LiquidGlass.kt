@@ -27,6 +27,8 @@ class LiquidGlass(private val density: Float) {
     var tint = 0f
     var dark = true
     var blurred = false
+    /** Verre totalement transparent, meme ouvert (pas de teinte du tout) */
+    var clear = true
     /** Direction de la lumiere, -1..1 (inclinaison du telephone). */
     var lightX = 0f
     var lightY = 0f
@@ -74,7 +76,7 @@ class LiquidGlass(private val density: Float) {
 
     /** Vrai si la forme ou la lumiere ont change depuis le dernier calcul (sinon on garde tout en cache). */
     private fun changed(l: Float, t: Float, r: Float, b: Float): Boolean {
-        val k = floatArrayOf(l, t, r, b, tint, lightX, lightY, if (dark) 1f else 0f, if (blurred) 1f else 0f, if (notch) 1f else 0f)
+        val k = floatArrayOf(l, t, r, b, tint, lightX, lightY, (if (dark) 1f else 0f) + (if (clear) 2f else 0f), if (blurred) 1f else 0f, if (notch) 1f else 0f)
         var diff = false
         for (i in k.indices) if (kotlin.math.abs(k[i] - key[i]) > 0.0005f || key[i].isNaN()) { diff = true; break }
         if (diff) k.copyInto(key)
@@ -120,7 +122,11 @@ class LiquidGlass(private val density: Float) {
         // Teinte : quasi nulle quand l'ilot est replie (verre transparent), plus dense ouvert pour lire
         val aTop: Float
         val aBot: Float
-        if (blurred) {
+        if (clear) {
+            // Transparent : juste un voile infime qui donne de la matiere, sans blanchir le fond
+            aTop = lerp(8f, 26f, f)
+            aBot = lerp(14f, 34f, f)
+        } else if (blurred) {
             aTop = lerp(if (dark) 60f else 50f, 145f, f)
             aBot = lerp(if (dark) 80f else 40f, if (dark) 170f else 125f, f)
         } else {
@@ -194,7 +200,7 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("disp", 0.07f)
                 rs.setFloatUniform("minOff", dp(3f))
                 rs.setFloatUniform("toLight", lx * 0.9f, -1f + ly * 0.4f)
-                rs.setFloatUniform("clearTint", 1f - tint.coerceIn(0f, 1f))
+                rs.setFloatUniform("clearTint", if (clear) 1f else 1f - tint.coerceIn(0f, 1f))
             }
         }
     }

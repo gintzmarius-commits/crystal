@@ -205,6 +205,8 @@ class MainActivity : Activity() {
             "notch" -> setNotch(true)
             "island" -> setNotch(false)
             "menu" -> IslandService.instance?.showMenu()
+            "fullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
+            "exitfullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
             "testbg" -> {
                 // Notif de test puis retour a l'accueil : sert a verifier que toucher la notif rouvre l'appli
                 sendTest()
@@ -500,7 +502,7 @@ class MainActivity : Activity() {
             background = Glass.chip(Glass.INK, dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        val themes = listOf("auto" to "Auto", "dark" to "Sombre", "light" to "Claire")
+        val themes = listOf("clear" to "Transparent", "dark" to "Sombre", "light" to "Claire")
         val themeViews = mutableListOf<TextView>()
         fun paintThemes() {
             val cur = Prefs.theme(this)
@@ -560,14 +562,39 @@ class MainActivity : Activity() {
             Prefs.setRefraction(this, it)
             IslandService.instance?.applySettings()
         })
-        c.addView(switchRow(
-            "Flou derrière l'îlot",
-            text("Floute seulement ce qui est sous l'îlot (Android 12 et plus)", 13f, Glass.INK_SOFT),
-            Prefs.blur(this)
-        ) {
-            Prefs.setBlur(this, it)
-            IslandService.instance?.applySettings()
-        })
+        // En plein ecran
+        c.addView(text("En plein écran (vidéo, jeu)", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
+        val fsSeg = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Glass.chip(Glass.INK, dpf(20))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val fsModes = listOf("hide" to "Cacher l'îlot", "camera" to "Autour de la caméra")
+        val fsViews = mutableListOf<TextView>()
+        fun paintFs() {
+            val cur = Prefs.fullscreen(this)
+            fsModes.forEachIndexed { i, (key, _) ->
+                val on = key == cur
+                fsViews[i].background = if (on) Glass.tinted(d, dpf(18)) else null
+                fsViews[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+            }
+        }
+        fsModes.forEach { (key, label) ->
+            val t = text(label, 14f, Glass.INK).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isClickable = true
+                setOnClickListener {
+                    Prefs.setFullscreen(this@MainActivity, key)
+                    paintFs()
+                    IslandService.instance?.applySettings()
+                }
+            }
+            fsViews.add(t)
+            fsSeg.addView(t, LinearLayout.LayoutParams(0, dp(36), 1f))
+        }
+        c.addView(fsSeg)
+        paintFs()
         c.addView(glassButton("Tester une notification", primary = true) { sendTest() }, buttonLp(top = 12))
 
         setNotch(Prefs.notch(this))

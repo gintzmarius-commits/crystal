@@ -61,7 +61,7 @@ adb shell input keyevent KEYCODE_HOME
 sleep 6
 adb shell am start -W -n $P/.MainActivity --es ci testbg
 sleep 2
-adb shell input swipe 540 230 540 650 600
+adb shell input swipe 540 240 540 700 900
 sleep 2
 shot 10-glisser-ouvre
 
@@ -72,6 +72,12 @@ adb shell input swipe 540 66 540 66 1200
 sleep 1
 shot 11-menu
 sleep 8
+# Plein ecran : l'ilot doit se cacher
+adb shell am start -W -n $P/.MainActivity --es ci fullscreen
+sleep 2
+shot 12-plein-ecran
+adb shell am start -W -n $P/.MainActivity --es ci exitfullscreen
+sleep 1
 adb devices >&2
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed" >&2
 
@@ -87,6 +93,7 @@ grep -q "Notification affichee : Wave Island" $OUT/log.txt || { echo "::error::L
 grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vraie notif n'est pas arrivee"; fail=1; }
 grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
+grep -q "Plein ecran : oui" $OUT/log.txt || echo "::warning::Le plein ecran n'a pas ete detecte"
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done

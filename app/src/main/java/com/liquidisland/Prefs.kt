@@ -16,24 +16,25 @@ object Prefs {
     fun notch(c: Context) = sp(c).getBoolean("notch", false)
     fun setNotch(c: Context, v: Boolean) = sp(c).edit().putBoolean("notch", v).apply()
 
-    /** Teinte du verre : "auto" (suit le mode sombre du telephone), "dark" ou "light" */
-    fun theme(c: Context) = sp(c).getString("theme", "auto") ?: "auto"
-    fun setTheme(c: Context, v: String) = sp(c).edit().putString("theme", v).apply()
+    /** Teinte du verre : "clear" (transparent, par defaut), "dark" ou "light" */
+    fun theme(c: Context) = sp(c).getString("theme2", "clear") ?: "clear"
+    fun setTheme(c: Context, v: String) = sp(c).edit().putString("theme2", v).apply()
+
+    /** En plein ecran (video, jeu) : "hide" = cacher l'ilot, "camera" = le reduire autour de la camera */
+    fun fullscreen(c: Context) = sp(c).getString("fullscreen", "hide") ?: "hide"
+    fun setFullscreen(c: Context, v: String) = sp(c).edit().putString("fullscreen", v).apply()
 
     /** Flou du fond, limite a la forme de l'ilot */
-    fun blur(c: Context) = sp(c).getBoolean("blur3", false)
+    /** Plus de flou : l'ilot est toujours en verre transparent */
+    fun blur(c: Context) = false
     fun setBlur(c: Context, v: Boolean) = sp(c).edit().putBoolean("blur3", v).apply()
 
     /** Deformation du fond sur les bords (capture de l'ecran, Android 13+) */
     fun refraction(c: Context) = sp(c).getBoolean("refraction", true)
     fun setRefraction(c: Context, v: Boolean) = sp(c).edit().putBoolean("refraction", v).apply()
 
-    fun isDark(c: Context): Boolean = when (theme(c)) {
-        "dark" -> true
-        "light" -> false
-        else -> (c.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
-    }
+    fun isDark(c: Context): Boolean = theme(c) != "light"
+    fun isClear(c: Context): Boolean = theme(c) == "clear"
 
     // Tailles en dp
     const val W_MIN = 60; const val W_MAX = 260

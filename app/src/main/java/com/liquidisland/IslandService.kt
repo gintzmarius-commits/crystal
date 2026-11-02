@@ -303,11 +303,51 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     // ---------- Construction ----------
 
+    private var clearGlass = true
+    private var fullscreen = false
+    /** Ilot cache (plein ecran, mode « cacher ») */
+    private val hidden get() = fullscreen && Prefs.fullscreen(this) == "hide" && mode == Mode.COLLAPSED
+
+    private fun onStatusBar(visible: Boolean) {
+        if (fullscreen == !visible) return
+        fullscreen = !visible
+        Log.i(TAG, "Plein ecran : ${if (fullscreen) "oui" else "non"}")
+        main.post {
+            if (mode == Mode.COLLAPSED) {
+                applyWindow(big = false)
+                val (w, h) = restSize()
+                animateIsland(w, h, 0f, opening = !fullscreen)
+            }
+        }
+    }
+
+    /** Taille de l'ilot au repos : normale, cachee, ou juste autour de la camera en plein ecran. */
+    private fun restSize(): Pair<Float, Float> {
+        if (!fullscreen) return cw.toFloat() to ch.toFloat()
+        if (Prefs.fullscreen(this) == "camera" && Build.VERSION.SDK_INT >= 29) {
+            @Suppress("DEPRECATION")
+            val cut = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.cutout
+            val hole = cut?.boundingRectTop
+            if (hole != null && !hole.isEmpty) {
+                val w = (hole.width() + dp(12)).toFloat()
+                val h = max(dp(18), hole.bottom - off + dp(4)).toFloat()
+                return w to h
+            }
+        }
+        return 0f to 0f
+    }
     private fun ink() = if (dark) Color.WHITE else Glass.ISLAND_INK
-    private fun inkSoft() = if (dark) Color.argb(185, 255, 255, 255) else Glass.ISLAND_INK_SOFT
+    private fun inkSoft() = if (dark) Color.argb(205, 255, 255, 255) else Glass.ISLAND_INK_SOFT
+
+    /** En verre transparent, le texte blanc garde une ombre douce pour rester lisible sur tous les fonds. */
+    private fun styleText(t: TextView) {
+        if (clearGlass) t.setShadowLayer(dp(5).toFloat(), 0f, dp(1).toFloat() / 2f, Color.argb(170, 0, 0, 0))
+        else t.setShadowLayer(0f, 0f, 0f, 0)
+    }
 
     private fun readSettings() {
         dark = Prefs.isDark(this)
+        clearGlass = Prefs.isClear(this)
         notch = Prefs.notch(this)
         cw = dp(Prefs.width(this))
         ch = dp(Prefs.height(this))
@@ -375,8 +415,18 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         v.ph = ch.toFloat()
         v.glass.notch = notch
         v.glass.dark = dark
+        v.glass.clear = clearGlass
+        styleText(titleView)
+        styleText(textView)
         v.gestures = this
         v.onShape = { l, w, h -> moveBlur(l, w, h) }
+        // Barre d'etat cachee = appli en plein ecran (video, jeu) : l'ilot se cache ou se reduit
+        if (Build.VERSION.SDK_INT >= 30) {
+            v.setOnApplyWindowInsetsListener { view, insets ->
+                onStatusBar(insets.isVisible(android.view.WindowInsets.Type.statusBars()))
+                view.onApplyWindowInsets(insets)
+            }
+        }
         view = v
 
         // Avec l'accessibilite, l'ilot passe au-dessus de la barre d'etat et recoit les touchers
@@ -548,16 +598,19 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var waitingFresh = false
 
     /** Appele par l'accessibilite quand l'ecran change : on cache le bord deforme et on recapture au plus vite. */
+    private var lastEvent = 0L
+
     fun onScreenChanged() {
+        lastEvent = android.os.SystemClock.uptimeMillis()
         val v = view ?: return
         if (!Prefs.refraction(this) || v.glass.backdrop == null) return
         if (!waitingFresh) {
             waitingFresh = true
             animateFade(0f, 90)
         }
-        val wait = max(0L, lastCapture + CAPTURE_MS - android.os.SystemClock.uptimeMillis())
+        // On attend que l'ecran soit immobile avant de recapturer (sinon le bord montrerait un contenu deja parti)
         main.removeCallbacks(captureRunnable)
-        main.postDelayed(captureRunnable, wait + 40)
+        main.postDelayed(captureRunnable, QUIET_MS + 20)
     }
 
     private fun animateFade(to: Float, ms: Long) {
@@ -595,6 +648,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val gen0 = captureGen
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastCapture < CAPTURE_MS - 10) return
+        // Ecran en mouvement (defilement, nouvelle appli) : pas de capture tant qu'il bouge
+        if (now - lastEvent < QUIET_MS) return
+        if (hidden) return
         lastCapture = now
         val acc = IslandAccessibility.instance ?: return
         try {
@@ -602,7 +658,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(r: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
                         val hb = r.hardwareBuffer
-                        if (gen0 != captureGen || running.isNotEmpty()) { hb.close(); afterSettle(); return }
+                        if (gen0 != captureGen || running.isNotEmpty() ||
+                            android.os.SystemClock.uptimeMillis() - lastEvent < QUIET_MS) { hb.close(); afterSettle(); return }
                         val bmp = android.graphics.Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
                         if (bmp == null) { hb.close(); return }
                         setBackdrop(bmp, hb)
@@ -675,7 +732,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         lpPad.y = off
         lpPad.width = cw + 2 * dp(6)
         lpPad.height = ch + dp(8)
-        lpPad.flags = if (big) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
+        // Zone tactile active seulement quand l'ilot est replie ET visible
+        lpPad.flags = if (big || hidden) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
         if (update) {
             view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
             pad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
@@ -716,9 +774,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         menu.layoutParams = menuParams()
         v.glass.notch = notch
         v.glass.dark = dark
+        v.glass.clear = clearGlass
         v.glass.tint = 0f
         titleView.setTextColor(ink())
         textView.setTextColor(inkSoft())
+        styleText(titleView)
+        styleText(textView)
         val wantBlur = Prefs.blur(this) && Build.VERSION.SDK_INT >= 31
         // La fenetre de flou doit etre SOUS l'ilot : on recree tout dans le bon ordre
         if (wantBlur && blurDialog == null && !blurUnavailable) { rehost(); return }
@@ -726,8 +787,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         v.glass.blurred = blurDialog != null
         if (!Prefs.refraction(this)) { main.removeCallbacks(captureRunnable); releaseBackdrop() }
         else if (screenOn) { main.removeCallbacks(captureRunnable); if (Build.VERSION.SDK_INT >= 33) main.post(captureRunnable) }
-        v.pw = cw.toFloat()
-        v.ph = ch.toFloat()
+        val (rw, rh) = restSize()
+        v.pw = rw
+        v.ph = rh
         applyWindow(big = false)
         v.invalidate()
     }
@@ -792,18 +854,6 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val soft = Spring.SOFT
         target.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
             .setStartDelay(110).setDuration(soft.durationMs).setInterpolator(soft).start()
-        if (Build.VERSION.SDK_INT >= 31) {
-            blurAnim?.cancel()
-            blurAnim = ValueAnimator.ofFloat(dp(10).toFloat(), 0f).apply {
-                startDelay = 110
-                duration = 320
-                addUpdateListener {
-                    val r = it.animatedValue as Float
-                    target.setRenderEffect(if (r < 0.5f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.DECAL))
-                }
-                start()
-            }
-        }
     }
 
     private fun disappear(target: View, gone: Boolean = false) {
@@ -968,11 +1018,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             // Bulle de verre pour chaque raccourci
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                if (dark) intArrayOf(Color.argb(60, 255, 255, 255), Color.argb(22, 255, 255, 255))
+                if (clearGlass) intArrayOf(Color.argb(30, 255, 255, 255), Color.argb(8, 255, 255, 255))
+                else if (dark) intArrayOf(Color.argb(60, 255, 255, 255), Color.argb(22, 255, 255, 255))
                 else intArrayOf(Color.argb(200, 255, 255, 255), Color.argb(140, 255, 255, 255))
             ).apply {
                 shape = GradientDrawable.OVAL
-                setStroke(max(1, dp(1)), if (dark) Color.argb(80, 255, 255, 255) else Color.argb(230, 255, 255, 255))
+                setStroke(max(1, dp(1)), if (clearGlass) Color.argb(130, 255, 255, 255) else if (dark) Color.argb(80, 255, 255, 255) else Color.argb(230, 255, 255, 255))
             }
             addView(ImageView(this@IslandService).apply {
                 setImageDrawable(item.icon)
@@ -991,6 +1042,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 text = item.label
                 textSize = 11f
                 setTextColor(ink())
+                styleText(this)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER
@@ -1044,7 +1096,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (mode == Mode.MENU) disappear(menu, gone = true) else disappear(content)
         mode = Mode.COLLAPSED
         applyWindow(big = false)
-        animateIsland(cw.toFloat(), ch.toFloat(), 0f, opening = false)
+        val (rw, rh) = restSize()
+        animateIsland(rw, rh, 0f, opening = false)
     }
 
     // ---------- Gestes ----------
@@ -1136,6 +1189,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         private const val TAG = "LiquidIsland"
         private const val CHANNEL = "island"
         private const val CAPTURE_MS = 340L
+        private const val QUIET_MS = 350L
         const val ACTION_SHOW = "com.liquidisland.SHOW"
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
