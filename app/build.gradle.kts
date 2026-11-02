@@ -11,8 +11,10 @@ android {
         applicationId = "com.liquidisland"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2"
+        // Numero de build GitHub : chaque version publiee est plus grande que la precedente
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 100 + run
+        versionName = "0.3.$run"
     }
 
     // Cle fixe : chaque nouvel APK s'installe par-dessus le precedent
@@ -29,6 +31,10 @@ android {
         release {
             isMinifyEnabled = false
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

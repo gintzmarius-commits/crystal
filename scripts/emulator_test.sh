@@ -27,14 +27,27 @@ sleep 3
 shot 3-ilot-replie
 
 adb shell am start -W -n $P/.MainActivity --es ci test
-sleep 2
+sleep 0.35
+shot 4a-animation
+sleep 1.5
 shot 4-notif-test
 
 adb shell input keyevent KEYCODE_HOME
 sleep 6
-adb shell cmd notification post -S bigtext -t "Marie" chat1 "Tu viens ce soir ? On se retrouve a 20h."
+adb shell "cmd notification post -S bigtext -t 'Marie' chat1 'Tu viens ce soir ? On se retrouve a 20h.'"
 sleep 2
 shot 5-vraie-notif
+sleep 6
+shot 6-referme
+
+adb shell am start -W -n $P/.MainActivity --es ci notch
+sleep 2
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+shot 7-encoche
+adb shell "cmd notification post -S bigtext -t 'Paul' chat2 'Match a 18h, tu ramenes le ballon ?'"
+sleep 2
+shot 8-encoche-notif
 
 adb logcat -d > $OUT/logcat-complet.txt
 grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.txt

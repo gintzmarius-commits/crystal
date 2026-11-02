@@ -47,8 +47,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk LiquidIsland.apk
+          echo $((100 + GITHUB_RUN_NUMBER)) > version.txt
           gh release delete latest -y --cleanup-tag || true
-          gh release create latest LiquidIsland.apk \
+          gh release create latest LiquidIsland.apk version.txt \
             --title "Derniere version" --notes "Telecharge LiquidIsland.apk puis installe-le."
 
       - uses: actions/upload-artifact@v4

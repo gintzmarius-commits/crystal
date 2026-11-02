@@ -1,7 +1,9 @@
 package com.liquidisland
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
-import android.app.Dialog
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,6 +12,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Canvas
+import android.graphics.PixelFormat
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Build
@@ -20,15 +26,16 @@ import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.Window
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlin.math.max
+import kotlin.math.min
 
 data class IslandNote(
     val title: String,
@@ -37,30 +44,70 @@ data class IslandNote(
     val intent: PendingIntent?
 )
 
+/** La vue de l'ilot : dessine le verre a la taille animee (pw x ph) et y decoupe le contenu. */
+class IslandView(ctx: Context) : FrameLayout(ctx) {
+    val glass = LiquidGlass(ctx.resources.displayMetrics.density)
+    var pw = 0f
+    var ph = 0f
+    var onTap: (() -> Unit)? = null
+
+    init {
+        setWillNotDraw(false)
+        clipChildren = false
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        val l = (width - pw) / 2f
+        glass.build(l, 0f, l + pw, ph)
+        glass.drawBody(canvas)
+        canvas.save()
+        canvas.clipPath(glass.path)
+        super.dispatchDraw(canvas)
+        canvas.restore()
+        glass.drawEdges(canvas)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (e.action == MotionEvent.ACTION_UP && glass.rect.contains(e.x, e.y)) onTap?.invoke()
+        return true
+    }
+}
+
 class IslandService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
-    private var dialog: Dialog? = null
-    private var blurOn = false
+    private lateinit var wm: WindowManager
+    private var view: IslandView? = null
+    private lateinit var lp: WindowManager.LayoutParams
 
     private lateinit var content: LinearLayout
     private lateinit var iconView: ImageView
     private lateinit var titleView: TextView
     private lateinit var textView: TextView
 
-    private var curW = 0
-    private var curH = 0
+    private var expanded = false
+    private var windowBig = false
     private var currentIntent: PendingIntent? = null
-    private var anim: ValueAnimator? = null
+    private val running = mutableListOf<Animator>()
+    private var blurAnim: ValueAnimator? = null
+    private var gen = 0
     private val collapseRunnable = Runnable { collapse() }
 
     private val density get() = resources.displayMetrics.density
     private fun dp(v: Float) = (v * density).toInt()
+    private fun dp(v: Int) = (v * density).toInt()
 
-    private val collapsedW get() = dp(118f)
-    private val collapsedH get() = dp(34f)
-    private val expandedH get() = dp(76f)
-    private val expandedW get() = minOf(dp(360f), resources.displayMetrics.widthPixels - dp(24f))
+    // Tailles calculees depuis les reglages
+    private var notch = false
+    private var cw = 0
+    private var ch = 0
+    private var off = 0
+    private var ew = 0
+    private var eh = 0
+    private var contentTop = 0
+    private val side get() = dp(16)
+    private val bottomPad get() = dp(10)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,38 +127,49 @@ class IslandService : Service() {
         } else {
             startForeground(1, notif)
         }
-
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
             return
         }
+        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createIsland()
         instance = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_SHOW && dialog != null) {
+        if (intent?.action == ACTION_SHOW && view != null) {
             val pkg = intent.getStringExtra(EXTRA_PKG) ?: packageName
             val icon = try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }
             @Suppress("DEPRECATION")
             val pi = intent.getParcelableExtra<PendingIntent>(EXTRA_PI)
-            show(
-                IslandNote(
-                    intent.getStringExtra(EXTRA_TITLE).orEmpty(),
-                    intent.getStringExtra(EXTRA_TEXT).orEmpty(),
-                    icon,
-                    pi
-                )
-            )
+            show(IslandNote(intent.getStringExtra(EXTRA_TITLE).orEmpty(), intent.getStringExtra(EXTRA_TEXT).orEmpty(), icon, pi))
         }
         return START_STICKY
     }
 
-    // ---------- Fenetre de l'ilot ----------
+    // ---------- Construction ----------
+
+    private fun readSettings() {
+        notch = Prefs.notch(this)
+        cw = dp(Prefs.width(this))
+        ch = dp(Prefs.height(this))
+        off = if (notch) 0 else dp(Prefs.offset(this))
+        val screenW = resources.displayMetrics.widthPixels
+        ew = max(cw, min(dp(360), screenW - dp(20)))
+        val body = dp(64)
+        if (notch) {
+            eh = ch + body
+            contentTop = ch
+        } else {
+            eh = max(dp(76), ch + dp(10))
+            contentTop = (eh - body) / 2
+        }
+    }
 
     private fun createIsland() {
+        readSettings()
         iconView = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(32f), dp(32f))
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
         }
         titleView = TextView(this).apply {
             setTextColor(Glass.INK)
@@ -131,99 +189,133 @@ class IslandService : Service() {
             addView(titleView)
             addView(textView)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12f)
+                marginStart = dp(12)
             }
         }
         content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18f), 0, dp(18f), 0)
+            setPadding(dp(20), 0, dp(20), 0)
             addView(iconView)
             addView(column)
             alpha = 0f
             visibility = View.INVISIBLE
         }
-        val root = FrameLayout(this).apply {
-            addView(
-                content,
-                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            )
-            setOnClickListener { onTap() }
-        }
+        val v = IslandView(this)
+        v.addView(content, contentParams())
+        v.pw = cw.toFloat()
+        v.ph = ch.toFloat()
+        v.glass.notch = notch
+        v.onTap = { onTap() }
+        view = v
 
-        // Une fenetre a part, de la taille exacte de la capsule : le flou ne touche que la capsule.
-        val d = Dialog(this, android.R.style.Theme_Panel)
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        d.setContentView(root)
-        d.setCancelable(false)
-        val win = d.window!!
-        win.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        win.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        win.addFlags(
+        lp = WindowManager.LayoutParams(
+            0, 0,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        )
-        win.setWindowAnimations(0)
-        win.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
-        if (Build.VERSION.SDK_INT >= 30) win.setDecorFitsSystemWindows(false)
-
-        curW = collapsedW
-        curH = collapsedH
-        val lp = win.attributes
-        lp.width = curW
-        lp.height = curH
-        lp.y = dp(8f)
-        if (Build.VERSION.SDK_INT >= 28) {
-            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        if (Build.VERSION.SDK_INT >= 30) lp.fitInsetsTypes = 0
-        win.attributes = lp
-
-        blurOn = false
-        if (Build.VERSION.SDK_INT >= 31 && Prefs.blur(this)) {
-            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            if (wm.isCrossWindowBlurEnabled) {
-                win.setBackgroundBlurRadius(dp(22f))
-                blurOn = true
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            if (Build.VERSION.SDK_INT >= 28) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            windowAnimations = 0
         }
-        win.setBackgroundDrawable(Glass.island(density, curW, curH, blurOn))
-
-        d.show()
-        win.decorView.setPadding(0, 0, 0, 0)
-        dialog = d
-        Log.i(TAG, "Ilot affiche (flou=$blurOn)")
+        applyWindow(big = false, update = false)
+        wm.addView(v, lp)
+        Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"})")
     }
 
-    private fun resize(w: Int, h: Int) {
-        val win = dialog?.window ?: return
-        curW = w
-        curH = h
-        val lp = win.attributes
-        lp.width = w
-        lp.height = h
-        win.attributes = lp
-        // Nouveau fond a chaque taille : le flou reprend ainsi l'arrondi de la capsule.
-        win.setBackgroundDrawable(Glass.island(density, w, h, blurOn))
+    private fun contentParams() =
+        FrameLayout.LayoutParams(ew, dp(64), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = contentTop }
+
+    /** Petite fenetre quand l'ilot est replie (pour ne pas bloquer l'ecran), grande pendant l'animation. */
+    private fun applyWindow(big: Boolean, update: Boolean = true) {
+        windowBig = big
+        lp.y = off
+        if (big) {
+            lp.width = ew + 2 * side
+            lp.height = eh + bottomPad
+        } else {
+            lp.width = cw + 2 * side
+            lp.height = ch + dp(6)
+        }
+        if (update) view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
+    }
+
+    /** Applique les nouveaux reglages (taille, forme, position) sans redemarrer. */
+    fun applySettings() {
+        val v = view ?: return
+        stopAnims()
+        main.removeCallbacks(collapseRunnable)
+        readSettings()
+        expanded = false
+        currentIntent = null
+        content.alpha = 0f
+        content.visibility = View.INVISIBLE
+        content.layoutParams = contentParams()
+        v.glass.notch = notch
+        v.glass.tint = 0f
+        v.pw = cw.toFloat()
+        v.ph = ch.toFloat()
+        applyWindow(big = false)
+        v.invalidate()
+    }
+
+    // ---------- Animations ----------
+
+    private fun stopAnims() {
+        gen++
+        running.toList().forEach { it.cancel() }
+        running.clear()
+        blurAnim?.cancel()
+    }
+
+    private fun spring(from: Float, to: Float, s: Spring, delay: Long = 0, set: (Float) -> Unit): ValueAnimator =
+        ValueAnimator.ofFloat(from, to).apply {
+            duration = s.durationMs
+            startDelay = delay
+            interpolator = s
+            addUpdateListener { set(it.animatedValue as Float); view?.invalidate() }
+        }
+
+    private fun animateIsland(w: Float, h: Float, tint: Float, opening: Boolean, onDone: (() -> Unit)? = null) {
+        val v = view ?: return
+        stopAnims()
+        val myGen = gen
+        val anims = listOf(
+            spring(v.pw, w, if (opening) Spring.OPEN_W else Spring.CLOSE) { v.pw = it },
+            spring(v.ph, h, if (opening) Spring.OPEN else Spring.CLOSE, if (opening) 30 else 0) { v.ph = it },
+            spring(v.glass.tint, tint, Spring.SOFT) { v.glass.tint = it }
+        )
+        var left = anims.size
+        for (a in anims) {
+            a.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    running.remove(animation)
+                    left--
+                    if (left == 0 && myGen == gen) onDone?.invoke()
+                }
+            })
+            running.add(a)
+            a.start()
+        }
     }
 
     private fun onTap() {
-        val pi = currentIntent
-        if (pi != null) {
-            try {
-                pi.send()
-            } catch (e: Exception) {
-                Log.w(TAG, "Ouverture impossible", e)
-            }
-        }
+        if (!expanded) return
+        currentIntent?.let { try { it.send() } catch (e: Exception) { Log.w(TAG, "Ouverture impossible", e) } }
         main.removeCallbacks(collapseRunnable)
         collapse()
     }
 
     fun show(note: IslandNote) {
-        if (dialog == null) return
+        val v = view ?: return
         main.removeCallbacks(collapseRunnable)
         iconView.setImageDrawable(note.icon)
         titleView.text = note.title
@@ -232,54 +324,64 @@ class IslandService : Service() {
         textView.visibility = if (note.text.isEmpty()) View.GONE else View.VISIBLE
         currentIntent = note.intent
 
+        if (!windowBig) applyWindow(big = true)
+        if (expanded) {
+            // Nouvelle notif alors que l'ilot est deja ouvert : petit rebond
+            v.pw = ew * 0.94f
+            v.ph = eh * 0.9f
+        }
+        expanded = true
+        animateIsland(ew.toFloat(), eh.toFloat(), 1f, opening = true)
+
+        // Le contenu arrive en douceur : fondu, leger zoom, net apres un leger flou, icone qui saute
         content.visibility = View.VISIBLE
         content.animate().cancel()
-        content.animate().setStartDelay(140).alpha(1f).setDuration(200).start()
-        animateTo(expandedW, expandedH)
+        content.alpha = 0f
+        content.scaleX = 0.9f
+        content.scaleY = 0.9f
+        content.translationY = if (notch) -dp(6).toFloat() else 0f
+        val soft = Spring.SOFT
+        content.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+            .setStartDelay(110).setDuration(soft.durationMs).setInterpolator(soft).start()
+        iconView.animate().cancel()
+        iconView.scaleX = 0.3f
+        iconView.scaleY = 0.3f
+        val pop = Spring.POP
+        iconView.animate().scaleX(1f).scaleY(1f).setStartDelay(150).setDuration(pop.durationMs).setInterpolator(pop).start()
+        if (Build.VERSION.SDK_INT >= 31) {
+            blurAnim?.cancel()
+            blurAnim = ValueAnimator.ofFloat(dp(10).toFloat(), 0f).apply {
+                startDelay = 110
+                duration = 320
+                addUpdateListener {
+                    val r = it.animatedValue as Float
+                    content.setRenderEffect(if (r < 0.5f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.DECAL))
+                }
+                start()
+            }
+        }
         main.postDelayed(collapseRunnable, 5000)
         Log.i(TAG, "Notification affichee : ${note.title}")
     }
 
     private fun collapse() {
         currentIntent = null
+        expanded = false
         content.animate().cancel()
-        content.animate().setStartDelay(0).alpha(0f).setDuration(110)
+        content.animate().alpha(0f).scaleX(0.92f).scaleY(0.92f).setStartDelay(0).setDuration(140)
+            .setInterpolator(null)
             .withEndAction { content.visibility = View.INVISIBLE }.start()
-        animateTo(collapsedW, collapsedH)
-    }
-
-    private fun animateTo(w: Int, h: Int) {
-        val w0 = curW
-        val h0 = curH
-        anim?.cancel()
-        anim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 340
-            interpolator = DecelerateInterpolator(1.7f)
-            addUpdateListener {
-                val f = it.animatedValue as Float
-                resize((w0 + (w - w0) * f).toInt(), (h0 + (h - h0) * f).toInt())
-            }
-            start()
+        animateIsland(cw.toFloat(), ch.toFloat(), 0f, opening = false) {
+            if (!expanded) applyWindow(big = false)
         }
-        // Si les animations sont coupees sur le telephone, on applique directement la taille finale.
-        if (!ValueAnimator.areAnimatorsEnabled()) resize(w, h)
-    }
-
-    /** Recree la fenetre (apres un changement de reglage, comme le flou). */
-    fun rebuild() {
-        anim?.cancel()
-        main.removeCallbacks(collapseRunnable)
-        try { dialog?.dismiss() } catch (e: Exception) { }
-        dialog = null
-        createIsland()
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
         main.removeCallbacksAndMessages(null)
-        anim?.cancel()
-        try { dialog?.dismiss() } catch (e: Exception) { }
-        dialog = null
+        stopAnims()
+        view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        view = null
         super.onDestroy()
     }
 
