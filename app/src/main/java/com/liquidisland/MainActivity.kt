@@ -62,7 +62,15 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(70), dp(18), dp(40))
         }
 
-        col.addView(text("Liquid Island", 32f, Glass.INK, bold = true))
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(android.widget.ImageView(this).apply {
+            setImageDrawable(applicationInfo.loadIcon(packageManager))
+        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(12) })
+        header.addView(text("Wave Island", 32f, Glass.INK, bold = true))
+        col.addView(header)
         col.addView(text("Ton îlot dynamique en verre, toujours à l'écran.", 15f, Glass.INK_SOFT).apply {
             setPadding(0, dp(2), 0, dp(18))
         })
@@ -121,7 +129,7 @@ class MainActivity : Activity() {
         val help = card()
         help.addView(text(
             "Android bloque ce réglage pour les applis installées hors Play Store. Pour le débloquer :\n\n" +
-                "1. Touche « Accès aux notifications » ci-dessus et essaie d'activer Liquid Island (un message « paramètre restreint » s'affiche).\n" +
+                "1. Touche « Accès aux notifications » ci-dessus et essaie d'activer Wave Island (un message « paramètre restreint » s'affiche).\n" +
                 "2. Ouvre les infos de l'appli avec le bouton ci-dessous.\n" +
                 "3. Touche le menu ⋮ en haut à droite, puis « Autoriser les paramètres restreints ».\n" +
                 "4. Reviens ici et active l'accès aux notifications.",
@@ -220,7 +228,7 @@ class MainActivity : Activity() {
                     updateBar.progress = s.percent
                 }
                 is Updater.State.NeedsPermission ->
-                    showUpdate("Nouvelle version disponible. Autorise Liquid Island à installer ses mises à jour.", bar = false, button = true)
+                    showUpdate("Nouvelle version disponible. Autorise Wave Island à installer ses mises à jour.", bar = false, button = true)
                 is Updater.State.Installing -> showUpdate("Installation de la mise à jour…", bar = false, button = false)
                 is Updater.State.Error -> updateCard.visibility = View.GONE
             }
@@ -291,7 +299,7 @@ class MainActivity : Activity() {
         if (IslandService.instance == null && !startIsland()) return
         IslandService.deliver(
             this,
-            IslandNote("Liquid Island", "Ceci est une notification de test.", applicationInfo.loadIcon(packageManager), null),
+            IslandNote("Wave Island", "Ceci est une notification de test.", applicationInfo.loadIcon(packageManager), null),
             packageName
         )
     }

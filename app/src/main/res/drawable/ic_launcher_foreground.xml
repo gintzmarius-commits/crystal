@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- capsule en verre -->
+    <path
+        android:pathData="M38,37h32a17,17 0,0 1,0 34h-32a17,17 0,0 1,0 -34z"
+        android:fillColor="#38FFFFFF"
+        android:strokeColor="#F2FFFFFF"
+        android:strokeWidth="2.2" />
+    <!-- reflet en haut de la capsule -->
+    <path
+        android:pathData="M30,46c2,-4 5,-5.5 9,-5.5h22"
+        android:strokeColor="#B3FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+    <!-- la vague -->
+    <path
+        android:pathData="M29,58c4,-6 8,-8.5 12,-4.5s7,7 11.5,1.5s8,-7.5 12.5,-2.5s6,5.5 13,-1"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

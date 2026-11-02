@@ -12,7 +12,9 @@
 
     <application
         android:allowBackup="true"
-        android:label="Liquid Island"
+        android:label="Wave Island"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
         <activity
@@ -37,7 +39,7 @@
         <service
             android:name=".NotifListener"
             android:exported="true"
-            android:label="Liquid Island"
+            android:label="Wave Island"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

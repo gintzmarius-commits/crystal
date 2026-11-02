@@ -55,7 +55,7 @@ object Updater {
                     post(State.NeedsPermission); return@Thread
                 }
                 val file = File(app.cacheDir, "update.apk")
-                val c = open(BASE + "LiquidIsland.apk")
+                val c = open(BASE + "WaveIsland.apk")
                 val total = c.contentLengthLong
                 c.inputStream.use { input ->
                     file.outputStream().use { out ->

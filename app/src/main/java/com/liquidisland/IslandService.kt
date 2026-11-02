@@ -119,7 +119,7 @@ class IslandService : Service() {
         )
         val notif = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
-            .setContentTitle("Liquid Island est actif")
+            .setContentTitle("Wave Island est actif")
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= 34) {
