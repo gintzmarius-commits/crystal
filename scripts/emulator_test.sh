@@ -4,7 +4,9 @@
 P=com.liquidisland
 OUT=shots
 mkdir -p $OUT
-shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "capture $1"; }
+# Chaque commande adb a une limite de temps : un blocage ne fige plus tout le test
+adb() { timeout 45 command adb "$@"; }
+shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "::notice::capture $1"; }
 fail=0
 
 adb install -r -g WaveIsland.apk || { echo "::error::Installation de l'APK echouee"; exit 1; }
