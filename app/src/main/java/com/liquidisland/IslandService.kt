@@ -171,6 +171,7 @@ class IslandService : Service(), IslandGestures {
     private lateinit var menu: LinearLayout
 
     private var mode = Mode.COLLAPSED
+    private var aboveStatusBar = false
     private var windowBig = false
     private var note: IslandNote? = null
     private val running = mutableListOf<Animator>()
@@ -212,11 +213,10 @@ class IslandService : Service(), IslandGestures {
         } else {
             startForeground(1, notif)
         }
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && IslandAccessibility.instance == null) {
             stopSelf()
             return
         }
-        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createIsland()
         instance = this
     }
@@ -301,9 +301,14 @@ class IslandService : Service(), IslandGestures {
         v.gestures = this
         view = v
 
+        // Avec l'accessibilite, l'ilot passe au-dessus de la barre d'etat et recoit les touchers
+        val acc = IslandAccessibility.instance
+        aboveStatusBar = acc != null
+        wm = (acc ?: this).getSystemService(Context.WINDOW_SERVICE) as WindowManager
         lp = WindowManager.LayoutParams(
             0, 0,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            if (acc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -321,7 +326,7 @@ class IslandService : Service(), IslandGestures {
         }
         applyWindow(big = false, update = false)
         wm.addView(v, lp)
-        Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"})")
+        Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
 
     private fun contentParams() =
@@ -344,6 +349,22 @@ class IslandService : Service(), IslandGestures {
             lp.height = ch + dp(8)
         }
         if (update) view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
+    }
+
+    /** Recree la fenetre (quand l'accessibilite s'active ou se coupe). */
+    fun rehost() {
+        main.post {
+            stopAnims()
+            main.removeCallbacks(collapseRunnable)
+            view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            view = null
+            mode = Mode.COLLAPSED
+            if (!Settings.canDrawOverlays(this) && IslandAccessibility.instance == null) {
+                stopSelf()
+                return@post
+            }
+            createIsland()
+        }
     }
 
     /** Applique les nouveaux reglages (taille, forme, position, raccourcis) sans redemarrer. */
@@ -718,7 +739,7 @@ class IslandService : Service(), IslandGestures {
                 s.main.post { s.show(note.copy(pkg = pkg)) }
                 return
             }
-            if (!Prefs.enabled(ctx) || !Settings.canDrawOverlays(ctx)) return
+            if (!Prefs.enabled(ctx) || (!Settings.canDrawOverlays(ctx) && IslandAccessibility.instance == null)) return
             val i = Intent(ctx, IslandService::class.java)
                 .setAction(ACTION_SHOW)
                 .putExtra(EXTRA_TITLE, note.title)

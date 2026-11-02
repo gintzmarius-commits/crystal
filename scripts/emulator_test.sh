@@ -11,6 +11,8 @@ adb install -r -g WaveIsland.apk || { echo "::error::Installation de l'APK echou
 adb shell appops set $P SYSTEM_ALERT_WINDOW allow
 adb shell cmd notification allow_listener $P/$P.NotifListener
 adb shell dumpsys deviceidle whitelist +$P
+adb shell settings put secure enabled_accessibility_services $P/$P.IslandAccessibility
+adb shell settings put secure accessibility_enabled 1
 adb logcat -c
 
 adb shell am start -W -n $P/.MainActivity
@@ -79,6 +81,7 @@ grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.t
 adb shell dumpsys activity services $P | grep -i "ServiceRecord" >> $OUT/log.txt
 
 grep -q "FATAL EXCEPTION" $OUT/logcat-complet.txt && grep -A12 "FATAL EXCEPTION" $OUT/logcat-complet.txt | head -20 | while read -r l; do echo "::error::$l"; done && fail=1
+grep -q "barre d'etat=true" $OUT/log.txt || { echo "::error::L'ilot n'est pas passe au-dessus de la barre d'etat"; fail=1; }
 grep -q "Ilot affiche" $OUT/log.txt || { echo "::error::L'ilot ne s'est pas affiche"; fail=1; }
 grep -q "Notification affichee : Wave Island" $OUT/log.txt || { echo "::error::La notif de test n'est pas arrivee"; fail=1; }
 grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vraie notif n'est pas arrivee"; fail=1; }

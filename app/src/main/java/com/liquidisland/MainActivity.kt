@@ -115,28 +115,32 @@ class MainActivity : Activity() {
             listenerEnabled()
         }) { openListenerSettings() })
         perms.addView(divider())
-        perms.addView(permRow("3", "Batterie sans restriction", "Pour que l'îlot ne soit jamais coupé", {
+        perms.addView(permRow("3", "Accessibilité", "Pour toucher l'îlot par-dessus la barre d'état", {
+            accessibilityEnabled()
+        }) { open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
+        perms.addView(divider())
+        perms.addView(permRow("4", "Batterie sans restriction", "Pour que l'îlot ne soit jamais coupé", {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
         }) { open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) })
         perms.addView(divider())
-        perms.addView(permRow("4", "Mises à jour automatiques", "Autoriser l'installation des nouvelles versions", {
+        perms.addView(permRow("5", "Mises à jour automatiques", "Autoriser l'installation des nouvelles versions", {
             packageManager.canRequestPackageInstalls()
         }) { openInstallPermission() })
         if (isXiaomi) {
             perms.addView(divider())
-            perms.addView(permRow("5", "Démarrage automatique", "Infos de l'appli › Démarrage auto", { null }) { openAppInfo() })
+            perms.addView(permRow("6", "Démarrage automatique", "Infos de l'appli › Démarrage auto", { null }) { openAppInfo() })
         }
         col.addView(perms)
 
         // Aide paramètres restreints
-        col.addView(section("Accès aux notifications grisé ?"))
+        col.addView(section("Réglage grisé ou « paramètre restreint » ?"))
         val help = card()
         help.addView(text(
-            "Android bloque ce réglage pour les applis installées hors Play Store. Pour le débloquer :\n\n" +
-                "1. Touche « Accès aux notifications » ci-dessus et essaie d'activer Wave Island (un message « paramètre restreint » s'affiche).\n" +
+            "Android bloque l'accès aux notifications et l'accessibilité pour les applis installées hors Play Store. Pour les débloquer :\n\n" +
+                "1. Touche « Accès aux notifications » ou « Accessibilité » ci-dessus et essaie d'activer Wave Island (un message « paramètre restreint » s'affiche).\n" +
                 "2. Ouvre les infos de l'appli avec le bouton ci-dessous.\n" +
                 "3. Touche le menu ⋮ en haut à droite, puis « Autoriser les paramètres restreints ».\n" +
-                "4. Reviens ici et active l'accès aux notifications.",
+                "4. Reviens ici et active l'accès aux notifications et l'accessibilité.",
             14f, Glass.INK_SOFT
         ).apply { setLineSpacing(0f, 1.15f) })
         help.addView(glassButton("Ouvrir les infos de l'appli", primary = false) { openAppInfo() }, buttonLp(top = 14))
@@ -354,6 +358,10 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun accessibilityEnabled(): Boolean =
+        Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?.contains(packageName) == true
+
     private fun listenerEnabled(): Boolean =
         Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
             ?.contains(packageName) == true
@@ -361,7 +369,7 @@ class MainActivity : Activity() {
     // ---------- Actions ----------
 
     private fun startIsland(): Boolean {
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && IslandAccessibility.instance == null) {
             Toast.makeText(this, "Autorise d'abord « Afficher par-dessus les applis »", Toast.LENGTH_LONG).show()
             return false
         }

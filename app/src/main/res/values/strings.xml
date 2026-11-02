@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_description">Permet à Wave Island de s\'afficher au-dessus de la barre d\'état pour que tu puisses toucher, glisser et rester appuyé sur l\'îlot. Wave Island ne lit pas le contenu de ton écran.</string>
+</resources>
