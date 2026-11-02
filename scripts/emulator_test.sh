@@ -75,15 +75,6 @@ sleep 8
 adb devices >&2
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed" >&2
 
-adb shell am start -W -n $P/.MainActivity --es ci notch
-sleep 2
-adb shell input keyevent KEYCODE_HOME
-sleep 2
-shot 7-encoche
-adb shell "cmd notification post -S bigtext -t 'Paul' chat2 'Match a 18h, tu ramenes le ballon ?'"
-sleep 2
-shot 8-encoche-notif
-
 timeout 90 "$ADB_BIN" logcat -d > $OUT/logcat-complet.txt
 echo "::notice::logcat $(wc -l < $OUT/logcat-complet.txt) lignes"
 grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.txt
@@ -98,4 +89,17 @@ grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la n
 grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
+
+# Mode encoche en dernier (journaux deja recuperes)
+adb shell am start -W -n $P/.MainActivity --es ci notch
+sleep 2
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+shot 7-encoche
+adb shell "cmd notification post -S bigtext -t 'Paul' chat2 'Match a 18h, tu ramenes le ballon ?'"
+sleep 2
+shot 8-encoche-notif
+
+timeout 60 "$ADB_BIN" logcat -d | grep -E "LiquidIsland|FATAL|AndroidRuntime" > $OUT/log-encoche.txt
+grep -q "forme=encoche" $OUT/log-encoche.txt || echo "::warning::Pas de trace du mode encoche"
 exit $fail
