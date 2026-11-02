@@ -121,6 +121,10 @@ class MainActivity : Activity() {
             accessibilityEnabled()
         }) { open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
         perms.addView(divider())
+        perms.addView(permRow("✦", "Effet goutte d'eau en direct", "Capture d'écran : l'effet suit l'écran sans délai", {
+            if (Build.VERSION.SDK_INT < 33) null else IslandService.instance?.isLive == true
+        }) { askLive() })
+        perms.addView(divider())
         perms.addView(permRow("4", "Batterie sans restriction", "Pour que l'îlot ne soit jamais coupé", {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
         }) { open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) })
@@ -205,6 +209,7 @@ class MainActivity : Activity() {
             "notch" -> setNotch(true)
             "island" -> setNotch(false)
             "menu" -> IslandService.instance?.showMenu()
+            "live" -> askLive()
             "fullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
             "exitfullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
             "testbg" -> {
@@ -294,11 +299,31 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        // Une seule fois par lancement : proposer l'effet goutte en direct s'il n'est pas actif
+        if (!liveAsked && Build.VERSION.SDK_INT >= 33 && Prefs.refraction(this) &&
+            IslandService.instance != null && IslandService.instance?.isLive != true
+        ) {
+            liveAsked = true
+            ui.postDelayed({ askLive() }, 600)
+        }
         // Verifie les mises a jour a chaque retour dans l'appli (pas plus d'une fois par minute)
         if (System.currentTimeMillis() - lastCheck > 60_000) checkUpdate(manual = false)
     }
 
     private var lastCheck = 0L
+
+    private fun askLive() {
+        if (Build.VERSION.SDK_INT < 33) {
+            Toast.makeText(this, "L'effet en direct demande Android 13 ou plus", Toast.LENGTH_LONG).show()
+            return
+        }
+        open(Intent(this, CaptureConsentActivity::class.java))
+    }
+
+    companion object {
+        /** Demande de capture deja proposee pendant ce lancement de l'appli */
+        private var liveAsked = false
+    }
 
     // ---------- Mise a jour ----------
 

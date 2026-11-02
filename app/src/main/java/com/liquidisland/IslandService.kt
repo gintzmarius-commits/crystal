@@ -236,6 +236,17 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var lightX = 0f
     private var lightY = 0f
     private var screenOn = true
+    /** Capture de l'ecran en direct (effet goutte sans delai), Android 13+ */
+    private var live: LiveCapture? = null
+    private val liveActive get() = live?.active == true
+    /** Effet goutte en direct actif (pour l'ecran de reglages) */
+    val isLive get() = liveActive
+    private val statsRunnable = object : Runnable {
+        override fun run() {
+            live?.let { if (it.active) Log.i(TAG, "Fond en direct : ${it.received} images recues, ${it.used} utilisees (5 s)"); it.received = 0; it.used = 0 }
+            if (liveActive) main.postDelayed(this, 5000)
+        }
+    }
     private var backdropBitmap: android.graphics.Bitmap? = null
     private var backdropBuffer: android.hardware.HardwareBuffer? = null
     private var captureFails = 0
@@ -293,7 +304,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         super.onConfigurationChanged(newConfig)
         main.post {
             // L'ecran a tourne : on replace l'ilot contre la camera
-            if (displayRotation() != rotation) rehost() else applySettings()
+            if (displayRotation() != rotation) { rehost(); main.post { live?.reconfigure() } } else applySettings()
         }
     }
 
@@ -303,11 +314,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Îlot actif", NotificationManager.IMPORTANCE_MIN)
         )
-        val notif = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_info_details)
-            .setContentTitle("Wave Island est actif")
-            .setOngoing(true)
-            .build()
+        val notif = buildNotif()
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -325,10 +332,139 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             addAction(Intent.ACTION_SCREEN_OFF)
         })
         screenOn = (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
+        if (Build.VERSION.SDK_INT >= 33) live = LiveCapture(this, main, liveListener)
         if (screenOn) startLive()
+        if (LiveCapture.pendingResult != null) startLiveCapture()
+        updateNotif()
+    }
+
+    // ---------- Effet goutte en direct ----------
+
+    private fun buildNotif(): Notification {
+        val b = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setOngoing(true)
+        val needLive = Build.VERSION.SDK_INT >= 33 && Prefs.refraction(this) && !liveActive
+        if (needLive) {
+            b.setContentTitle("Wave Island est actif")
+            b.setContentText("Touche ici pour activer l'effet goutte d'eau en direct")
+            b.setContentIntent(
+                android.app.PendingIntent.getActivity(
+                    this, 7, Intent(this, CaptureConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        } else {
+            b.setContentTitle(if (liveActive) "Wave Island : effet goutte en direct" else "Wave Island est actif")
+        }
+        return b.build()
+    }
+
+    private fun updateNotif() {
+        try {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(1, buildNotif())
+        } catch (e: Exception) { }
+    }
+
+    /** Lance la capture en direct avec l'autorisation donnee par l'utilisateur. */
+    private fun startLiveCapture() {
+        val res = LiveCapture.pendingResult ?: return
+        LiveCapture.pendingResult = null
+        val lc = live ?: return
+        if (lc.active) return
+        // Android 14 : le service doit etre de type « capture d'ecran » AVANT de demarrer la capture
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1, buildNotif(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            } else if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(1, buildNotif(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Service de capture refuse : $e")
+            return
+        }
+        if (lc.start(res.first, res.second)) {
+            main.removeCallbacks(captureRunnable)
+            waitingFresh = false
+            fadeAnim?.cancel()
+            view?.glass?.fade = 1f
+            if (!screenOn) lc.pause()
+            main.removeCallbacks(statsRunnable)
+            main.postDelayed(statsRunnable, 5000)
+        }
+        updateNotif()
+    }
+
+    private val liveListener = object : LiveCapture.Listener {
+        override fun onLiveFrame(bmp: android.graphics.Bitmap, sx: Float, sy: Float) {
+            val v = view ?: return
+            val toScreen = viewToScreen(v) ?: return
+            toScreen.postScale(sx, sy)
+            val m = android.graphics.Matrix()
+            toScreen.invert(m)
+            val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            shader.setLocalMatrix(m)
+            v.glass.backdrop = shader
+            if (v.glass.fade < 1f) { fadeAnim?.cancel(); v.glass.fade = 1f }
+            v.invalidate()
+        }
+
+        override fun ringPoints(): FloatArray? {
+            val v = view ?: return null
+            val r = v.glass.rect
+            if (r.isEmpty) return null
+            val toScreen = viewToScreen(v) ?: return null
+            // Deux anneaux de points juste autour de l'ilot : c'est la que le verre va chercher le fond
+            val out = ArrayList<Float>(96)
+            for (d in floatArrayOf(dp(5).toFloat(), dp(16).toFloat())) {
+                val l = r.left - d
+                val t = r.top - d
+                val rr = r.right + d
+                val b = r.bottom + d
+                val n = 12
+                for (i in 0..n) {
+                    val x = l + (rr - l) * i / n
+                    out.add(x); out.add(t); out.add(x); out.add(b)
+                }
+                for (i in 1 until 4) {
+                    val y = t + (b - t) * i / 4
+                    out.add(l); out.add(y); out.add(rr); out.add(y)
+                }
+            }
+            val pts = out.toFloatArray()
+            toScreen.mapPoints(pts)
+            return pts
+        }
+
+        override fun onLiveStopped() {
+            // L'image en cours va etre liberee : l'ilot l'oublie tout de suite
+            view?.glass?.backdrop = null
+            view?.invalidate()
+            updateNotif()
+            main.removeCallbacks(statsRunnable)
+            // Retour au mode capture toutes les 1/3 s
+            if (screenOn && Prefs.refraction(this@IslandService)) startLive()
+        }
+    }
+
+    /** Matrice vue de l'ilot -> pixels de l'ecran (rotation comprise). */
+    private fun viewToScreen(v: IslandView): android.graphics.Matrix? {
+        val root = rootView ?: v
+        if (!root.isAttachedToWindow) return null
+        val loc = IntArray(2)
+        root.getLocationOnScreen(loc)
+        val m = android.graphics.Matrix()
+        if (root !== v) v.transformMatrixToGlobal(m)
+        m.postTranslate(loc[0].toFloat(), loc[1].toFloat())
+        return m
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_LIVE) {
+            startLiveCapture()
+            return START_STICKY
+        }
         if (intent?.action == ACTION_SHOW && view != null) {
             val pkg = intent.getStringExtra(EXTRA_PKG) ?: packageName
             val icon = try { packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }
@@ -661,10 +797,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             if (s != null) sm.registerListener(this, s, android.hardware.SensorManager.SENSOR_DELAY_GAME)
         }
         main.removeCallbacks(captureRunnable)
+        if (liveActive) { live?.resume(); return }
         if (Prefs.refraction(this) && Build.VERSION.SDK_INT >= 33) main.post(captureRunnable)
     }
 
     private fun stopLive() {
+        live?.pause()
         sensors?.unregisterListener(this)
         main.removeCallbacks(captureRunnable)
     }
@@ -697,6 +835,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     fun onScreenChanged() {
         lastEvent = android.os.SystemClock.uptimeMillis()
+        if (liveActive) return
         val v = view ?: return
         if (!Prefs.refraction(this) || v.glass.backdrop == null) return
         if (!waitingFresh) {
@@ -723,6 +862,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     /** L'ilot retrecit : la derniere capture contient l'ancien grand ilot, on la cache. */
     private fun invalidateBackdrop() {
         captureGen++
+        if (liveActive) { live?.force = true; return }
         if (view?.glass?.backdrop == null) return
         waitingFresh = true
         animateFade(0f, 60)
@@ -737,7 +877,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     private fun requestCapture() {
-        if (Build.VERSION.SDK_INT < 33 || !screenOn || view == null) return
+        if (Build.VERSION.SDK_INT < 33 || !screenOn || view == null || liveActive) return
         // Pendant une animation, la capture contiendrait l'ilot en mouvement : on attend qu'il soit pose
         if (running.isNotEmpty()) return
         val gen0 = captureGen
@@ -885,7 +1025,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (wantBlur && blurDialog == null && !blurUnavailable) { rehost(); return }
         if (!wantBlur) removeBlur()
         v.glass.blurred = blurDialog != null
-        if (!Prefs.refraction(this)) { main.removeCallbacks(captureRunnable); releaseBackdrop() }
+        if (!Prefs.refraction(this)) { main.removeCallbacks(captureRunnable); live?.stop(); releaseBackdrop(); updateNotif() }
         else if (screenOn) { main.removeCallbacks(captureRunnable); if (Build.VERSION.SDK_INT >= 33) main.post(captureRunnable) }
         val (rw, rh) = restSize()
         v.pw = rw
@@ -1273,6 +1413,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun onDestroy() {
         if (instance === this) instance = null
         stopLive()
+        live?.stop()
+        live = null
         removeProbe()
         try { unregisterReceiver(screenReceiver) } catch (e: Exception) { }
         releaseBackdrop()
@@ -1294,6 +1436,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         private const val CAPTURE_MS = 340L
         private const val QUIET_MS = 350L
         const val ACTION_SHOW = "com.liquidisland.SHOW"
+        const val ACTION_LIVE = "com.liquidisland.LIVE"
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
         const val EXTRA_PKG = "pkg"

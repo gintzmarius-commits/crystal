@@ -19,6 +19,8 @@ adb shell cmd notification allow_listener $P/$P.NotifListener
 adb shell dumpsys deviceidle whitelist +$P
 adb shell settings put secure enabled_accessibility_services $P/$P.IslandAccessibility
 adb shell settings put secure accessibility_enabled 1
+# Autorise la capture d'ecran sans la fenetre de confirmation (test automatique seulement)
+adb shell appops set $P PROJECT_MEDIA allow
 adb logcat -c
 adb logcat -G 8M
 
@@ -30,6 +32,8 @@ sleep 2
 shot 2-appli-bas
 
 adb shell am start -W -n $P/.MainActivity --es ci start
+sleep 3
+adb shell am start -W -n $P/.MainActivity --es ci live
 sleep 3
 adb shell input keyevent KEYCODE_HOME
 sleep 3
@@ -72,6 +76,16 @@ adb shell input swipe 540 66 540 66 1200
 sleep 1
 shot 11-menu
 sleep 8
+# Defilement : le bord deforme doit suivre en direct
+adb shell am start -W -n $P/.MainActivity
+sleep 2
+( adb shell input swipe 540 1900 540 700 1600 & )
+sleep 0.8
+shot 15-defilement
+sleep 2
+adb shell input keyevent KEYCODE_HOME
+sleep 7
+
 # Plein ecran : l'ilot doit se cacher
 adb shell am start -W -n $P/.MainActivity --es ci fullscreen
 sleep 2
@@ -105,6 +119,8 @@ grep -q "Notification affichee : Wave Island" $OUT/log.txt || { echo "::error::L
 grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vraie notif n'est pas arrivee"; fail=1; }
 grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
+grep -q "Effet goutte en direct actif" $OUT/log.txt || { echo "::error::L'effet goutte en direct ne s'est pas active"; fail=1; }
+grep "Fond en direct" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 grep -q "Plein ecran : oui" $OUT/log.txt || echo "::warning::Le plein ecran n'a pas ete detecte"
 # Avant le test plein ecran, l'ilot ne doit jamais se croire en plein ecran
 awk '/Plein ecran : oui/{print; exit}' $OUT/log.txt > $OUT/premier-plein.txt
