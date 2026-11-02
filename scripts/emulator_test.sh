@@ -61,7 +61,7 @@ adb shell input keyevent KEYCODE_HOME
 sleep 6
 adb shell am start -W -n $P/.MainActivity --es ci testbg
 sleep 2
-adb shell input swipe 540 110 540 520 600
+adb shell input swipe 540 230 540 650 600
 sleep 2
 shot 10-glisser-ouvre
 
