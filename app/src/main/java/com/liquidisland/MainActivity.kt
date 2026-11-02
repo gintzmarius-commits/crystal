@@ -282,7 +282,7 @@ class MainActivity : Activity() {
         }
         val choices = Shortcuts.ACTIONS.filter { it.first !in current }.map { it.first to "⚡ " + it.second } +
             Shortcuts.launchableApps(this).filter { it.first !in current }
-        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("Ajouter un raccourci")
             .setItems(choices.map { it.second }.toTypedArray()) { _, w -> saveShortcuts(current + choices[w].first) }
             .setNegativeButton("Annuler", null)
@@ -307,7 +307,7 @@ class MainActivity : Activity() {
         updateBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progressTintList = ColorStateList.valueOf(Glass.ACCENT)
-            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(40, 24, 27, 42))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(40, 255, 255, 255))
             visibility = View.GONE
         }
         updateCard.addView(updateBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)).apply { topMargin = dp(10) })
@@ -421,9 +421,9 @@ class MainActivity : Activity() {
     private fun setNotch(v: Boolean) {
         Prefs.setNotch(this, v)
         segIsland.background = if (!v) Glass.tinted(d, dpf(18)) else null
-        segIsland.setTextColor(if (!v) Color.WHITE else Glass.INK)
+        segIsland.setTextColor(if (!v) Glass.ON_ACCENT else Glass.INK)
         segNotch.background = if (v) Glass.tinted(d, dpf(18)) else null
-        segNotch.setTextColor(if (v) Color.WHITE else Glass.INK)
+        segNotch.setTextColor(if (v) Glass.ON_ACCENT else Glass.INK)
         offsetRow.alpha = if (v) 0.4f else 1f
         preview.notch = v
         preview.update()
@@ -469,9 +469,7 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
-                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
     }
 
     private fun appearanceCard(): View {
@@ -494,6 +492,41 @@ class MainActivity : Activity() {
         seg.addView(segIsland, LinearLayout.LayoutParams(0, dp(38), 1f))
         seg.addView(segNotch, LinearLayout.LayoutParams(0, dp(38), 1f))
         c.addView(seg)
+
+        // Teinte du verre
+        c.addView(text("Teinte du verre", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
+        val themeSeg = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Glass.chip(Glass.INK, dpf(20))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val themes = listOf("auto" to "Auto", "dark" to "Sombre", "light" to "Claire")
+        val themeViews = mutableListOf<TextView>()
+        fun paintThemes() {
+            val cur = Prefs.theme(this)
+            themes.forEachIndexed { i, (key, _) ->
+                val on = key == cur
+                themeViews[i].background = if (on) Glass.tinted(d, dpf(18)) else null
+                themeViews[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+            }
+        }
+        themes.forEach { (key, label) ->
+            val t = text(label, 14f, Glass.INK).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isClickable = true
+                setOnClickListener {
+                    Prefs.setTheme(this@MainActivity, key)
+                    paintThemes()
+                    preview.update()
+                    IslandService.instance?.applySettings()
+                }
+            }
+            themeViews.add(t)
+            themeSeg.addView(t, LinearLayout.LayoutParams(0, dp(36), 1f))
+        }
+        c.addView(themeSeg)
+        paintThemes()
 
         // Apercu
         preview = IslandPreview(this).apply {
@@ -519,6 +552,14 @@ class MainActivity : Activity() {
             Prefs.setOffset(this, it); preview.offsetDp = it; preview.update()
         }
         c.addView(offsetRow)
+        c.addView(switchRow(
+            "Flou derrière l'îlot",
+            text("Floute seulement ce qui est sous l'îlot (Android 12 et plus)", 13f, Glass.INK_SOFT),
+            Prefs.blur(this)
+        ) {
+            Prefs.setBlur(this, it)
+            IslandService.instance?.applySettings()
+        })
         c.addView(glassButton("Tester une notification", primary = true) { sendTest() }, buttonLp(top = 12))
 
         setNotch(Prefs.notch(this))
@@ -543,7 +584,7 @@ class MainActivity : Activity() {
             progress = value - min
             progressTintList = ColorStateList.valueOf(Glass.ACCENT)
             thumbTintList = ColorStateList.valueOf(Glass.ACCENT)
-            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(60, 24, 27, 42))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(50, 255, 255, 255))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
                     valueText.text = "${p + min} dp"
@@ -579,7 +620,7 @@ class MainActivity : Activity() {
     }
 
     private fun divider() = View(this).apply {
-        setBackgroundColor(Color.argb(22, 24, 27, 42))
+        setBackgroundColor(Color.argb(24, 255, 255, 255))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxOf(1, dp(1) / 2)).apply {
             topMargin = dp(4); bottomMargin = dp(4)
         }
@@ -601,8 +642,8 @@ class MainActivity : Activity() {
             val r = dpf(24)
             when {
                 primary -> {
-                    setTextColor(Color.WHITE)
-                    background = Glass.pressable(Glass.tinted(d, r), r, dark = false)
+                    setTextColor(Glass.ON_ACCENT)
+                    background = Glass.pressable(Glass.tinted(d, r), r, dark = true)
                 }
                 onWhite -> {
                     setTextColor(Glass.ACCENT)
@@ -620,7 +661,7 @@ class MainActivity : Activity() {
     private fun heroCard(): View {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.tinted(d, dpf(30), alpha = 190)
+            background = Glass.card(d, dpf(30), strong = true)
             setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         c.addView(text("L'îlot", 22f, Color.WHITE, bold = true))
@@ -719,7 +760,7 @@ class MainActivity : Activity() {
         val sw = Switch(this).apply {
             isChecked = initial
             thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, Color.WHITE))
-            trackTintList = ColorStateList(states, intArrayOf(Glass.ACCENT, Color.argb(70, 24, 27, 42)))
+            trackTintList = ColorStateList(states, intArrayOf(Glass.ACCENT, Color.argb(70, 255, 255, 255)))
             setOnCheckedChangeListener { _, v -> onChange(v) }
         }
         row.addView(sw)

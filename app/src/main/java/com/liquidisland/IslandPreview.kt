@@ -62,6 +62,8 @@ class IslandPreview(ctx: Context) : View(ctx) {
         val top = if (notch) 0f else offsetDp * s
         val l = (w - pw) / 2f
         glass.notch = notch
+        glass.dark = Prefs.isDark(context)
+        glass.blurred = Prefs.blur(context)
         glass.tint = if (expanded) 1f else 0f
         glass.build(l, top, l + pw, top + ph)
         glass.drawBody(c)

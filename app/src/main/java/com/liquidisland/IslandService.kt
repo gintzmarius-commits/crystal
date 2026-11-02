@@ -138,6 +138,8 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
     var ph = 0f
     var gestures: IslandGestures? = null
     val tracker = GestureTracker(this, { gestures }, { x, y -> glass.rect.contains(x, y) })
+    /** Appele a chaque image avec la position et la taille de la forme (pour le flou derriere). */
+    var onShape: ((left: Float, w: Float, h: Float) -> Unit)? = null
 
     init {
         setWillNotDraw(false)
@@ -146,6 +148,7 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
 
     override fun dispatchDraw(canvas: Canvas) {
         val l = (width - pw) / 2f
+        onShape?.invoke(l, pw, ph)
         glass.build(l, 0f, l + pw, ph)
         glass.drawBody(canvas)
         canvas.save()
@@ -188,6 +191,10 @@ class IslandService : Service(), IslandGestures {
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
     private var pad: TouchPad? = null
+    private var blurDialog: android.app.Dialog? = null
+    private var blurKey = ""
+    private var blurUnavailable = false
+    private var dark = true
     private lateinit var lpPad: WindowManager.LayoutParams
 
     private lateinit var content: LinearLayout
@@ -223,6 +230,12 @@ class IslandService : Service(), IslandGestures {
     private val bottomPad get() = dp(28)
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Le telephone passe en mode sombre/clair : la teinte « auto » suit
+        main.post { applySettings() }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -261,7 +274,11 @@ class IslandService : Service(), IslandGestures {
 
     // ---------- Construction ----------
 
+    private fun ink() = if (dark) Color.WHITE else Glass.ISLAND_INK
+    private fun inkSoft() = if (dark) Color.argb(185, 255, 255, 255) else Glass.ISLAND_INK_SOFT
+
     private fun readSettings() {
+        dark = Prefs.isDark(this)
         notch = Prefs.notch(this)
         cw = dp(Prefs.width(this))
         ch = dp(Prefs.height(this))
@@ -289,14 +306,14 @@ class IslandService : Service(), IslandGestures {
             layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
         }
         titleView = TextView(this).apply {
-            setTextColor(Glass.INK)
+            setTextColor(ink())
             textSize = 14f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }
         textView = TextView(this).apply {
-            setTextColor(Glass.INK_SOFT)
+            setTextColor(inkSoft())
             textSize = 13f
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
@@ -328,7 +345,9 @@ class IslandService : Service(), IslandGestures {
         v.pw = cw.toFloat()
         v.ph = ch.toFloat()
         v.glass.notch = notch
+        v.glass.dark = dark
         v.gestures = this
+        v.onShape = { l, w, h -> moveBlur(l, w, h) }
         view = v
 
         // Avec l'accessibilite, l'ilot passe au-dessus de la barre d'etat et recoit les touchers
@@ -359,6 +378,8 @@ class IslandService : Service(), IslandGestures {
             flags = lp.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
         }
         applyWindow(big = false, update = false)
+        createBlur(acc ?: this, lp.type)
+        v.glass.blurred = blurDialog != null
         wm.addView(v, lp)
         val p = TouchPad(this, this)
         pad = p
@@ -373,6 +394,89 @@ class IslandService : Service(), IslandGestures {
         FrameLayout.LayoutParams(ew, mh - menuTop, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
             topMargin = menuTop
         }
+
+    // ---------- Flou limite a la forme de l'ilot ----------
+
+    /**
+     * Une petite fenetre placee SOUS l'ilot, exactement a sa taille, qui floute ce qu'il y a derriere.
+     * Elle suit la forme a chaque image ; le verre (fenetre du dessus) ne bouge jamais, donc pas de saut.
+     */
+    private fun createBlur(host: Context, type: Int) {
+        if (Build.VERSION.SDK_INT < 31 || !Prefs.blur(this) || blurDialog != null) return
+        val hostWm = host.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (!hostWm.isCrossWindowBlurEnabled) {
+            blurUnavailable = true
+            Log.i(TAG, "Flou indisponible sur ce telephone (ou economie d'energie)")
+            return
+        }
+        try {
+            val d = android.app.Dialog(host, android.R.style.Theme_Panel)
+            d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            d.setContentView(View(host))
+            d.setCancelable(false)
+            val w = d.window!!
+            w.setType(type)
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            w.addFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            )
+            w.setWindowAnimations(0)
+            w.setGravity(Gravity.TOP or Gravity.START)
+            w.setDecorFitsSystemWindows(false)
+            val a = w.attributes
+            a.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            a.fitInsetsTypes = 0
+            a.width = cw
+            a.height = ch
+            a.x = (resources.displayMetrics.widthPixels - cw) / 2
+            a.y = off
+            w.attributes = a
+            w.setBackgroundBlurRadius(dp(24))
+            w.setBackgroundDrawable(blurShape(cw, ch))
+            d.show()
+            w.decorView.setPadding(0, 0, 0, 0)
+            blurDialog = d
+            blurKey = ""
+            Log.i(TAG, "Flou du fond actif")
+        } catch (e: Exception) {
+            Log.w(TAG, "Flou impossible : $e")
+            blurDialog = null
+        }
+    }
+
+    private fun blurShape(w: Int, h: Int): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(Color.argb(1, 0, 0, 0))
+            cornerRadius = if (notch) min(min(h * 0.5f, dp(28).toFloat()), w / 2f) else min(w, h) / 2f
+            setBounds(0, 0, w, h)
+        }
+
+    private fun moveBlur(l: Float, w: Float, h: Float) {
+        val d = blurDialog ?: return
+        val win = d.window ?: return
+        val screenX = (resources.displayMetrics.widthPixels - lp.width) / 2 + l.toInt()
+        val iw = w.toInt()
+        val ih = h.toInt()
+        val key = "$screenX/$iw/$ih/$off"
+        if (key == blurKey || iw <= 0 || ih <= 0) return
+        blurKey = key
+        val a = win.attributes
+        a.x = screenX
+        a.y = off
+        a.width = iw
+        a.height = ih
+        win.attributes = a
+        // Nouveau fond a chaque taille : le flou reprend l'arrondi de la forme
+        win.setBackgroundDrawable(blurShape(iw, ih))
+    }
+
+    private fun removeBlur() {
+        try { blurDialog?.dismiss() } catch (e: Exception) { }
+        blurDialog = null
+    }
 
     private fun statusBarHeight(): Int {
         val id = resources.getIdentifier("status_bar_height", "dimen", "android")
@@ -408,6 +512,7 @@ class IslandService : Service(), IslandGestures {
             main.removeCallbacks(collapseRunnable)
             view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            removeBlur()
             view = null
             pad = null
             mode = Mode.COLLAPSED
@@ -433,7 +538,15 @@ class IslandService : Service(), IslandGestures {
         menu.visibility = View.GONE
         menu.layoutParams = menuParams()
         v.glass.notch = notch
+        v.glass.dark = dark
         v.glass.tint = 0f
+        titleView.setTextColor(ink())
+        textView.setTextColor(inkSoft())
+        val wantBlur = Prefs.blur(this) && Build.VERSION.SDK_INT >= 31
+        // La fenetre de flou doit etre SOUS l'ilot : on recree tout dans le bon ordre
+        if (wantBlur && blurDialog == null && !blurUnavailable) { rehost(); return }
+        if (!wantBlur) removeBlur()
+        v.glass.blurred = blurDialog != null
         v.pw = cw.toFloat()
         v.ph = ch.toFloat()
         applyWindow(big = false)
@@ -639,7 +752,7 @@ class IslandService : Service(), IslandGestures {
         if (items.isEmpty()) {
             menu.addView(TextView(this).apply {
                 text = "Ajoute des raccourcis dans Wave Island"
-                setTextColor(Glass.INK_SOFT)
+                setTextColor(inkSoft())
                 textSize = 13f
                 gravity = Gravity.CENTER
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -661,14 +774,18 @@ class IslandService : Service(), IslandGestures {
 
     private fun menuItem(item: Shortcuts.Item, index: Int): View {
         val circle = FrameLayout(this).apply {
-            background = GradientDrawable().apply {
+            // Bulle de verre pour chaque raccourci
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                if (dark) intArrayOf(Color.argb(60, 255, 255, 255), Color.argb(22, 255, 255, 255))
+                else intArrayOf(Color.argb(200, 255, 255, 255), Color.argb(140, 255, 255, 255))
+            ).apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(150, 255, 255, 255))
-                setStroke(max(1, dp(1)), Color.argb(220, 255, 255, 255))
+                setStroke(max(1, dp(1)), if (dark) Color.argb(80, 255, 255, 255) else Color.argb(230, 255, 255, 255))
             }
             addView(ImageView(this@IslandService).apply {
                 setImageDrawable(item.icon)
-                if (item.tintIcon) imageTintList = android.content.res.ColorStateList.valueOf(Glass.INK)
+                if (item.tintIcon) imageTintList = android.content.res.ColorStateList.valueOf(ink())
             }, FrameLayout.LayoutParams(
                 if (item.tintIcon) dp(24) else dp(40),
                 if (item.tintIcon) dp(24) else dp(40),
@@ -682,7 +799,7 @@ class IslandService : Service(), IslandGestures {
             addView(TextView(this@IslandService).apply {
                 text = item.label
                 textSize = 11f
-                setTextColor(Glass.INK)
+                setTextColor(ink())
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER
@@ -815,6 +932,7 @@ class IslandService : Service(), IslandGestures {
         stopAnims()
         view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
         pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        removeBlur()
         view = null
         pad = null
         super.onDestroy()
