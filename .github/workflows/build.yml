@@ -91,7 +91,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ls shots || exit 0
+          ls -la shots || exit 0
+          ls -la shots | while read -r l; do echo "::notice::$l"; done
+          find shots -type f -size 0 -delete
           gh release delete tests -y --cleanup-tag || true
-          gh release create tests shots/*.png shots/log.txt shots/logcat-complet.txt --prerelease \
+          gh release create tests shots/* --prerelease \
             --title "Captures de test" --notes "Captures automatiques sur emulateur Android 14."

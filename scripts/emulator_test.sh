@@ -17,6 +17,7 @@ adb shell dumpsys deviceidle whitelist +$P
 adb shell settings put secure enabled_accessibility_services $P/$P.IslandAccessibility
 adb shell settings put secure accessibility_enabled 1
 adb logcat -c
+adb logcat -G 8M
 
 adb shell am start -W -n $P/.MainActivity
 sleep 4
@@ -79,7 +80,8 @@ adb shell "cmd notification post -S bigtext -t 'Paul' chat2 'Match a 18h, tu ram
 sleep 2
 shot 8-encoche-notif
 
-adb logcat -d > $OUT/logcat-complet.txt
+timeout 90 "$ADB_BIN" logcat -d > $OUT/logcat-complet.txt
+echo "::notice::logcat $(wc -l < $OUT/logcat-complet.txt) lignes"
 grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.txt
 adb shell dumpsys activity services $P | grep -i "ServiceRecord" >> $OUT/log.txt
 
