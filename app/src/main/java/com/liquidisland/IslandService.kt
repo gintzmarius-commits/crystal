@@ -206,8 +206,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private val captureRunnable = object : Runnable {
         override fun run() {
             requestCapture()
-            // Plus souvent quand l'ilot est ouvert ou en mouvement
-            main.postDelayed(this, if (mode != Mode.COLLAPSED || running.isNotEmpty()) 330L else 700L)
+            // Au rythme maximum permis par Android (une capture toutes les ~1/3 s)
+            main.postDelayed(this, CAPTURE_MS)
         }
     }
     private val screenReceiver = object : android.content.BroadcastReceiver() {
@@ -543,8 +543,38 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
 
     /** Capture l'ecran (via l'accessibilite) pour deformer le fond sur les bords de l'ilot. */
+    private var lastCapture = 0L
+    private var fadeAnim: ValueAnimator? = null
+    private var waitingFresh = false
+
+    /** Appele par l'accessibilite quand l'ecran change : on cache le bord deforme et on recapture au plus vite. */
+    fun onScreenChanged() {
+        val v = view ?: return
+        if (!Prefs.refraction(this) || v.glass.backdrop == null) return
+        if (!waitingFresh) {
+            waitingFresh = true
+            animateFade(0f, 90)
+        }
+        val wait = max(0L, lastCapture + CAPTURE_MS - android.os.SystemClock.uptimeMillis())
+        main.removeCallbacks(captureRunnable)
+        main.postDelayed(captureRunnable, wait + 40)
+    }
+
+    private fun animateFade(to: Float, ms: Long) {
+        val v = view ?: return
+        fadeAnim?.cancel()
+        fadeAnim = ValueAnimator.ofFloat(v.glass.fade, to).apply {
+            duration = ms
+            addUpdateListener { v.glass.fade = it.animatedValue as Float; v.invalidate() }
+            start()
+        }
+    }
+
     private fun requestCapture() {
         if (Build.VERSION.SDK_INT < 33 || !screenOn || view == null) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastCapture < CAPTURE_MS - 10) return
+        lastCapture = now
         val acc = IslandAccessibility.instance ?: return
         try {
             acc.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor,
@@ -583,6 +613,11 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         backdropBuffer = hb
         v.glass.backdrop = shader
         v.invalidate()
+        // Nouvelle image du fond : le bord deforme reapparait en douceur
+        if (waitingFresh || v.glass.fade < 1f) {
+            waitingFresh = false
+            animateFade(1f, 160)
+        }
         // L'ancienne image peut encore etre en cours de dessin : on la libere un peu plus tard
         main.postDelayed({
             try { oldBmp?.recycle() } catch (e: Exception) { }
@@ -1066,6 +1101,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     companion object {
         private const val TAG = "LiquidIsland"
         private const val CHANNEL = "island"
+        private const val CAPTURE_MS = 340L
         const val ACTION_SHOW = "com.liquidisland.SHOW"
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"

@@ -33,7 +33,10 @@ class IslandAccessibility : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    /** L'ecran change (appli ouverte, defilement) : l'ilot cache son bord deforme le temps d'une nouvelle capture. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        IslandService.instance?.onScreenChanged()
+    }
     override fun onInterrupt() {}
 
     companion object {

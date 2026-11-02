@@ -30,6 +30,8 @@ class LiquidGlass(private val density: Float) {
     /** Direction de la lumiere, -1..1 (inclinaison du telephone). */
     var lightX = 0f
     var lightY = 0f
+    /** 0 = bord deforme cache (le fond vient de changer), 1 = visible */
+    var fade = 1f
 
     val path = Path()
     val rect = RectF()
@@ -168,10 +170,14 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("center", cx, (top + b) / 2f)
                 rs.setFloatUniform("halfSize", w / 2f, (b - top) / 2f)
                 rs.setFloatUniform("radius", radius)
-                rs.setFloatUniform("lens", min(dp(16f), min(w, h) * 0.45f))
-                rs.setFloatUniform("strength", min(dp(14f), h * 0.4f))
-                rs.setFloatUniform("disp", 0.08f)
+                // Goutte d'eau : la lentille couvre presque toute la capsule repliee, un large bord une fois ouverte
+                rs.setFloatUniform("lens", min(dp(26f), min(w, h) * 0.5f))
+                rs.setFloatUniform("strength", min(dp(22f), h * 0.6f))
+                rs.setFloatUniform("disp", 0.07f)
                 rs.setFloatUniform("minOff", dp(3f))
+                rs.setFloatUniform("toLight", lx * 0.9f, -1f + ly * 0.4f)
+                rs.setFloatUniform("fade", fade.coerceIn(0f, 1f))
+                rs.setFloatUniform("clearTint", 1f - tint.coerceIn(0f, 1f))
             }
         }
     }
@@ -230,6 +236,9 @@ class LiquidGlass(private val density: Float) {
             uniform float strength;
             uniform float disp;
             uniform float minOff;
+            uniform float2 toLight;
+            uniform float fade;
+            uniform float clearTint;
 
             float sdBox(float2 p) {
                 float2 q = abs(p - center) - halfSize + radius;
@@ -251,8 +260,17 @@ class LiquidGlass(private val density: Float) {
                 half4 cr = bg.eval(p + off * (1.0 + disp));
                 half4 cg = bg.eval(p + off);
                 half4 cb = bg.eval(p + off * (1.0 - disp));
-                float a = smoothstep(0.0, 1.0, t);
-                return half4(cr.r, cg.g, cb.b, 1.0) * half(a);
+                half3 col = half3(cr.r, cg.g, cb.b);
+                // Comme l'eau : le bord s'assombrit un peu (la lumiere y est renvoyee)
+                col *= half(mix(1.0, 0.78, k));
+                // Reflets : la lumiere accroche le bord tourne vers elle, et ressort de l'autre cote
+                float2 L = normalize(toLight);
+                float shine = pow(max(dot(n, L), 0.0), 4.0) * t * t;
+                float caustic = pow(max(dot(n, -L), 0.0), 3.0) * t * t;
+                col += half3(shine * 0.75 + caustic * 0.28);
+                // Fondu vers le centre : plus le verre est clair, plus la lentille est visible
+                float a = smoothstep(0.0, 0.55, t) * mix(0.75, 1.0, clearTint) * fade;
+                return half4(col, 1.0) * half(a);
             }
         """
     }
