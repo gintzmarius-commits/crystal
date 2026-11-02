@@ -20,9 +20,9 @@ object Prefs {
     fun theme(c: Context) = sp(c).getString("theme2", "clear") ?: "clear"
     fun setTheme(c: Context, v: String) = sp(c).edit().putString("theme2", v).apply()
 
-    /** En plein ecran (video, jeu) : "hide" = cacher l'ilot, "camera" = le reduire autour de la camera */
-    fun fullscreen(c: Context) = sp(c).getString("fullscreen", "hide") ?: "hide"
-    fun setFullscreen(c: Context, v: String) = sp(c).edit().putString("fullscreen", v).apply()
+    /** En plein ecran (video, jeu) : "show" = l'ilot reste contre la camera, "hide" = cache */
+    fun fullscreen(c: Context) = sp(c).getString("fullscreen2", "show") ?: "show"
+    fun setFullscreen(c: Context, v: String) = sp(c).edit().putString("fullscreen2", v).apply()
 
     /** Flou du fond, limite a la forme de l'ilot */
     /** Plus de flou : l'ilot est toujours en verre transparent */

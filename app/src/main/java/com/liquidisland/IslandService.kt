@@ -171,6 +171,38 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
     }
 }
 
+/**
+ * Quand l'ecran tourne (video, jeu en paysage), l'ilot ne tourne pas : il reste colle a la camera
+ * avec sa forme d'origine. Ce conteneur fait pivoter son enfant de [deg] (+-90) et echange largeur/hauteur.
+ */
+class Rotator(ctx: Context, private val child: View, private val deg: Float) : FrameLayout(ctx) {
+    var portraitW = 0
+    var portraitH = 0
+
+    init {
+        clipChildren = false
+        addView(child)
+        child.rotation = deg
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        child.measure(
+            MeasureSpec.makeMeasureSpec(portraitW, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(portraitH, MeasureSpec.EXACTLY)
+        )
+        setMeasuredDimension(portraitH, portraitW)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        // Enfant centre, puis tourne autour de son centre : il occupe exactement la fenetre
+        val cx = (r - l) / 2
+        val cy = (b - t) / 2
+        child.layout(cx - portraitW / 2, cy - portraitH / 2, cx + portraitW / 2, cy + portraitH / 2)
+        child.pivotX = portraitW / 2f
+        child.pivotY = portraitH / 2f
+    }
+}
+
 /** Petite zone tactile invisible posee sur l'ilot replie (la grande fenetre, elle, laisse passer les touchers). */
 class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
     private val tracker = GestureTracker(this, { gestures }, { _, _ -> true })
@@ -191,6 +223,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
     private var pad: TouchPad? = null
+    private var rootView: View? = null
+    private var rootPad: View? = null
+    private var rotation = 0
     private var probe: View? = null
     private var blurDialog: android.app.Dialog? = null
     private var blurKey = ""
@@ -256,8 +291,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Le telephone passe en mode sombre/clair : la teinte « auto » suit
-        main.post { applySettings() }
+        main.post {
+            // L'ecran a tourne : on replace l'ilot contre la camera
+            if (displayRotation() != rotation) rehost() else applySettings()
+        }
     }
 
     override fun onCreate() {
@@ -356,20 +393,43 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         probe = null
     }
 
+    @Suppress("DEPRECATION")
+    private fun displayRotation(): Int =
+        (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation
+
+    /** En paysage, la vue tourne pour garder l'orientation du telephone (ilot contre la camera). */
+    private fun wrap(child: View, w: Int, h: Int): View {
+        val deg = when (rotation) {
+            android.view.Surface.ROTATION_90 -> -90f
+            android.view.Surface.ROTATION_270 -> 90f
+            else -> return child
+        }
+        return Rotator(this, child, deg).apply { portraitW = w; portraitH = h }
+    }
+
+    /** Place une fenetre : en haut au centre (portrait), ou contre le bord de la camera (paysage). */
+    private fun place(p: WindowManager.LayoutParams, w: Int, h: Int) {
+        when (rotation) {
+            android.view.Surface.ROTATION_90 -> {
+                p.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                p.x = off; p.y = 0; p.width = h; p.height = w
+            }
+            android.view.Surface.ROTATION_270 -> {
+                p.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+                p.x = off; p.y = 0; p.width = h; p.height = w
+            }
+            else -> {
+                p.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                p.x = 0; p.y = off; p.width = w; p.height = h
+            }
+        }
+    }
+
     /** Taille de l'ilot au repos : normale, cachee, ou juste autour de la camera en plein ecran. */
     private fun restSize(): Pair<Float, Float> {
         if (!fullscreen) return cw.toFloat() to ch.toFloat()
-        if (Prefs.fullscreen(this) == "camera" && Build.VERSION.SDK_INT >= 29) {
-            @Suppress("DEPRECATION")
-            val cut = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.cutout
-            val hole = cut?.boundingRectTop
-            if (hole != null && !hole.isEmpty) {
-                val w = (hole.width() + dp(12)).toFloat()
-                val h = max(dp(18), hole.bottom - off + dp(4)).toFloat()
-                return w to h
-            }
-        }
-        return 0f to 0f
+        // En plein ecran l'ilot reste visible (contre la camera), sauf si on a choisi de le cacher
+        return if (Prefs.fullscreen(this) == "hide") 0f to 0f else cw.toFloat() to ch.toFloat()
     }
     private fun ink() = if (dark) Color.WHITE else Glass.ISLAND_INK
     private fun inkSoft() = if (dark) Color.argb(205, 255, 255, 255) else Glass.ISLAND_INK_SOFT
@@ -406,6 +466,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     private fun createIsland() {
         readSettings()
+        rotation = displayRotation()
         iconView = ImageView(this).apply {
             layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
         }
@@ -488,10 +549,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         applyWindow(big = false, update = false)
         createBlur(acc ?: this, lp.type)
         v.glass.blurred = blurDialog != null
-        wm.addView(v, lp)
+        val r = wrap(v, ew + 2 * side, max(eh, mh) + bottomPad)
+        rootView = r
+        wm.addView(r, lp)
         val p = TouchPad(this, this)
         pad = p
-        wm.addView(p, lpPad)
+        val rp = wrap(p, cw + 2 * dp(6), ch + dp(8))
+        rootPad = rp
+        wm.addView(rp, lpPad)
         addProbe()
         Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
@@ -710,11 +775,16 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private fun setBackdrop(bmp: android.graphics.Bitmap, hb: android.hardware.HardwareBuffer) {
         val v = view
         if (v == null) { bmp.recycle(); hb.close(); return }
+        // Vue -> ecran (rotation comprise), puis inverse : l'image de l'ecran tombe au bon endroit dans la vue
+        val root = rootView ?: v
         val loc = IntArray(2)
-        v.getLocationOnScreen(loc)
-        val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        root.getLocationOnScreen(loc)
+        val toScreen = android.graphics.Matrix()
+        if (root !== v) v.transformMatrixToGlobal(toScreen)
+        toScreen.postTranslate(loc[0].toFloat(), loc[1].toFloat())
         val m = android.graphics.Matrix()
-        m.setTranslate(-loc[0].toFloat(), -loc[1].toFloat())
+        toScreen.invert(m)
+        val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         shader.setLocalMatrix(m)
         val oldBmp = backdropBitmap
         val oldHb = backdropBuffer
@@ -755,18 +825,16 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private fun applyWindow(big: Boolean, update: Boolean = true) {
         windowBig = big
         val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        lp.y = off
-        lp.width = ew + 2 * side
-        lp.height = max(eh, mh) + bottomPad
+        place(lp, ew + 2 * side, max(eh, mh) + bottomPad)
         lp.flags = if (big) lp.flags and noTouch.inv() else lp.flags or noTouch
-        lpPad.y = off
-        lpPad.width = cw + 2 * dp(6)
-        lpPad.height = ch + dp(8)
+        place(lpPad, cw + 2 * dp(6), ch + dp(8))
         // Zone tactile active seulement quand l'ilot est replie ET visible
         lpPad.flags = if (big || hidden) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
         if (update) {
-            view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
-            pad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
+            (rootView as? Rotator)?.let { it.portraitW = ew + 2 * side; it.portraitH = max(eh, mh) + bottomPad }
+            (rootPad as? Rotator)?.let { it.portraitW = cw + 2 * dp(6); it.portraitH = ch + dp(8) }
+            rootView?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
+            rootPad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
         }
     }
 
@@ -775,8 +843,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         main.post {
             stopAnims()
             main.removeCallbacks(collapseRunnable)
-            view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
-            pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            rootView?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            rootView = null
+            rootPad = null
             removeBlur()
             view = null
             pad = null
@@ -1208,8 +1278,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         releaseBackdrop()
         main.removeCallbacksAndMessages(null)
         stopAnims()
-        view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
-        pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        rootView?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        rootView = null
+        rootPad = null
         removeBlur()
         view = null
         pad = null

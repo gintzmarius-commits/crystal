@@ -78,6 +78,18 @@ sleep 2
 shot 12-plein-ecran
 adb shell am start -W -n $P/.MainActivity --es ci exitfullscreen
 sleep 1
+# Paysage : l'ilot reste contre la camera (bord gauche), s'etend vers le centre
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 1
+adb shell am start -W -n $P/.MainActivity
+sleep 3
+shot 13-paysage
+adb shell am start -W -n $P/.MainActivity --es ci test
+sleep 1.5
+shot 14-paysage-notif
+sleep 6
+adb shell settings put system user_rotation 0
+sleep 2
 adb devices >&2
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed" >&2
 

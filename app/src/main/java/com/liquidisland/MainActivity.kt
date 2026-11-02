@@ -569,7 +569,7 @@ class MainActivity : Activity() {
             background = Glass.chip(Glass.INK, dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        val fsModes = listOf("hide" to "Cacher l'îlot", "camera" to "Autour de la caméra")
+        val fsModes = listOf("show" to "Contre la caméra", "hide" to "Cacher l'îlot")
         val fsViews = mutableListOf<TextView>()
         fun paintFs() {
             val cur = Prefs.fullscreen(this)

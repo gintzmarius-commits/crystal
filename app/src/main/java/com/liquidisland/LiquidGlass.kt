@@ -194,9 +194,11 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("halfSize", w / 2f, (b - top) / 2f)
                 rs.setFloatUniform("radius", radius)
                 // Goutte d'eau : la lentille couvre presque toute la capsule repliee, un large bord une fois ouverte
-                lensPx = min(dp(26f), min(w, h) * 0.5f)
+                // Large sur la petite capsule (goutte), fine sur une grande surface ouverte
+                val tt = tint.coerceIn(0f, 1f)
+                lensPx = lerp(min(dp(24f), min(w, h) * 0.5f), min(dp(9f), min(w, h) * 0.5f), tt)
                 rs.setFloatUniform("lens", lensPx)
-                rs.setFloatUniform("strength", min(dp(22f), h * 0.6f))
+                rs.setFloatUniform("strength", lerp(min(dp(20f), h * 0.6f), dp(7f), tt))
                 rs.setFloatUniform("disp", 0.07f)
                 rs.setFloatUniform("minOff", dp(3f))
                 rs.setFloatUniform("toLight", lx * 0.9f, -1f + ly * 0.4f)
