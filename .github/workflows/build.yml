@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,18 +33,63 @@ jobs:
           gradle-version: 8.9
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon 2>&1 | tee build.log
 
-      - name: Keep APK as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: LiquidIsland-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong" -A2 build.log | head -40 | while read -r l; do echo "::error::$l"; done
 
       - name: Publish APK as a release (direct download link)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cp app/build/outputs/apk/debug/app-debug.apk LiquidIsland.apk
           gh release delete latest -y --cleanup-tag || true
-          gh release create latest app/build/outputs/apk/debug/app-debug.apk \
-            --title "Derniere version" --notes "APK de test (debug). Telecharge app-debug.apk puis installe-le."
+          gh release create latest LiquidIsland.apk \
+            --title "Derniere version" --notes "Telecharge LiquidIsland.apk puis installe-le."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: LiquidIsland.apk
+
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on Android 14 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/emulator_test.sh
+
+      - name: Publish screenshots
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls shots || exit 0
+          gh release delete tests -y --cleanup-tag || true
+          gh release create tests shots/*.png shots/log.txt --prerelease \
+            --title "Captures de test" --notes "Captures automatiques sur emulateur Android 14."

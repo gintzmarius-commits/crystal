@@ -11,8 +11,18 @@ android {
         applicationId = "com.liquidisland"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
+    }
+
+    // Cle fixe : chaque nouvel APK s'installe par-dessus le precedent
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("signing/crystal.keystore")
+            storePassword = "crystal-public-key"
+            keyAlias = "crystal"
+            keyPassword = "crystal-public-key"
+        }
     }
 
     buildTypes {

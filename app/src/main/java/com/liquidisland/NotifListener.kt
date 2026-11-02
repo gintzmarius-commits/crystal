@@ -3,8 +3,13 @@ package com.liquidisland
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 
 class NotifListener : NotificationListenerService() {
+
+    override fun onListenerConnected() {
+        Log.i("LiquidIsland", "Acces aux notifications actif")
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
@@ -26,7 +31,7 @@ class NotifListener : NotificationListenerService() {
             null
         }
 
-        IslandBus.post(IslandNote(title, text, icon, n.contentIntent))
+        IslandService.deliver(this, IslandNote(title, text, icon, n.contentIntent), sbn.packageName)
 
         // Option : supprime la notification systeme pour que seul l'ilot l'affiche
         if (Prefs.hideSystem(this)) {

@@ -8,7 +8,7 @@ object Prefs {
     fun hideSystem(c: Context) = sp(c).getBoolean("hide", false)
     fun setHideSystem(c: Context, v: Boolean) = sp(c).edit().putBoolean("hide", v).apply()
 
-    fun blur(c: Context) = sp(c).getBoolean("blur", false)
+    fun blur(c: Context) = sp(c).getBoolean("blur", true)
     fun setBlur(c: Context, v: Boolean) = sp(c).edit().putBoolean("blur", v).apply()
 
     /** true = l'ilot doit tourner (et redemarrer au demarrage du telephone) */
