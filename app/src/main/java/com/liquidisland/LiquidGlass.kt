@@ -48,7 +48,8 @@ class LiquidGlass(private val density: Float) {
     private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val innerRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val shade = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val refractPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val refractPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private var lensPx = 0f
     private val innerPath = Path()
     private val tmp = RectF()
     private val specMatrix = Matrix()
@@ -171,7 +172,8 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("halfSize", w / 2f, (b - top) / 2f)
                 rs.setFloatUniform("radius", radius)
                 // Goutte d'eau : la lentille couvre presque toute la capsule repliee, un large bord une fois ouverte
-                rs.setFloatUniform("lens", min(dp(26f), min(w, h) * 0.5f))
+                lensPx = min(dp(26f), min(w, h) * 0.5f)
+                rs.setFloatUniform("lens", lensPx)
                 rs.setFloatUniform("strength", min(dp(22f), h * 0.6f))
                 rs.setFloatUniform("disp", 0.07f)
                 rs.setFloatUniform("minOff", dp(3f))
@@ -187,8 +189,13 @@ class LiquidGlass(private val density: Float) {
         if (path.isEmpty) return
         shade.strokeWidth = dp(2f)
         c.drawPath(path, shade)
-        if (Build.VERSION.SDK_INT >= 33 && backdrop != null && refract != null) {
+        if (Build.VERSION.SDK_INT >= 33 && backdrop != null && refract != null && fade > 0.01f) {
+            // On ne calcule la lentille que sur la bande du bord (le centre reste transparent)
+            c.save()
+            c.clipPath(path)
+            refractPaint.strokeWidth = lensPx * 2f + 2f
             c.drawPath(path, refractPaint)
+            c.restore()
         }
         c.drawPath(path, body)
     }
