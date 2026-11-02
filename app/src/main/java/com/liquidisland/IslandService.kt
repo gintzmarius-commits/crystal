@@ -530,7 +530,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val ty = (e.values[1] / 9.81f - 0.7f).coerceIn(-1f, 1f)
         val nx = lightX + (tx - lightX) * 0.18f
         val ny = lightY + (ty - lightY) * 0.18f
-        if (kotlin.math.abs(nx - lightX) + kotlin.math.abs(ny - lightY) < 0.004f) return
+        if (kotlin.math.abs(nx - lightX) + kotlin.math.abs(ny - lightY) < 0.008f) return
         lightX = nx
         lightY = ny
         view?.let {
@@ -570,8 +570,29 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         }
     }
 
+    private var captureGen = 0
+
+    /** L'ilot retrecit : la derniere capture contient l'ancien grand ilot, on la cache. */
+    private fun invalidateBackdrop() {
+        captureGen++
+        if (view?.glass?.backdrop == null) return
+        waitingFresh = true
+        animateFade(0f, 60)
+    }
+
+    /** Animation terminee : on recapture tout de suite si le bord est cache. */
+    private fun afterSettle() {
+        if (!waitingFresh || !screenOn) return
+        val wait = max(0L, lastCapture + CAPTURE_MS - android.os.SystemClock.uptimeMillis())
+        main.removeCallbacks(captureRunnable)
+        main.postDelayed(captureRunnable, wait + 30)
+    }
+
     private fun requestCapture() {
         if (Build.VERSION.SDK_INT < 33 || !screenOn || view == null) return
+        // Pendant une animation, la capture contiendrait l'ilot en mouvement : on attend qu'il soit pose
+        if (running.isNotEmpty()) return
+        val gen0 = captureGen
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastCapture < CAPTURE_MS - 10) return
         lastCapture = now
@@ -581,6 +602,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(r: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
                         val hb = r.hardwareBuffer
+                        if (gen0 != captureGen || running.isNotEmpty()) { hb.close(); afterSettle(); return }
                         val bmp = android.graphics.Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
                         if (bmp == null) { hb.close(); return }
                         setBackdrop(bmp, hb)
@@ -724,10 +746,18 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             startDelay = delay
             interpolator = s
             addUpdateListener { set(it.animatedValue as Float); view?.invalidate() }
+            // Une animation terminee ne compte plus (sinon les captures du fond resteraient bloquees)
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    running.remove(animation)
+                    if (running.isEmpty()) afterSettle()
+                }
+            })
         }
 
     private fun animateIsland(w: Float, h: Float, tint: Float, opening: Boolean, onDone: (() -> Unit)? = null) {
         val v = view ?: return
+        if (w < v.pw - 1f || h < v.ph - 1f) invalidateBackdrop()
         stopAnims()
         val myGen = gen
         val anims = listOf(
@@ -741,7 +771,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 override fun onAnimationEnd(animation: Animator) {
                     running.remove(animation)
                     left--
-                    if (left == 0 && myGen == gen) onDone?.invoke()
+                    if (left == 0 && myGen == gen) {
+                        onDone?.invoke()
+                        afterSettle()
+                    }
                 }
             })
             running.add(a)
@@ -841,6 +874,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    running.remove(animation)
                     launchNote(n, floating)
                     // L'ilot reprend sa place une fois l'appli lancee
                     main.postDelayed({

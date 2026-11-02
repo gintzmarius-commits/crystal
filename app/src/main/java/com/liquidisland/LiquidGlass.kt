@@ -66,10 +66,26 @@ class LiquidGlass(private val density: Float) {
                 val r = refract ?: RuntimeShader(REFRACT_SHADER).also { refract = it }
                 r.setInputShader("bg", value)
                 refractPaint.shader = r
+                invalidateCache()
             }
         }
 
+    private val key = FloatArray(10) { Float.NaN }
+
+    /** Vrai si la forme ou la lumiere ont change depuis le dernier calcul (sinon on garde tout en cache). */
+    private fun changed(l: Float, t: Float, r: Float, b: Float): Boolean {
+        val k = floatArrayOf(l, t, r, b, tint, lightX, lightY, if (dark) 1f else 0f, if (blurred) 1f else 0f, if (notch) 1f else 0f)
+        var diff = false
+        for (i in k.indices) if (kotlin.math.abs(k[i] - key[i]) > 0.0005f || key[i].isNaN()) { diff = true; break }
+        if (diff) k.copyInto(key)
+        return diff
+    }
+
+    /** Force un nouveau calcul (ex. nouvelle image du fond). */
+    fun invalidateCache() { key[0] = Float.NaN }
+
     fun build(l: Float, t: Float, r: Float, b: Float) {
+        if (!changed(l, t, r, b)) return
         rect.set(l, t, r, b)
         path.reset()
         innerPath.reset()
@@ -178,7 +194,6 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("disp", 0.07f)
                 rs.setFloatUniform("minOff", dp(3f))
                 rs.setFloatUniform("toLight", lx * 0.9f, -1f + ly * 0.4f)
-                rs.setFloatUniform("fade", fade.coerceIn(0f, 1f))
                 rs.setFloatUniform("clearTint", 1f - tint.coerceIn(0f, 1f))
             }
         }
@@ -191,6 +206,7 @@ class LiquidGlass(private val density: Float) {
         c.drawPath(path, shade)
         if (Build.VERSION.SDK_INT >= 33 && backdrop != null && refract != null && fade > 0.01f) {
             // On ne calcule la lentille que sur la bande du bord (le centre reste transparent)
+            refract?.setFloatUniform("fade", fade.coerceIn(0f, 1f))
             c.save()
             c.clipPath(path)
             refractPaint.strokeWidth = lensPx * 2f + 2f
@@ -206,11 +222,11 @@ class LiquidGlass(private val density: Float) {
         c.save()
         c.clipPath(path)
         // Epaisseur : degrade lisse sur ~6 dp, en couches tres legeres
-        val steps = 8
+        val steps = 5
         for (i in 0 until steps) {
             val k = (i + 1).toFloat() / steps
             edge.strokeWidth = dp(12f * (1f - k) + 1.2f)
-            edge.alpha = (12 * k + 3).toInt()
+            edge.alpha = (16 * k + 4).toInt()
             c.drawPath(path, edge)
         }
         c.drawRect(rect, spec)
