@@ -403,7 +403,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             toScreen.postScale(sx, sy)
             val m = android.graphics.Matrix()
             toScreen.invert(m)
-            val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
             shader.setLocalMatrix(m)
             v.glass.backdrop = shader
             if (v.glass.fade < 1f) { fadeAnim?.cancel(); v.glass.fade = 1f }
@@ -924,7 +924,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         toScreen.postTranslate(loc[0].toFloat(), loc[1].toFloat())
         val m = android.graphics.Matrix()
         toScreen.invert(m)
-        val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
         shader.setLocalMatrix(m)
         val oldBmp = backdropBitmap
         val oldHb = backdropBuffer
