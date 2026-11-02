@@ -182,7 +182,7 @@ class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
     }
 }
 
-class IslandService : Service(), IslandGestures {
+class IslandService : Service(), IslandGestures, android.hardware.SensorEventListener {
 
     private enum class Mode { COLLAPSED, NOTIF, MENU }
 
@@ -194,6 +194,28 @@ class IslandService : Service(), IslandGestures {
     private var blurDialog: android.app.Dialog? = null
     private var blurKey = ""
     private var blurUnavailable = false
+
+    // Reflets en temps reel (inclinaison) et fond capture pour la refraction
+    private var sensors: android.hardware.SensorManager? = null
+    private var lightX = 0f
+    private var lightY = 0f
+    private var screenOn = true
+    private var backdropBitmap: android.graphics.Bitmap? = null
+    private var backdropBuffer: android.hardware.HardwareBuffer? = null
+    private var captureFails = 0
+    private val captureRunnable = object : Runnable {
+        override fun run() {
+            requestCapture()
+            // Plus souvent quand l'ilot est ouvert ou en mouvement
+            main.postDelayed(this, if (mode != Mode.COLLAPSED || running.isNotEmpty()) 330L else 700L)
+        }
+    }
+    private val screenReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            screenOn = i.action == Intent.ACTION_SCREEN_ON
+            if (screenOn) startLive() else stopLive()
+        }
+    }
     private var dark = true
     private lateinit var lpPad: WindowManager.LayoutParams
 
@@ -259,6 +281,13 @@ class IslandService : Service(), IslandGestures {
         }
         createIsland()
         instance = this
+        sensors = getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+        registerReceiver(screenReceiver, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        })
+        screenOn = (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
+        if (screenOn) startLive()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -478,6 +507,97 @@ class IslandService : Service(), IslandGestures {
         blurDialog = null
     }
 
+    // ---------- Reflets et refraction en direct ----------
+
+    private fun startLive() {
+        sensors?.let { sm ->
+            val s = sm.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY)
+                ?: sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+            if (s != null) sm.registerListener(this, s, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+        }
+        main.removeCallbacks(captureRunnable)
+        if (Prefs.refraction(this) && Build.VERSION.SDK_INT >= 33) main.post(captureRunnable)
+    }
+
+    private fun stopLive() {
+        sensors?.unregisterListener(this)
+        main.removeCallbacks(captureRunnable)
+    }
+
+    override fun onSensorChanged(e: android.hardware.SensorEvent) {
+        // Gravite -> direction de la lumiere ; lissage pour un mouvement doux
+        val tx = (-e.values[0] / 9.81f).coerceIn(-1f, 1f)
+        val ty = (e.values[1] / 9.81f - 0.7f).coerceIn(-1f, 1f)
+        val nx = lightX + (tx - lightX) * 0.18f
+        val ny = lightY + (ty - lightY) * 0.18f
+        if (kotlin.math.abs(nx - lightX) + kotlin.math.abs(ny - lightY) < 0.004f) return
+        lightX = nx
+        lightY = ny
+        view?.let {
+            it.glass.lightX = lightX
+            it.glass.lightY = lightY
+            it.invalidate()
+        }
+    }
+
+    override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+
+    /** Capture l'ecran (via l'accessibilite) pour deformer le fond sur les bords de l'ilot. */
+    private fun requestCapture() {
+        if (Build.VERSION.SDK_INT < 33 || !screenOn || view == null) return
+        val acc = IslandAccessibility.instance ?: return
+        try {
+            acc.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor,
+                object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(r: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
+                        val hb = r.hardwareBuffer
+                        val bmp = android.graphics.Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
+                        if (bmp == null) { hb.close(); return }
+                        setBackdrop(bmp, hb)
+                        if (captureFails > 0 || backdropCount++ == 0) Log.i(TAG, "Fond capture pour le verre")
+                        captureFails = 0
+                    }
+                    override fun onFailure(code: Int) {
+                        if (captureFails++ < 3) Log.w(TAG, "Capture du fond refusee (code $code)")
+                    }
+                })
+        } catch (e: Exception) {
+            if (captureFails++ < 3) Log.w(TAG, "Capture du fond impossible : $e")
+        }
+    }
+
+    private var backdropCount = 0
+
+    private fun setBackdrop(bmp: android.graphics.Bitmap, hb: android.hardware.HardwareBuffer) {
+        val v = view
+        if (v == null) { bmp.recycle(); hb.close(); return }
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        val shader = android.graphics.BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val m = android.graphics.Matrix()
+        m.setTranslate(-loc[0].toFloat(), -loc[1].toFloat())
+        shader.setLocalMatrix(m)
+        val oldBmp = backdropBitmap
+        val oldHb = backdropBuffer
+        backdropBitmap = bmp
+        backdropBuffer = hb
+        v.glass.backdrop = shader
+        v.invalidate()
+        // L'ancienne image peut encore etre en cours de dessin : on la libere un peu plus tard
+        main.postDelayed({
+            try { oldBmp?.recycle() } catch (e: Exception) { }
+            try { oldHb?.close() } catch (e: Exception) { }
+        }, 1000)
+    }
+
+    private fun releaseBackdrop() {
+        view?.glass?.backdrop = null
+        try { backdropBitmap?.recycle() } catch (e: Exception) { }
+        try { backdropBuffer?.close() } catch (e: Exception) { }
+        backdropBitmap = null
+        backdropBuffer = null
+    }
+
     private fun statusBarHeight(): Int {
         val id = resources.getIdentifier("status_bar_height", "dimen", "android")
         return if (id > 0) resources.getDimensionPixelSize(id) else dp(28)
@@ -547,6 +667,8 @@ class IslandService : Service(), IslandGestures {
         if (wantBlur && blurDialog == null && !blurUnavailable) { rehost(); return }
         if (!wantBlur) removeBlur()
         v.glass.blurred = blurDialog != null
+        if (!Prefs.refraction(this)) { main.removeCallbacks(captureRunnable); releaseBackdrop() }
+        else if (screenOn) { main.removeCallbacks(captureRunnable); if (Build.VERSION.SDK_INT >= 33) main.post(captureRunnable) }
         v.pw = cw.toFloat()
         v.ph = ch.toFloat()
         applyWindow(big = false)
@@ -928,6 +1050,9 @@ class IslandService : Service(), IslandGestures {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        stopLive()
+        try { unregisterReceiver(screenReceiver) } catch (e: Exception) { }
+        releaseBackdrop()
         main.removeCallbacksAndMessages(null)
         stopAnims()
         view?.let { try { wm.removeView(it) } catch (e: Exception) { } }

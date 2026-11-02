@@ -88,6 +88,7 @@ grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vrai
 grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
+grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 
 # Mode encoche en dernier (journaux deja recuperes)

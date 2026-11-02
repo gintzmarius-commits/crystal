@@ -21,8 +21,12 @@ object Prefs {
     fun setTheme(c: Context, v: String) = sp(c).edit().putString("theme", v).apply()
 
     /** Flou du fond, limite a la forme de l'ilot */
-    fun blur(c: Context) = sp(c).getBoolean("blur2", true)
-    fun setBlur(c: Context, v: Boolean) = sp(c).edit().putBoolean("blur2", v).apply()
+    fun blur(c: Context) = sp(c).getBoolean("blur3", false)
+    fun setBlur(c: Context, v: Boolean) = sp(c).edit().putBoolean("blur3", v).apply()
+
+    /** Deformation du fond sur les bords (capture de l'ecran, Android 13+) */
+    fun refraction(c: Context) = sp(c).getBoolean("refraction", true)
+    fun setRefraction(c: Context, v: Boolean) = sp(c).edit().putBoolean("refraction", v).apply()
 
     fun isDark(c: Context): Boolean = when (theme(c)) {
         "dark" -> true

@@ -553,6 +553,14 @@ class MainActivity : Activity() {
         }
         c.addView(offsetRow)
         c.addView(switchRow(
+            "Déformation du fond (effet goutte d'eau)",
+            text("Le bord de l'îlot déforme ce qui est derrière lui. Android 13+, avec l'accessibilité", 13f, Glass.INK_SOFT),
+            Prefs.refraction(this)
+        ) {
+            Prefs.setRefraction(this, it)
+            IslandService.instance?.applySettings()
+        })
+        c.addView(switchRow(
             "Flou derrière l'îlot",
             text("Floute seulement ce qui est sous l'îlot (Android 12 et plus)", 13f, Glass.INK_SOFT),
             Prefs.blur(this)
