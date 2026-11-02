@@ -65,26 +65,79 @@ interface IslandGestures {
     fun outside()
 }
 
+/** Reconnait toucher, appui long et glissement vertical, pour l'ilot et pour la zone tactile. */
+class GestureTracker(
+    private val host: View,
+    private val gestures: () -> IslandGestures?,
+    private val inside: (Float, Float) -> Boolean
+) {
+    var longPressMs = 700L
+    private val slop = ViewConfiguration.get(host.context).scaledTouchSlop
+    private var downY = 0f
+    private var lastDy = 0f
+    var tracking = false
+        private set
+    var moved = false
+        private set
+    var longFired = false
+        private set
+    private val longRunnable = Runnable {
+        longFired = true
+        host.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        gestures()?.longPress()
+    }
+
+    /** [allowTap] = false quand l'evenement passe d'abord par un parent (un bouton du menu peut le prendre). */
+    fun handle(e: MotionEvent, allowTap: Boolean) {
+        val g = gestures()
+        when (e.actionMasked) {
+            MotionEvent.ACTION_OUTSIDE -> g?.outside()
+            MotionEvent.ACTION_DOWN -> {
+                if (!inside(e.x, e.y)) { g?.outside(); return }
+                tracking = true
+                moved = false
+                longFired = false
+                downY = e.y
+                lastDy = 0f
+                g?.press(true)
+                host.postDelayed(longRunnable, longPressMs)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!tracking) return
+                val dy = e.y - downY
+                lastDy = dy
+                if (!moved && abs(dy) > slop) {
+                    moved = true
+                    host.removeCallbacks(longRunnable)
+                    if (!longFired) g?.press(false)
+                }
+                if (moved && !longFired) g?.drag(dy)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!tracking) return
+                tracking = false
+                host.removeCallbacks(longRunnable)
+                if (longFired) return
+                if (moved) {
+                    // Android peut interrompre (CANCEL) un glissement parti du haut de l'ecran :
+                    // on garde alors la distance deja parcourue pour reconnaitre le geste.
+                    g?.release(if (e.actionMasked == MotionEvent.ACTION_UP) e.y - downY else lastDy)
+                } else {
+                    g?.press(false)
+                    if (allowTap && e.actionMasked == MotionEvent.ACTION_UP && inside(e.x, e.y)) g?.tap()
+                }
+            }
+        }
+    }
+}
+
 /** La vue de l'ilot : dessine le verre a la taille animee (pw x ph), y decoupe le contenu et lit les gestes. */
 class IslandView(ctx: Context) : FrameLayout(ctx) {
     val glass = LiquidGlass(ctx.resources.displayMetrics.density)
     var pw = 0f
     var ph = 0f
     var gestures: IslandGestures? = null
-    var longPressMs = 700L
-
-    private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
-    private var downY = 0f
-    private var downX = 0f
-    private var lastDy = 0f
-    private var tracking = false
-    private var moved = false
-    private var longFired = false
-    private val longRunnable = Runnable {
-        longFired = true
-        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        gestures?.longPress()
-    }
+    val tracker = GestureTracker(this, { gestures }, { x, y -> glass.rect.contains(x, y) })
 
     init {
         setWillNotDraw(false)
@@ -104,59 +157,25 @@ class IslandView(ctx: Context) : FrameLayout(ctx) {
 
     /** Les gestes passent avant les enfants, sauf un simple appui (laisse aux boutons du menu). */
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
-        track(e)
-        return moved || longFired
+        tracker.handle(e, allowTap = false)
+        return tracker.moved || tracker.longFired
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked != MotionEvent.ACTION_DOWN || !tracking) track(e)
-        if (e.actionMasked == MotionEvent.ACTION_UP && tracking.not() && !moved && !longFired && glass.rect.contains(e.x, e.y)) {
-            gestures?.tap()
-        }
+        if (e.actionMasked != MotionEvent.ACTION_DOWN || !tracker.tracking) tracker.handle(e, allowTap = true)
         return true
     }
+}
 
-    private fun track(e: MotionEvent) {
-        when (e.actionMasked) {
-            MotionEvent.ACTION_OUTSIDE -> gestures?.outside()
-            MotionEvent.ACTION_DOWN -> {
-                if (!glass.rect.contains(e.x, e.y)) { gestures?.outside(); return }
-                tracking = true
-                moved = false
-                longFired = false
-                downX = e.x
-                downY = e.y
-                lastDy = 0f
-                gestures?.press(true)
-                postDelayed(longRunnable, longPressMs)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (!tracking) return
-                val dy = e.y - downY
-                lastDy = dy
-                // Seul le deplacement vertical compte (la fenetre peut s'elargir pendant l'appui)
-                if (!moved && abs(dy) > slop) {
-                    moved = true
-                    removeCallbacks(longRunnable)
-                    if (!longFired) gestures?.press(false)
-                }
-                if (moved && !longFired) gestures?.drag(dy)
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!tracking) return
-                tracking = false
-                removeCallbacks(longRunnable)
-                if (longFired) return
-                if (moved) {
-                    // Android peut interrompre (CANCEL) un glissement parti du haut de l'ecran :
-                    // on garde alors la distance deja parcourue pour reconnaitre le geste.
-                    gestures?.release(if (e.actionMasked == MotionEvent.ACTION_UP) e.y - downY else lastDy)
-                } else {
-                    gestures?.press(false)
-                }
-            }
-        }
+/** Petite zone tactile invisible posee sur l'ilot replie (la grande fenetre, elle, laisse passer les touchers). */
+class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
+    private val tracker = GestureTracker(this, { gestures }, { _, _ -> true })
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        tracker.handle(e, allowTap = true)
+        return true
     }
 }
 
@@ -168,6 +187,8 @@ class IslandService : Service(), IslandGestures {
     private lateinit var wm: WindowManager
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
+    private var pad: TouchPad? = null
+    private lateinit var lpPad: WindowManager.LayoutParams
 
     private lateinit var content: LinearLayout
     private lateinit var iconView: ImageView
@@ -197,6 +218,7 @@ class IslandService : Service(), IslandGestures {
     private var eh = 0
     private var mh = 0
     private var contentTop = 0
+    private var menuTop = 0
     private val side get() = dp(16)
     private val bottomPad get() = dp(28)
 
@@ -246,16 +268,19 @@ class IslandService : Service(), IslandGestures {
         off = if (notch) 0 else dp(Prefs.offset(this))
         val screenW = resources.displayMetrics.widthPixels
         ew = max(cw, min(dp(360), screenW - dp(20)))
+        // Ouvert, l'ilot descend sous la barre d'etat pour que l'heure et la batterie ne cachent pas le texte
+        val sb = statusBarHeight()
         val body = dp(64)
         if (notch) {
-            eh = ch + body
-            contentTop = ch
+            contentTop = max(ch, sb) + dp(2)
+            menuTop = max(ch, sb)
         } else {
-            eh = max(dp(76), ch + dp(10))
-            contentTop = (eh - body) / 2
+            contentTop = max(dp(6), sb - off + dp(2))
+            menuTop = max(0, sb - off)
         }
+        eh = contentTop + body + dp(8)
         val rows = max(1, (Shortcuts.load(this).size + 3) / 4)
-        mh = (if (notch) ch else 0) + dp(14) * 2 + rows * dp(78)
+        mh = menuTop + dp(14) * 2 + rows * dp(78)
     }
 
     private fun createIsland() {
@@ -329,8 +354,15 @@ class IslandService : Service(), IslandGestures {
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             windowAnimations = 0
         }
+        lpPad = WindowManager.LayoutParams().apply {
+            copyFrom(lp)
+            flags = lp.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
+        }
         applyWindow(big = false, update = false)
         wm.addView(v, lp)
+        val p = TouchPad(this, this)
+        pad = p
+        wm.addView(p, lpPad)
         Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
 
@@ -338,22 +370,35 @@ class IslandService : Service(), IslandGestures {
         FrameLayout.LayoutParams(ew, dp(64), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = contentTop }
 
     private fun menuParams() =
-        FrameLayout.LayoutParams(ew, mh - (if (notch) ch else 0), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = if (notch) ch else 0
+        FrameLayout.LayoutParams(ew, mh - menuTop, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = menuTop
         }
 
-    /** Petite fenetre quand l'ilot est replie (pour ne pas bloquer l'ecran), grande quand il est ouvert. */
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(28)
+    }
+
+    /**
+     * La fenetre d'affichage garde toujours la meme taille (la redimensionner faisait sauter l'ilot sur Xiaomi).
+     * Replie : elle laisse passer les touchers et une petite zone tactile invisible prend le relais sur l'ilot.
+     * Ouvert : elle recoit les touchers et la zone tactile est desactivee.
+     */
     private fun applyWindow(big: Boolean, update: Boolean = true) {
         windowBig = big
+        val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         lp.y = off
-        if (big) {
-            lp.width = ew + 2 * side
-            lp.height = max(eh, mh) + bottomPad
-        } else {
-            lp.width = cw + 2 * side
-            lp.height = ch + dp(8)
+        lp.width = ew + 2 * side
+        lp.height = max(eh, mh) + bottomPad
+        lp.flags = if (big) lp.flags and noTouch.inv() else lp.flags or noTouch
+        lpPad.y = off
+        lpPad.width = cw + 2 * dp(6)
+        lpPad.height = ch + dp(8)
+        lpPad.flags = if (big) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
+        if (update) {
+            view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
+            pad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
         }
-        if (update) view?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
     }
 
     /** Recree la fenetre (quand l'accessibilite s'active ou se coupe). */
@@ -362,7 +407,9 @@ class IslandService : Service(), IslandGestures {
             stopAnims()
             main.removeCallbacks(collapseRunnable)
             view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             view = null
+            pad = null
             mode = Mode.COLLAPSED
             if (!Settings.canDrawOverlays(this) && IslandAccessibility.instance == null) {
                 stopSelf()
@@ -498,7 +545,9 @@ class IslandService : Service(), IslandGestures {
     private fun openNote(floating: Boolean) {
         val n = note ?: return
         val opts = ActivityOptions.makeBasic()
-        if (floating) {
+        // Taille de fenetre seulement si le telephone gere les fenetres libres (sinon Android peut mal le prendre)
+        val canFloat = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
+        if (floating && canFloat) {
             val sw = resources.displayMetrics.widthPixels
             val sh = resources.displayMetrics.heightPixels
             val w = (sw * 0.86f).toInt()
@@ -532,7 +581,7 @@ class IslandService : Service(), IslandGestures {
                 }
             }
         }
-        Log.i(TAG, "Ouverture ${n.pkg} (flottante=$floating, ok=$ok)")
+        Log.i(TAG, "Ouverture ${n.pkg} (flottante=$floating, ok=$ok, fenetres libres=$canFloat)")
         if (ok && n.autoCancel && n.key != null) NotifListener.cancel(n.key)
         collapse("ouverture")
     }
@@ -641,9 +690,8 @@ class IslandService : Service(), IslandGestures {
         note = null
         if (mode == Mode.MENU) disappear(menu, gone = true) else disappear(content)
         mode = Mode.COLLAPSED
-        animateIsland(cw.toFloat(), ch.toFloat(), 0f, opening = false) {
-            if (mode == Mode.COLLAPSED) applyWindow(big = false)
-        }
+        applyWindow(big = false)
+        animateIsland(cw.toFloat(), ch.toFloat(), 0f, opening = false)
     }
 
     // ---------- Gestes ----------
@@ -657,17 +705,9 @@ class IslandService : Service(), IslandGestures {
         val k = if (down) 1.1f else 1f
         val s = if (down) Spring.SOFT else Spring.POP
         val v = view ?: return
-        if (down && !windowBig) applyWindow(big = true)
         stopAnims()
-        val myGen = gen
         val a = spring(v.pw, cw * k, s) { v.pw = it }
         val b = spring(v.ph, ch * k, s) { v.ph = it }
-        if (!down) b.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                running.remove(animation)
-                if (myGen == gen && mode == Mode.COLLAPSED) applyWindow(big = false)
-            }
-        })
         running.add(a); running.add(b)
         a.start(); b.start()
     }
@@ -728,7 +768,9 @@ class IslandService : Service(), IslandGestures {
         main.removeCallbacksAndMessages(null)
         stopAnims()
         view?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+        pad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
         view = null
+        pad = null
         super.onDestroy()
     }
 

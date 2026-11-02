@@ -49,8 +49,12 @@ class IslandPreview(ctx: Context) : View(ctx) {
         val pw: Float
         val ph: Float
         if (expanded) {
+            // Meme calcul que l'ilot : le contenu commence sous la barre d'etat
+            val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+            val sb = if (id > 0) resources.getDimensionPixelSize(id) / d else 28f
+            val cTop = if (notch) maxOf(heightDp.toFloat(), sb) + 2f else maxOf(6f, sb - offsetDp + 2f)
             pw = minOf(360f, screenWDp - 20f) * s
-            ph = (if (notch) heightDp + 64f else maxOf(76f, heightDp + 10f)) * s
+            ph = (cTop + 64f + 8f) * s
         } else {
             pw = widthDp * s
             ph = heightDp * s

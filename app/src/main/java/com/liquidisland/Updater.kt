@@ -34,6 +34,7 @@ object Updater {
             connectTimeout = 10000
             readTimeout = 20000
             instanceFollowRedirects = true
+            useCaches = false
             setRequestProperty("Cache-Control", "no-cache")
         }
 
@@ -45,7 +46,7 @@ object Updater {
         fun post(s: State) = ui.post { onState(s) }
         Thread {
             try {
-                val remote = open(BASE + "version.txt").inputStream.bufferedReader().readText().trim().toInt()
+                val remote = open(BASE + "version.txt?t=" + System.currentTimeMillis()).inputStream.bufferedReader().readText().trim().toInt()
                 Log.i(TAG, "Version installee ${BuildConfig.VERSION_CODE}, en ligne $remote")
                 if (remote <= BuildConfig.VERSION_CODE) {
                     post(State.UpToDate); return@Thread

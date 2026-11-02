@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var updateText: TextView
     private lateinit var updateBar: ProgressBar
     private lateinit var updateButton: TextView
+    private lateinit var checkStatus: TextView
     private val rows = mutableListOf<PermRow>()
 
     private class PermRow(val chip: TextView, val check: () -> Boolean?)
@@ -160,10 +161,16 @@ class MainActivity : Activity() {
         })
         col.addView(opts)
 
-        col.addView(text("Version ${BuildConfig.VERSION_NAME}", 12f, Glass.INK_SOFT).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(24), 0, 0)
+        // Version et verification manuelle des mises a jour
+        col.addView(section("Mises à jour"))
+        val upd = card()
+        upd.addView(text("Version installée : ${BuildConfig.VERSION_NAME}", 15f, Glass.INK).apply {
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
+        checkStatus = text("", 13f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
+        upd.addView(checkStatus)
+        upd.addView(glassButton("Vérifier les mises à jour", primary = false) { checkUpdate(manual = true) }, buttonLp(top = 12))
+        col.addView(upd)
 
         val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
@@ -182,7 +189,6 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
         handleCi(intent)
-        checkUpdate()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -285,7 +291,11 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        // Verifie les mises a jour a chaque retour dans l'appli (pas plus d'une fois par minute)
+        if (System.currentTimeMillis() - lastCheck > 60_000) checkUpdate(manual = false)
     }
+
+    private var lastCheck = 0L
 
     // ---------- Mise a jour ----------
 
@@ -308,10 +318,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun checkUpdate() {
+    private fun checkUpdate(manual: Boolean) {
+        lastCheck = System.currentTimeMillis()
+        if (manual) checkStatus.text = "Recherche d'une nouvelle version…"
         Updater.check(this) { s ->
             when (s) {
-                is Updater.State.UpToDate -> updateCard.visibility = View.GONE
+                is Updater.State.UpToDate -> {
+                    updateCard.visibility = View.GONE
+                    checkStatus.text = "Tu as la dernière version."
+                }
                 is Updater.State.Available -> showUpdate("Nouvelle version disponible…", bar = false, button = false)
                 is Updater.State.Downloading -> {
                     showUpdate("Téléchargement de la mise à jour… ${s.percent} %", bar = true, button = false)
@@ -320,7 +335,10 @@ class MainActivity : Activity() {
                 is Updater.State.NeedsPermission ->
                     showUpdate("Nouvelle version disponible. Autorise Wave Island à installer ses mises à jour.", bar = false, button = true)
                 is Updater.State.Installing -> showUpdate("Installation de la mise à jour…", bar = false, button = false)
-                is Updater.State.Error -> updateCard.visibility = View.GONE
+                is Updater.State.Error -> {
+                    updateCard.visibility = View.GONE
+                    checkStatus.text = "Impossible de vérifier les mises à jour (${s.message}). Vérifie ta connexion."
+                }
             }
         }
     }
@@ -354,7 +372,7 @@ class MainActivity : Activity() {
         heroButton.text = if (running) "Arrêter" else "Démarrer"
         if (waitingInstallPermission && packageManager.canRequestPackageInstalls()) {
             waitingInstallPermission = false
-            checkUpdate()
+            checkUpdate(manual = true)
         }
     }
 
