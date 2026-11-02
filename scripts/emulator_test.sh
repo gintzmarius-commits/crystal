@@ -4,6 +4,9 @@
 P=com.liquidisland
 OUT=shots
 mkdir -p $OUT
+# Trace complete (commandes + erreurs) pour comprendre un eventuel blocage
+exec 2>>$OUT/trace.txt
+set -x
 # Chaque commande adb a une limite de temps : un blocage ne fige plus tout le test
 ADB_BIN=$(command -v adb)
 adb() { timeout 45 "$ADB_BIN" "$@"; }
@@ -70,6 +73,8 @@ adb shell input swipe 540 66 540 66 1200
 sleep 1
 shot 11-menu
 sleep 8
+adb devices >&2
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed" >&2
 
 adb shell am start -W -n $P/.MainActivity --es ci notch
 sleep 2
