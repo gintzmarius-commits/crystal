@@ -8,7 +8,12 @@ import android.util.Log
 class NotifListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
+        instance = this
         Log.i("LiquidIsland", "Acces aux notifications actif")
+    }
+
+    override fun onListenerDisconnected() {
+        if (instance === this) instance = null
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -30,13 +35,32 @@ class NotifListener : NotificationListenerService() {
         } catch (e: Exception) {
             null
         }
+        val autoCancel = n.flags and Notification.FLAG_AUTO_CANCEL != 0
 
-        IslandService.deliver(this, IslandNote(title, text, icon, n.contentIntent), sbn.packageName)
+        IslandService.deliver(
+            this,
+            IslandNote(title, text, icon, n.contentIntent, sbn.packageName, sbn.key, autoCancel),
+            sbn.packageName
+        )
 
         // Option : supprime la notification systeme pour que seul l'ilot l'affiche
         if (Prefs.hideSystem(this)) {
             try {
                 cancelNotification(sbn.key)
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    companion object {
+        @Volatile
+        private var instance: NotifListener? = null
+
+        /** Retire une notification du volet (apres l'avoir ouverte depuis l'ilot). */
+        fun cancel(key: String) {
+            try {
+                instance?.cancelNotification(key)
             } catch (e: Exception) {
                 // ignore
             }

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Test automatique sur emulateur : installe l'APK, accorde les autorisations,
-# demarre l'ilot, envoie une notif de test et une vraie notif, prend des captures.
+# Test automatique sur emulateur (Pixel 6 : 1080x2400, densite 2.625).
+# Installe l'APK, accorde les autorisations, teste l'ilot, les notifs, les gestes et le menu.
 P=com.liquidisland
 OUT=shots
 mkdir -p $OUT
@@ -40,6 +40,31 @@ shot 5-vraie-notif
 sleep 6
 shot 6-referme
 
+# Toucher la notif => ouvre l'appli concernee (ici Wave Island)
+adb shell am start -W -n $P/.MainActivity --es ci testbg
+sleep 2
+shot 9a-notif-sur-accueil
+adb shell input tap 540 121
+sleep 2
+shot 9-toucher-ouvre-appli
+
+# Glisser la notif vers le bas => ouverture en fenetre (flottante si le telephone l'accepte)
+adb shell input keyevent KEYCODE_HOME
+sleep 6
+adb shell am start -W -n $P/.MainActivity --es ci testbg
+sleep 2
+adb shell input swipe 540 110 540 520 350
+sleep 2
+shot 10-glisser-ouvre
+
+# Appui long sur l'ilot replie => mini menu
+adb shell input keyevent KEYCODE_HOME
+sleep 6
+adb shell input swipe 540 66 540 66 1200
+sleep 1
+shot 11-menu
+sleep 8
+
 adb shell am start -W -n $P/.MainActivity --es ci notch
 sleep 2
 adb shell input keyevent KEYCODE_HOME
@@ -57,5 +82,8 @@ grep -q "FATAL EXCEPTION" $OUT/logcat-complet.txt && grep -A12 "FATAL EXCEPTION"
 grep -q "Ilot affiche" $OUT/log.txt || { echo "::error::L'ilot ne s'est pas affiche"; fail=1; }
 grep -q "Notification affichee : Wave Island" $OUT/log.txt || { echo "::error::La notif de test n'est pas arrivee"; fail=1; }
 grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vraie notif n'est pas arrivee"; fail=1; }
+grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la notif n'a pas ouvert l'appli"; fail=1; }
+grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
+grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 exit $fail

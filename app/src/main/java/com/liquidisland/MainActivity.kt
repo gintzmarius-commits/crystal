@@ -82,6 +82,10 @@ class MainActivity : Activity() {
         col.addView(section("Apparence"))
         col.addView(appearanceCard())
 
+        // Raccourcis du mini menu
+        col.addView(section("Menu de l'îlot"))
+        col.addView(shortcutsCard())
+
         // Ilot Xiaomi
         if (isXiaomi) {
             col.addView(section("Îlot de Xiaomi"))
@@ -189,7 +193,89 @@ class MainActivity : Activity() {
             "test" -> sendTest()
             "notch" -> setNotch(true)
             "island" -> setNotch(false)
+            "menu" -> IslandService.instance?.showMenu()
+            "testbg" -> {
+                // Notif de test puis retour a l'accueil : sert a verifier que toucher la notif rouvre l'appli
+                sendTest()
+                ui.postDelayed({ moveTaskToBack(true) }, 150)
+            }
         }
+    }
+
+    // ---------- Raccourcis ----------
+
+    private lateinit var shortcutsList: LinearLayout
+
+    private fun shortcutsCard(): View {
+        val c = card()
+        c.addView(text(
+            "Reste appuyé sur l'îlot pour ouvrir ce menu. Jusqu'à ${Shortcuts.MAX} raccourcis.",
+            14f, Glass.INK_SOFT
+        ).apply { setPadding(0, 0, 0, dp(6)) })
+        shortcutsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        c.addView(shortcutsList)
+        c.addView(glassButton("Ajouter un raccourci", primary = false) { addShortcutDialog() }, buttonLp(top = 12))
+        renderShortcuts()
+        return c
+    }
+
+    private fun renderShortcuts() {
+        shortcutsList.removeAllViews()
+        val ids = Shortcuts.load(this)
+        ids.forEachIndexed { i, id ->
+            val item = Shortcuts.resolve(this, id) ?: return@forEachIndexed
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(2), dp(8), 0, dp(8))
+            }
+            row.addView(android.widget.ImageView(this).apply {
+                setImageDrawable(item.icon)
+                if (item.tintIcon) imageTintList = ColorStateList.valueOf(Glass.INK)
+                val p = if (item.tintIcon) dp(6) else 0
+                setPadding(p, p, p, p)
+                background = Glass.chip(Glass.ACCENT, dpf(18))
+            }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(14) })
+            row.addView(text(item.label, 15f, Glass.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (i > 0) row.addView(smallButton("↑") {
+                val l = ids.toMutableList(); l.removeAt(i); l.add(i - 1, id); saveShortcuts(l)
+            })
+            row.addView(smallButton("✕") {
+                saveShortcuts(ids.filterIndexed { j, _ -> j != i })
+            })
+            shortcutsList.addView(row)
+            if (i < ids.size - 1) shortcutsList.addView(divider())
+        }
+        if (ids.isEmpty()) shortcutsList.addView(text("Aucun raccourci pour l'instant.", 14f, Glass.INK_SOFT))
+    }
+
+    private fun smallButton(label: String, action: () -> Unit) = text(label, 16f, Glass.INK_SOFT).apply {
+        gravity = Gravity.CENTER
+        background = Glass.pressable(ColorDrawable(Color.TRANSPARENT), dpf(18))
+        isClickable = true
+        setOnClickListener { action() }
+        layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+    }
+
+    private fun saveShortcuts(list: List<String>) {
+        Shortcuts.save(this, list)
+        renderShortcuts()
+        IslandService.instance?.applySettings()
+    }
+
+    private fun addShortcutDialog() {
+        val current = Shortcuts.load(this)
+        if (current.size >= Shortcuts.MAX) {
+            Toast.makeText(this, "Maximum ${Shortcuts.MAX} raccourcis : retires-en un d'abord", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val choices = Shortcuts.ACTIONS.filter { it.first !in current }.map { it.first to "⚡ " + it.second } +
+            Shortcuts.launchableApps(this).filter { it.first !in current }
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
+            .setTitle("Ajouter un raccourci")
+            .setItems(choices.map { it.second }.toTypedArray()) { _, w -> saveShortcuts(current + choices[w].first) }
+            .setNegativeButton("Annuler", null)
+            .show()
     }
 
     override fun onResume() {
