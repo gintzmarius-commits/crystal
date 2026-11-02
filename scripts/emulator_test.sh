@@ -5,7 +5,8 @@ P=com.liquidisland
 OUT=shots
 mkdir -p $OUT
 # Chaque commande adb a une limite de temps : un blocage ne fige plus tout le test
-adb() { timeout 45 command adb "$@"; }
+ADB_BIN=$(command -v adb)
+adb() { timeout 45 "$ADB_BIN" "$@"; }
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; echo "::notice::capture $1"; }
 fail=0
 
