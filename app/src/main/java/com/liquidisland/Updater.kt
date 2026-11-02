@@ -75,7 +75,7 @@ object Updater {
                 install(app, file)
                 post(State.Installing)
             } catch (e: Exception) {
-                Log.w(TAG, "Mise a jour impossible", e)
+                Log.w(TAG, "Mise a jour impossible : $e")
                 post(State.Error(e.message ?: e.javaClass.simpleName))
             } finally {
                 busy = false

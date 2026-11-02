@@ -92,5 +92,5 @@ jobs:
         run: |
           ls shots || exit 0
           gh release delete tests -y --cleanup-tag || true
-          gh release create tests shots/*.png shots/log.txt --prerelease \
+          gh release create tests shots/*.png shots/log.txt shots/logcat-complet.txt --prerelease \
             --title "Captures de test" --notes "Captures automatiques sur emulateur Android 14."

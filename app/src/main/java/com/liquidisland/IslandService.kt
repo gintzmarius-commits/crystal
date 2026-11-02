@@ -177,7 +177,7 @@ class IslandService : Service(), IslandGestures {
     private val running = mutableListOf<Animator>()
     private var blurAnim: ValueAnimator? = null
     private var gen = 0
-    private val collapseRunnable = Runnable { collapse() }
+    private val collapseRunnable = Runnable { collapse("minuteur") }
 
     private val density get() = resources.displayMetrics.density
     private fun dp(v: Float) = (v * density).toInt()
@@ -394,7 +394,6 @@ class IslandService : Service(), IslandGestures {
         gen++
         running.toList().forEach { it.cancel() }
         running.clear()
-        blurAnim?.cancel()
     }
 
     private fun spring(from: Float, to: Float, s: Spring, delay: Long = 0, set: (Float) -> Unit): ValueAnimator =
@@ -535,7 +534,7 @@ class IslandService : Service(), IslandGestures {
         }
         Log.i(TAG, "Ouverture ${n.pkg} (flottante=$floating, ok=$ok)")
         if (ok && n.autoCancel && n.key != null) NotifListener.cancel(n.key)
-        collapse()
+        collapse("ouverture")
     }
 
     // ---------- Menu ----------
@@ -604,7 +603,7 @@ class IslandService : Service(), IslandGestures {
                 }.start()
                 main.postDelayed({
                     Shortcuts.run(this@IslandService, item.id)
-                    collapse()
+                    collapse("raccourci")
                 }, 140)
             }
         }
@@ -636,7 +635,8 @@ class IslandService : Service(), IslandGestures {
         Log.i(TAG, "Menu ouvert")
     }
 
-    private fun collapse() {
+    private fun collapse(reason: String) {
+        Log.i(TAG, "Repli ($reason)")
         main.removeCallbacks(collapseRunnable)
         note = null
         if (mode == Mode.MENU) disappear(menu, gone = true) else disappear(content)
@@ -649,6 +649,9 @@ class IslandService : Service(), IslandGestures {
     // ---------- Gestes ----------
 
     override fun press(down: Boolean) {
+        Log.i(TAG, "Geste appui=$down mode=$mode")
+        if (down && mode != Mode.COLLAPSED) main.removeCallbacks(collapseRunnable)
+        if (!down && mode == Mode.NOTIF) main.postDelayed(collapseRunnable, 4000)
         if (mode != Mode.COLLAPSED) return
         // L'ilot gonfle legerement sous le doigt, comme sur iPhone
         val k = if (down) 1.1f else 1f
@@ -670,9 +673,10 @@ class IslandService : Service(), IslandGestures {
     }
 
     override fun tap() {
+        Log.i(TAG, "Geste toucher mode=$mode")
         when (mode) {
             Mode.NOTIF -> openNote(floating = false)
-            Mode.MENU -> collapse()
+            Mode.MENU -> collapse("toucher le menu")
             Mode.COLLAPSED -> {}
         }
     }
@@ -692,13 +696,14 @@ class IslandService : Service(), IslandGestures {
     }
 
     override fun release(dy: Float) {
+        Log.i(TAG, "Geste relache dy=$dy mode=$mode")
         if (mode != Mode.NOTIF) {
             if (mode == Mode.COLLAPSED) press(false)
             return
         }
         when {
             dy > dp(40) -> openNote(floating = true)
-            dy < -dp(24) -> collapse()
+            dy < -dp(24) -> collapse("glisser vers le haut")
             else -> {
                 animateIsland(ew.toFloat(), eh.toFloat(), 1f, opening = true)
                 main.postDelayed(collapseRunnable, 4000)
@@ -707,7 +712,8 @@ class IslandService : Service(), IslandGestures {
     }
 
     override fun outside() {
-        if (mode == Mode.MENU) collapse()
+        Log.i(TAG, "Geste dehors mode=$mode")
+        if (mode == Mode.MENU) collapse("toucher dehors")
     }
 
     override fun onDestroy() {
