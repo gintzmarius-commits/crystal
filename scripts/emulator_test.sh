@@ -93,7 +93,10 @@ grep -q "Notification affichee : Wave Island" $OUT/log.txt || { echo "::error::L
 grep -q "Notification affichee : Marie" $OUT/log.txt || { echo "::error::La vraie notif n'est pas arrivee"; fail=1; }
 grep -q "flottante=false, ok=true" $OUT/log.txt || { echo "::error::Toucher la notif n'a pas ouvert l'appli"; fail=1; }
 grep -q "flottante=true, ok=true" $OUT/log.txt || { echo "::error::Glisser la notif n'a pas ouvert l'appli"; fail=1; }
-grep -q "Plein ecran : oui" $OUT/log.txt || echo "::warning::Le plein ecran n'a pas ete detecte"
+grep -q "Plein ecran : oui" $OUT/log.txt || { echo "::error::Le plein ecran n'a pas ete detecte"; fail=1; }
+# Avant le test plein ecran, l'ilot ne doit jamais se croire en plein ecran
+awk '/Plein ecran : oui/{print; exit}' $OUT/log.txt > $OUT/premier-plein.txt
+grep -q "Menu ouvert" $OUT/log.txt && [ "$(grep -n 'Plein ecran : oui' $OUT/log.txt | head -1 | cut -d: -f1)" -lt "$(grep -n 'Menu ouvert' $OUT/log.txt | head -1 | cut -d: -f1)" ] && { echo "::error::L'ilot s'est cru en plein ecran trop tot"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done

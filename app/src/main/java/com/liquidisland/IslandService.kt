@@ -191,6 +191,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
     private var pad: TouchPad? = null
+    private var probe: View? = null
     private var blurDialog: android.app.Dialog? = null
     private var blurKey = ""
     private var blurUnavailable = false
@@ -321,6 +322,40 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         }
     }
 
+    /**
+     * Detection du plein ecran : une fenetre invisible de 1 px, placee SOUS la barre d'etat
+     * (la fenetre de l'ilot, au-dessus, ne voit pas la barre d'etat et ne peut pas savoir si elle est cachee).
+     */
+    private fun addProbe() {
+        if (Build.VERSION.SDK_INT < 30 || probe != null || !Settings.canDrawOverlays(this)) return
+        val appWm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val pv = View(this)
+        pv.setOnApplyWindowInsetsListener { view, insets ->
+            val sb = android.view.WindowInsets.Type.statusBars()
+            // Plein ecran = la barre d'etat existe mais est cachee
+            val exists = insets.getInsetsIgnoringVisibility(sb).top > 0
+            onStatusBar(!exists || insets.isVisible(sb))
+            view.onApplyWindowInsets(insets)
+        }
+        val plp = WindowManager.LayoutParams(
+            1, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        try {
+            appWm.addView(pv, plp)
+            probe = pv
+        } catch (e: Exception) {
+            Log.w(TAG, "Detection du plein ecran impossible : $e")
+        }
+    }
+
+    private fun removeProbe() {
+        probe?.let { try { (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(it) } catch (e: Exception) { } }
+        probe = null
+    }
+
     /** Taille de l'ilot au repos : normale, cachee, ou juste autour de la camera en plein ecran. */
     private fun restSize(): Pair<Float, Float> {
         if (!fullscreen) return cw.toFloat() to ch.toFloat()
@@ -420,13 +455,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         styleText(textView)
         v.gestures = this
         v.onShape = { l, w, h -> moveBlur(l, w, h) }
-        // Barre d'etat cachee = appli en plein ecran (video, jeu) : l'ilot se cache ou se reduit
-        if (Build.VERSION.SDK_INT >= 30) {
-            v.setOnApplyWindowInsetsListener { view, insets ->
-                onStatusBar(insets.isVisible(android.view.WindowInsets.Type.statusBars()))
-                view.onApplyWindowInsets(insets)
-            }
-        }
+
         view = v
 
         // Avec l'accessibilite, l'ilot passe au-dessus de la barre d'etat et recoit les touchers
@@ -463,6 +492,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val p = TouchPad(this, this)
         pad = p
         wm.addView(p, lpPad)
+        addProbe()
         Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
 
@@ -1173,6 +1203,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun onDestroy() {
         if (instance === this) instance = null
         stopLive()
+        removeProbe()
         try { unregisterReceiver(screenReceiver) } catch (e: Exception) { }
         releaseBackdrop()
         main.removeCallbacksAndMessages(null)
