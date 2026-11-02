@@ -505,13 +505,8 @@ class IslandService : Service(), IslandGestures {
             val h = (sh * 0.55f).toInt()
             val top = dp(90)
             opts.setLaunchBounds(Rect((sw - w) / 2, top, (sw + w) / 2, top + h))
-            try {
-                // Mode « fenetre flottante » d'Android : accepte seulement par certains telephones
-                ActivityOptions::class.java.getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
-                    .invoke(opts, 5)
-            } catch (e: Throwable) {
-                Log.i(TAG, "Fenetre flottante non proposee par ce telephone : ${e.javaClass.simpleName}")
-            }
+            // Taille de fenetre demandee : respectee par les telephones qui ont les fenetres libres.
+            // (Forcer le mode flottant passe par une fonction cachee d'Android, trop risquee.)
         }
         if (Build.VERSION.SDK_INT >= 34) {
             @Suppress("DEPRECATION")
