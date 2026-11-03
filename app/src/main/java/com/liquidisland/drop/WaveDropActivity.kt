@@ -67,20 +67,14 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         nfc = try { NfcAdapter.getDefaultAdapter(this) } catch (e: Exception) { null }
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            // Toucher a cote du panneau le referme
-            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_UP) close(); true }
-        }
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.TRANSPARENT) }
         // Panneau en verre liquide transparent, comme sur PC (pas de fond sombre)
         panel = GlassPanel(this, 34f).apply {
             setPadding(dp(18), dp(18), dp(18), dp(20))
             isClickable = true
         }
         val top = dp(if (Prefs.notch(this)) 0 else Prefs.offset(this)) + dp(Prefs.height(this)) + dp(10)
-        root.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = top; leftMargin = dp(10); rightMargin = dp(10)
-        })
+        root.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // En-tete
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -106,6 +100,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         }
         panel.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)).apply { topMargin = dp(8) })
         setContentView(root)
+        placeWindow(top)
 
         handleIntent(intent)
         dropIn()
@@ -122,6 +117,52 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         if (r != null) showRequest(r)
         else if (WaveDrop.outgoing != null) showTargets()
         else showCategories()
+    }
+
+    // ================== Fenetre : juste le panneau, avec le flou d'Android derriere ==================
+
+    private var blurOn = false
+    private var blurLevel = 0f
+    private val blurListener = java.util.function.Consumer<Boolean> { on -> blurOn = on; applyBlur(blurLevel) }
+
+    /**
+     * La fenetre a exactement la taille du panneau (sous l'ilot). Derriere, Android floute l'ecran
+     * (comme le verre depoli du PC) : le panneau reste transparent et liquide, mais lisible sur n'importe quel fond.
+     * Toucher a cote le referme sans bloquer le reste de l'ecran.
+     */
+    private fun placeWindow(top: Int) {
+        val dm = resources.displayMetrics
+        window.setLayout(dm.widthPixels - dp(20), ViewGroup.LayoutParams.WRAP_CONTENT)
+        window.attributes = window.attributes.apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = top
+            if (Build.VERSION.SDK_INT >= 28) layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        if (Build.VERSION.SDK_INT >= 31) {
+            blurOn = windowManager.isCrossWindowBlurEnabled
+            try { windowManager.addCrossWindowBlurEnabledListener(mainExecutor, blurListener) } catch (e: Exception) { }
+        }
+        applyBlur(0f)
+        Log.i("LiquidIsland", "Wave Drop : flou derriere le panneau = $blurOn")
+    }
+
+    /** [f] = 0 (ferme) a 1 (ouvert). Sans flou (economie d'energie, vieux Android) : verre plus teinte. */
+    private fun applyBlur(f: Float) {
+        blurLevel = f
+        val tint = if (blurOn) 46 else 200
+        window.setBackgroundDrawable(GradientDrawable().apply {
+            cornerRadius = dpf(34)
+            setColor(Color.argb((tint * f).toInt(), 12, 16, 24))
+        })
+        if (Build.VERSION.SDK_INT >= 31 && blurOn) window.setBackgroundBlurRadius((dpf(26) * f).toInt())
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) { close(); return true }
+        return super.onTouchEvent(event)
     }
 
     // ================== Animation : le panneau coule depuis l'ilot ==================
@@ -146,6 +187,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
                     panel.scaleX = sx + (1f - sx) * f
                     panel.scaleY = 0.08f + 0.92f * f
                     panel.translationY = -dpf(14) * (1f - f)
+                    applyBlur(it.animatedFraction)
                 }
                 start()
             }
@@ -169,6 +211,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
                 panel.scaleX = 1f + (tx - 1f) * f
                 panel.scaleY = 1f - 0.94f * f
                 panel.alpha = 1f - 0.6f * f
+                applyBlur(1f - it.animatedFraction)
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
@@ -433,6 +476,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         WaveDrop.uis.remove(this)
         // Fenetre fermee sans repondre : on refuse
         request?.let { if (!it.accepted) it.answer(false) }
+        if (Build.VERSION.SDK_INT >= 31) try { windowManager.removeCrossWindowBlurEnabledListener(blurListener) } catch (e: Exception) { }
         super.onDestroy()
     }
 

@@ -124,6 +124,12 @@ class GestureTracker(
                 tracking = false
                 host.removeCallbacks(longRunnable)
                 if (longFired) return
+                // Telephone charge : les mouvements peuvent arriver regroupes (ou pas du tout) avant le lever.
+                // Le doigt a quand meme parcouru la distance : c'est un glissement, pas un toucher.
+                if (!moved && e.actionMasked == MotionEvent.ACTION_UP && abs(e.y - downY) > slop * 2) {
+                    moved = true
+                    g?.press(false)
+                }
                 if (moved) {
                     // Android peut interrompre (CANCEL) un glissement parti du haut de l'ecran :
                     // on garde alors la distance deja parcourue pour reconnaitre le geste.
