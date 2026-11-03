@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wave Drop : quand deux telephones se collent, celui qui envoie lit cette « carte » pour savoir qui est l'autre -->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/wavedrop_nfc"
+    android:requireDeviceUnlock="false">
+    <aid-group android:category="other" android:description="@string/wavedrop_nfc">
+        <aid-filter android:name="F05741564544524F50" />
+    </aid-group>
+</host-apdu-service>

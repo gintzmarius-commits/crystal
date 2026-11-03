@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="accessibility_description">Permet à Wave Island de s\'afficher au-dessus de la barre d\'état pour que tu puisses toucher, glisser et rester appuyé sur l\'îlot. Pour l\'effet de verre, l\'appli capture la zone autour de l\'îlot et la déforme sur ses bords : rien n\'est enregistré ni envoyé. Elle intercepte aussi les boutons de volume pour afficher son propre indicateur. Wave Island ne lit pas le texte de ton écran.</string>
+    <string name="wavedrop_nfc">Wave Drop : envoyer des fichiers en collant deux téléphones</string>
 </resources>

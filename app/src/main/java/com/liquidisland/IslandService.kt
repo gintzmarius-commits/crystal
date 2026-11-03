@@ -377,6 +377,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (LiveCapture.pendingResult != null) startLiveCapture()
         updateNotif()
         mediaWatcher = MediaWatcher(this, main) { onMediaChanged() }.also { it.start() }
+        // Wave Drop : envoi / reception de fichiers entre appareils
+        com.liquidisland.drop.WaveDrop.init(this)
+        com.liquidisland.drop.WaveDrop.uis.add(dropUi)
+        try { com.liquidisland.drop.WaveDrop.start(this) } catch (e: Exception) { Log.w(TAG, "Wave Drop : demarrage impossible", e) }
         main.postDelayed(updateCheck, 15_000)
         NotifListener.replayTasks()
     }
@@ -1518,6 +1522,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun longPress() = showMenu()
 
     override fun drag(dy: Float) {
+        if (mode == Mode.COLLAPSED && !opening && dy > 0 && com.liquidisland.drop.WaveDrop.enabled(this)) {
+            // L'ilot s'etire comme une goutte avant de lacher le panneau Wave Drop
+            val v = view ?: return
+            stopAnims()
+            v.ph = ch + min(sqrt(dy) * dp(3).toFloat() / 2f, dp(26).toFloat())
+            v.pw = restW() - min(dy * 0.04f, dp(10).toFloat())
+            v.invalidate()
+            return
+        }
         if (mode != Mode.NOTIF || opening) return
         val v = view ?: return
         // Assez tire vers le bas : on ouvre tout de suite, sans attendre que le doigt se leve
@@ -1539,7 +1552,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun release(dy: Float) {
         Log.i(TAG, "Geste relache dy=$dy mode=$mode")
         if (mode != Mode.NOTIF) {
-            if (mode == Mode.COLLAPSED) press(false)
+            if (mode == Mode.COLLAPSED) {
+                if (dy > dp(30) && com.liquidisland.drop.WaveDrop.enabled(this)) openWaveDrop() else press(false)
+            }
             return
         }
         when {
@@ -1561,6 +1576,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (instance === this) instance = null
         mediaWatcher?.stop()
         mediaWatcher = null
+        com.liquidisland.drop.WaveDrop.uis.remove(dropUi)
+        com.liquidisland.drop.WaveDrop.stop()
         stopLive()
         live?.stop()
         live = null
@@ -1579,6 +1596,41 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         view = null
         pad = null
         super.onDestroy()
+    }
+
+    // ---------- Wave Drop dans l'ilot ----------
+
+    private val dropUi = object : com.liquidisland.drop.WaveDrop.Ui {
+        private val icon get() = applicationInfo.loadIcon(packageManager)
+
+        override fun request(r: com.liquidisland.drop.WaveDrop.Request) {
+            show(IslandNote(
+                "${r.from} veut t'envoyer un fichier",
+                r.offer.name + " · " + com.liquidisland.drop.WaveDropActivity.size(r.offer.size) + " — touche pour répondre",
+                icon, null, packageName,
+                action = { com.liquidisland.drop.WaveDropActivity.open(this@IslandService, r.id) }
+            ))
+        }
+
+        override fun progress(title: String, text: String, done: Long, total: Long) {
+            task(ProgressNow("wave-drop", packageName, title, text,
+                if (total > 0) (done * 1000 / total).toInt() else 0, 1000, total <= 0, icon, null), force = true)
+        }
+
+        override fun finished(title: String, text: String, ok: Boolean, received: android.net.Uri?, mime: String?) {
+            taskGone("wave-drop")
+            show(IslandNote(title, text + if (received != null) " — touche pour l'ouvrir" else "", icon, null, packageName,
+                action = { if (received != null) com.liquidisland.drop.WaveDropActivity.openFile(this@IslandService, received, mime) }))
+        }
+    }
+
+    /** Glisser l'ilot replie vers le bas : le panneau Wave Drop coule depuis l'ilot. */
+    private fun openWaveDrop() {
+        Log.i(TAG, "Wave Drop : panneau ouvert depuis l'ilot")
+        view?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        com.liquidisland.drop.WaveDropActivity.open(this)
+        val (rw, rh) = restSize()
+        animateIsland(rw, rh, 0f, opening = false)
     }
 
     // ---------- Mises a jour depuis l'ilot ----------

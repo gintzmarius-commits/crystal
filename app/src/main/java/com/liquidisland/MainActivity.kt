@@ -10,6 +10,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -63,7 +64,7 @@ class MainActivity : Activity() {
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(70), dp(18), dp(40))
+            setPadding(dp(18), dp(70), dp(18), dp(130))
         }
 
         val header = LinearLayout(this).apply {
@@ -212,9 +213,16 @@ class MainActivity : Activity() {
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(col)
         }
+        settingsPage = scroll
+        dropPage = buildDropPage().apply { visibility = View.GONE }
         val root = FrameLayout(this).apply {
             background = Glass.background(resources.displayMetrics.widthPixels)
             addView(scroll)
+            addView(dropPage)
+            // Onglets en bas : Parametres et Wave Drop
+            addView(tabBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(58), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dp(24)
+            })
         }
         setContentView(root)
 
@@ -235,6 +243,9 @@ class MainActivity : Activity() {
     private fun handleCi(i: Intent?) {
         when (i?.getStringExtra("ci")) {
             "start" -> startIsland()
+            "drop" -> selectTab(1)
+            "dropon" -> { selectTab(1); enableDrop(true) }
+            "dropsend" -> com.liquidisland.drop.WaveDropActivity.open(this)
             "test" -> sendTest()
             "notch" -> setNotch(true)
             "island" -> setNotch(false)
@@ -248,6 +259,211 @@ class MainActivity : Activity() {
                 sendTest()
                 ui.postDelayed({ moveTaskToBack(true) }, 150)
             }
+        }
+    }
+
+    // ---------- Onglets ----------
+
+    private lateinit var settingsPage: View
+    private lateinit var dropPage: View
+    private val tabs = mutableListOf<TextView>()
+    private var tab = 0
+
+    private fun tabBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpf(29)
+                setColor(Color.argb(200, 16, 26, 22))
+                setStroke(maxOf(1, dp(1)), Color.argb(70, 255, 255, 255))
+            }
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            elevation = dpf(10)
+        }
+        listOf("⚙  Paramètres", "📡  Wave Drop").forEachIndexed { i, label ->
+            val t = text(label, 15f, Glass.INK).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(20), 0, dp(20), 0)
+                isClickable = true
+                setOnClickListener { selectTab(i) }
+            }
+            tabs.add(t)
+            bar.addView(t, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        paintTabs()
+        return bar
+    }
+
+    private fun paintTabs() {
+        tabs.forEachIndexed { i, t ->
+            val on = i == tab
+            t.background = if (on) Glass.tinted(d, dpf(24)) else null
+            t.setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+        }
+    }
+
+    private fun selectTab(i: Int) {
+        if (i == tab) return
+        tab = i
+        paintTabs()
+        val show = if (i == 0) settingsPage else dropPage
+        val hide = if (i == 0) dropPage else settingsPage
+        hide.animate().alpha(0f).setDuration(120).withEndAction { hide.visibility = View.GONE }.start()
+        show.alpha = 0f
+        show.translationY = dpf(12)
+        show.visibility = View.VISIBLE
+        val s = Spring.SOFT
+        show.animate().alpha(1f).translationY(0f).setDuration(s.durationMs).setInterpolator(s).start()
+        if (i == 1) { refreshDrop(); ui.removeCallbacks(dropTick); ui.post(dropTick) } else ui.removeCallbacks(dropTick)
+    }
+
+    // ---------- Wave Drop ----------
+
+    private lateinit var dropSwitch: Switch
+    private lateinit var dropStatus: TextView
+    private lateinit var dropNearby: LinearLayout
+    private lateinit var dropHistory: LinearLayout
+    private val dropTick = object : Runnable {
+        override fun run() { refreshDropNearby(); ui.postDelayed(this, 2000) }
+    }
+
+    private fun buildDropPage(): View {
+        com.liquidisland.drop.WaveDrop.init(this)
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(70), dp(18), dp(130))
+        }
+        col.addView(text("Wave Drop", 32f, Glass.INK, bold = true))
+        col.addView(text("Envoie n'importe quel fichier à un appareil proche, comme AirDrop : téléphone ou PC avec Wave Island.", 15f, Glass.INK_SOFT).apply {
+            setPadding(0, dp(2), 0, dp(18))
+        })
+
+        val main = card(strong = true)
+        val row = switchRow(
+            "Activer Wave Drop",
+            text("Ton appareil devient visible des appareils Wave Drop tout proches", 13f, Glass.INK_SOFT),
+            com.liquidisland.drop.WaveDrop.enabled(this)
+        ) { on -> if (on && !com.liquidisland.drop.WaveDrop.hasPermissions(this)) {
+                requestPermissions(com.liquidisland.drop.WaveDrop.permissions(), DROP_PERMS)
+            } else enableDrop(on)
+        }
+        dropSwitch = (row as LinearLayout).getChildAt(1) as Switch
+        main.addView(row)
+        main.addView(divider())
+        main.addView(text("Nom de cet appareil", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, dp(4)) })
+        val name = android.widget.EditText(this).apply {
+            setText(com.liquidisland.drop.WaveDrop.myName)
+            setTextColor(Glass.INK)
+            textSize = 16f
+            setSingleLine()
+            background = Glass.card(d, dpf(16), strong = true)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    if (!e.isNullOrBlank()) com.liquidisland.drop.WaveDrop.myName = e.toString()
+                }
+            })
+        }
+        main.addView(name)
+        dropStatus = text("", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), dp(4), 0) }
+        main.addView(dropStatus)
+        main.addView(glassButton("Envoyer un fichier", primary = true) { com.liquidisland.drop.WaveDropActivity.open(this) }, buttonLp(top = 14))
+        main.addView(text("Astuce : glisse l'îlot vers le bas pour ouvrir Wave Drop depuis n'importe où.", 12f, Glass.INK_SOFT).apply {
+            setPadding(dp(4), dp(10), dp(4), 0)
+        })
+        col.addView(main)
+
+        col.addView(section("Appareils autour"))
+        dropNearby = card()
+        col.addView(dropNearby)
+
+        col.addView(section("Reçus récemment"))
+        dropHistory = card()
+        col.addView(dropHistory)
+
+        col.addView(section("Comment ça marche"))
+        val how = card()
+        how.addView(text(
+            "• Les deux appareils ont Wave Island et Wave Drop activé.\n" +
+                "• Choisis le fichier (glisse l'îlot vers le bas), puis colle l'autre téléphone au dos du tien (NFC) " +
+                "ou rapproche l'appareil (Bluetooth) : il apparaît, touche « Envoyer ».\n" +
+                "• L'autre doit accepter avant que quoi que ce soit n'arrive. Tout est chiffré de bout en bout.\n" +
+                "• Même Wi-Fi : transfert rapide. Sinon : Bluetooth, automatiquement (plus lent).\n" +
+                "• Les fichiers reçus vont dans Téléchargements › Wave Drop.",
+            14f, Glass.INK_SOFT
+        ).apply { setLineSpacing(0f, 1.2f) })
+        col.addView(how)
+
+        return ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(col)
+        }
+    }
+
+    private fun enableDrop(on: Boolean) {
+        val wd = com.liquidisland.drop.WaveDrop
+        wd.setEnabled(this, on)
+        if (on) { wd.restart(this); if (IslandService.instance == null) startIsland() } else wd.stop()
+        if (::dropSwitch.isInitialized && dropSwitch.isChecked != on) dropSwitch.isChecked = on
+        refreshDrop()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != DROP_PERMS) return
+        if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) enableDrop(true)
+        else {
+            Toast.makeText(this, "Bluetooth refusé : Wave Drop marchera seulement sur le même Wi-Fi", Toast.LENGTH_LONG).show()
+            enableDrop(true)
+        }
+    }
+
+    private fun refreshDrop() {
+        if (!::dropStatus.isInitialized) return
+        val wd = com.liquidisland.drop.WaveDrop
+        val bt = (getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
+        val nfc = try { android.nfc.NfcAdapter.getDefaultAdapter(this) } catch (e: Exception) { null }
+        val wifi = (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).let { cm ->
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        }
+        dropStatus.text = listOf(
+            "Bluetooth : " + when { bt == null -> "absent"; !bt.isEnabled -> "désactivé"; !wd.hasPermissions(this) -> "non autorisé"; else -> "prêt" },
+            "NFC : " + when { nfc == null -> "absent"; !nfc.isEnabled -> "désactivé"; else -> "prêt" },
+            "Wi-Fi : " + if (wifi) "connecté" else "non connecté"
+        ).joinToString("   ·   ") + if (wd.enabled(this)) "" else "\nWave Drop est désactivé."
+        refreshDropNearby()
+        dropHistory.removeAllViews()
+        val items = com.liquidisland.drop.History.list(this)
+        if (items.isEmpty()) dropHistory.addView(text("Rien reçu pour l'instant.", 14f, Glass.INK_SOFT))
+        items.take(10).forEach { h ->
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = Glass.pressable(ColorDrawable(Color.TRANSPARENT), dpf(14))
+                isClickable = true
+                setOnClickListener { h.uri?.let { com.liquidisland.drop.WaveDropActivity.openFile(this@MainActivity, Uri.parse(it), null) } }
+            }
+            r.addView(text(h.name, 15f, Glass.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE })
+            r.addView(text("De ${h.from} · " + android.text.format.DateUtils.getRelativeTimeSpanString(h.time), 12f, Glass.INK_SOFT))
+            dropHistory.addView(r)
+        }
+    }
+
+    private fun refreshDropNearby() {
+        if (!::dropNearby.isInitialized) return
+        dropNearby.removeAllViews()
+        val wd = com.liquidisland.drop.WaveDrop
+        val list = if (wd.running) wd.nearbyList() else emptyList()
+        if (list.isEmpty()) dropNearby.addView(text(if (wd.running) "Aucun appareil Wave Drop autour." else "Active Wave Drop pour voir les appareils autour.", 14f, Glass.INK_SOFT))
+        list.take(6).forEach { n ->
+            dropNearby.addView(text((if (n.beacon.isPc) "💻  " else "📱  ") + n.label + "   ·   " +
+                (if (n.close) "tout près" else "à proximité") + (if (n.beacon.ip != null) " · Wi-Fi" else " · Bluetooth"), 14f, Glass.INK).apply {
+                setPadding(dp(4), dp(6), dp(4), dp(6))
+            })
         }
     }
 
@@ -386,6 +602,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        refreshDrop()
         // Une seule fois par lancement : proposer l'effet goutte en direct s'il n'est pas actif
         if (!liveAsked && Build.VERSION.SDK_INT >= 33 && Prefs.refraction(this) &&
             IslandService.instance != null && IslandService.instance?.isLive != true
@@ -430,6 +647,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val DROP_PERMS = 77
         /** Demande de capture deja proposee pendant ce lancement de l'appli */
         private var liveAsked = false
     }
