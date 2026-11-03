@@ -272,7 +272,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 Intent.ACTION_SCREEN_ON -> { screenOn = true; startLive() }
                 Intent.ACTION_SCREEN_OFF -> { screenOn = false; stopLive() }
                 // Telephone deverrouille : si Android a coupe la capture, on repropose l'autorisation
-                Intent.ACTION_USER_PRESENT -> askLiveAgain()
+                Intent.ACTION_USER_PRESENT -> { askLiveAgain(); checkUpdateSoon() }
             }
         }
     }
@@ -303,6 +303,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     /** Largeur de l'ilot au repos : elargi quand une activite tourne (pochette a gauche, barres a droite). */
     private fun restW() = if (hasLive()) cw + dp(COMPACT_EXTRA) else cw
     private fun winH() = max(max(eh, mh), lhMax) + bottomPad
+
+    /**
+     * Zone tactile de l'ilot replie : plus large que l'ilot et prolongee sous la barre d'etat,
+     * pour que le doigt qui glisse vers le bas parte de chez nous et pas du volet d'Android.
+     */
+    private fun padW() = restW() + 2 * dp(16)
+    private fun padH() = if (rotation == android.view.Surface.ROTATION_0 || rotation == android.view.Surface.ROTATION_180)
+        max(ch + dp(8), statusBarHeight() - off + dp(34)) else ch + dp(8)
     private val liveTicker = object : Runnable {
         override fun run() {
             updateLiveProgress()
@@ -787,7 +795,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         wm.addView(r, lp)
         val p = TouchPad(this, this)
         pad = p
-        val rp = wrap(p, restW() + 2 * dp(6), ch + dp(8))
+        val rp = wrap(p, padW(), padH())
         rootPad = rp
         wm.addView(rp, lpPad)
         // L'indicateur de volume a besoin de l'accessibilite (boutons + affichage au-dessus de tout)
@@ -1082,12 +1090,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         place(lp, ew + 2 * side, winH())
         lp.flags = if (big) lp.flags and noTouch.inv() else lp.flags or noTouch
-        place(lpPad, restW() + 2 * dp(6), ch + dp(8))
+        place(lpPad, padW(), padH())
         // Zone tactile active seulement quand l'ilot est replie ET visible
         lpPad.flags = if (big || hidden) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
         if (update) {
             (rootView as? Rotator)?.let { it.portraitW = ew + 2 * side; it.portraitH = winH() }
-            (rootPad as? Rotator)?.let { it.portraitW = restW() + 2 * dp(6); it.portraitH = ch + dp(8) }
+            (rootPad as? Rotator)?.let { it.portraitW = padW(); it.portraitH = padH() }
             rootView?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
             rootPad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
         }
@@ -1377,7 +1385,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     private fun buildMenu() {
         menu.removeAllViews()
-        val items = Shortcuts.load(this).mapNotNull { Shortcuts.resolve(this, it) }
+        val items = Shortcuts.load(this).mapNotNull { Shortcuts.resolve(this, it) }.toMutableList()
+        // Mise a jour en attente : toujours en premier dans le menu
+        if (Updater.latest > BuildConfig.VERSION_CODE)
+            items.add(0, Shortcuts.Item(UPDATE_ITEM, "Mettre à jour", LineIcon(LineIcon.Kind.UPDATE, ink(), resources.displayMetrics.density), false))
         if (items.isEmpty()) {
             menu.addView(TextView(this).apply {
                 text = "Ajoute des raccourcis dans Wave Island"
@@ -1415,6 +1426,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             }
             addView(ImageView(this@IslandService).apply {
                 setImageDrawable(item.icon)
+                if (item.id == UPDATE_ITEM) setPadding(dp(11), dp(11), dp(11), dp(11))
                 if (item.tintIcon) imageTintList = android.content.res.ColorStateList.valueOf(ink())
             }, FrameLayout.LayoutParams(
                 if (item.tintIcon) dp(24) else dp(40),
@@ -1444,8 +1456,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                     circle.animate().scaleX(1f).scaleY(1f).setDuration(Spring.POP.durationMs).setInterpolator(Spring.POP).start()
                 }.start()
                 main.postDelayed({
-                    Shortcuts.run(this@IslandService, item.id)
                     collapse("raccourci")
+                    if (item.id == UPDATE_ITEM) updateFromIsland() else Shortcuts.run(this@IslandService, item.id)
                 }, 140)
             }
         }
@@ -1660,18 +1672,38 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     // ---------- Mises a jour depuis l'ilot ----------
 
+    // Verification legere (un fichier texte de quelques octets) : toutes les 30 min, et a chaque
+    // deverrouillage si la derniere date de plus de 10 min. Une version deja proposee est reproposee
+    // au plus une fois par heure, et reste toujours accessible dans le menu (appui long).
     private var updateOffered = 0
+    private var updateOfferedAt = 0L
+    private var updateCheckedAt = 0L
     private val updateCheck = object : Runnable {
         override fun run() {
+            main.removeCallbacks(this)
+            updateCheckedAt = System.currentTimeMillis()
             Updater.peek(this@IslandService) { v -> if (v != null) offerUpdate(v) }
-            main.postDelayed(this, 6 * 3600_000L)
+            main.postDelayed(this, 30 * 60_000L)
         }
+    }
+
+    private fun checkUpdateSoon() {
+        if (System.currentTimeMillis() - updateCheckedAt < 10 * 60_000L) {
+            // Deja verifie recemment : on repropose seulement si une version attend
+            if (Updater.latest > BuildConfig.VERSION_CODE) main.postDelayed({ offerUpdate(Updater.latest) }, 2500)
+            return
+        }
+        main.postDelayed(updateCheck, 4000) // laisse le temps au reseau de revenir apres le deverrouillage
     }
 
     /** Nouvelle version : l'ilot la propose, un toucher la telecharge et l'installe. */
     fun offerUpdate(version: Int) {
-        if (version == updateOffered && mode == Mode.NOTIF) return
+        val now = System.currentTimeMillis()
+        if (version == updateOffered && (mode == Mode.NOTIF || now - updateOfferedAt < 3600_000L)) return
+        if (mode == Mode.MENU || mode == Mode.NOTIF) { main.postDelayed({ offerUpdate(version) }, 20_000); return }
         updateOffered = version
+        updateOfferedAt = now
+        Log.i(TAG, "Mise a jour proposee sur l'ilot : $version")
         show(IslandNote(
             "Mise à jour disponible",
             "Wave Island 2.0.${version - 100} — touche pour l'installer",
@@ -2019,6 +2051,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
         @Volatile
         var instance: IslandService? = null
+        private const val UPDATE_ITEM = "wave:update"
             private set
 
         /** Affiche une notification dans l'ilot, en demarrant l'ilot si besoin. */

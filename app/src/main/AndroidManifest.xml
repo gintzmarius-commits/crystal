@@ -50,6 +50,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
         </activity>
 
         <activity
@@ -108,6 +111,30 @@
             android:launchMode="singleTask"
             android:taskAffinity="com.liquidisland.wavedrop"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Pastilles des reglages rapides (comme Tailscale ou Proton) -->
+        <service
+            android:name=".WaveDropTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_drop"
+            android:label="Wave Drop"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <service
+            android:name=".IslandTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_island"
+            android:label="Wave Island"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
 
         <!-- Wave Drop : quand un autre telephone se colle a celui-ci, il le reconnait par NFC -->
         <service

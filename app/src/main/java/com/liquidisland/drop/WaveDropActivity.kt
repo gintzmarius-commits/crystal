@@ -29,6 +29,8 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import com.liquidisland.Glass
+import com.liquidisland.GlassPanel
+import com.liquidisland.LineIcon
 import com.liquidisland.Prefs
 import com.liquidisland.Spring
 import kotlin.math.max
@@ -45,7 +47,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     private fun dp(v: Int) = (v * d).toInt()
     private fun dpf(v: Int) = v * d
 
-    private lateinit var panel: LinearLayout
+    private lateinit var panel: GlassPanel
     private lateinit var body: LinearLayout
     private lateinit var status: TextView
     private lateinit var bar: ProgressBar
@@ -66,22 +68,14 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         nfc = try { NfcAdapter.getDefaultAdapter(this) } catch (e: Exception) { null }
 
         val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(70, 0, 0, 0))
+            setBackgroundColor(Color.TRANSPARENT)
             // Toucher a cote du panneau le referme
             setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_UP) close(); true }
         }
-        panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.argb(232, 22, 30, 28), Color.argb(238, 10, 14, 14))
-            ).apply {
-                cornerRadius = dpf(34)
-                setStroke(max(1, dp(1)), Color.argb(70, 255, 255, 255))
-            }
-            setPadding(dp(20), dp(18), dp(20), dp(20))
+        // Panneau en verre liquide transparent, comme sur PC (pas de fond sombre)
+        panel = GlassPanel(this, 34f).apply {
+            setPadding(dp(18), dp(18), dp(18), dp(20))
             isClickable = true
-            elevation = dpf(12)
         }
         val top = dp(if (Prefs.notch(this)) 0 else Prefs.offset(this)) + dp(Prefs.height(this)) + dp(10)
         root.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -90,17 +84,20 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
 
         // En-tete
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        head.addView(text("Wave Drop", 22f, Color.WHITE, bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(text("✕", 16f, Glass.INK_SOFT).apply {
-            gravity = Gravity.CENTER
-            background = Glass.pressable(Glass.card(d, dpf(18), strong = true), dpf(18))
+        head.addView(LinearLayout(this).apply {
+            addView(plated(text("Wave Drop", 20f, Color.WHITE, bold = true)))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(ImageView(this).apply {
+            setImageDrawable(LineIcon(LineIcon.Kind.CLOSE, Color.WHITE, d))
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = Glass.pressable(GlassPanel.plate(this@WaveDropActivity, 18f), dpf(18))
             setOnClickListener { close() }
         }, LinearLayout.LayoutParams(dp(36), dp(36)))
         panel.addView(head)
         body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         panel.addView(body)
-        status = text("", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), dp(4), 0); visibility = View.GONE }
-        panel.addView(status)
+        status = text("", 13f, Color.WHITE).apply { visibility = View.GONE }
+        panel.addView(plated(status), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progressTintList = android.content.res.ColorStateList.valueOf(Glass.ACCENT)
@@ -187,20 +184,20 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
 
     // ================== 1. Quoi envoyer ==================
 
-    private class Category(val icon: String, val label: String, val types: Array<String>, val media: String? = null)
+    private class Category(val icon: LineIcon.Kind, val label: String, val types: Array<String>, val media: String? = null)
 
     private val categories = listOf(
-        Category("📁", "Fichiers", arrayOf("*/*")),
-        Category("🖼️", "Images", arrayOf("image/*"), "image/*"),
-        Category("🎬", "Vidéos", arrayOf("video/*"), "video/*"),
-        Category("🎵", "Musique", arrayOf("audio/*")),
-        Category("📄", "Documents", arrayOf("application/pdf", "text/*", "application/msword", "application/vnd.*")),
-        Category("📦", "Applis", arrayOf("application/vnd.android.package-archive")),
+        Category(LineIcon.Kind.FOLDER, "Fichiers", arrayOf("*/*")),
+        Category(LineIcon.Kind.IMAGE, "Images", arrayOf("image/*"), "image/*"),
+        Category(LineIcon.Kind.VIDEO, "Vidéos", arrayOf("video/*"), "video/*"),
+        Category(LineIcon.Kind.MUSIC, "Musique", arrayOf("audio/*")),
+        Category(LineIcon.Kind.DOCUMENT, "Documents", arrayOf("application/pdf", "text/*", "application/msword", "application/vnd.*")),
+        Category(LineIcon.Kind.APPS, "Applis", arrayOf("application/vnd.android.package-archive")),
     )
 
     private fun showCategories() {
         body.removeAllViews()
-        body.addView(text("Que veux-tu envoyer ?", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(10), 0, dp(10)) })
+        body.addView(plated(text("Que veux-tu envoyer ?", 14f, Color.WHITE)), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12); bottomMargin = dp(6) })
         var row: LinearLayout? = null
         categories.forEachIndexed { i, c ->
             if (i % 3 == 0) {
@@ -210,11 +207,11 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
             val tile = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = Glass.pressable(Glass.card(d, dpf(22), strong = true), dpf(22))
+                background = Glass.pressable(GlassPanel.plate(this@WaveDropActivity, 22f), dpf(22))
                 isClickable = true
                 setOnClickListener { pick(c) }
-                addView(text(c.icon, 26f, Color.WHITE).apply { gravity = Gravity.CENTER })
-                addView(text(c.label, 13f, Glass.INK).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
+                addView(ImageView(this@WaveDropActivity).apply { setImageDrawable(LineIcon(c.icon, Color.WHITE, d)) }, LinearLayout.LayoutParams(dp(30), dp(30)))
+                addView(text(c.label, 13f, Color.WHITE).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0) })
             }
             row!!.addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
                 marginStart = if (i % 3 == 0) 0 else dp(8)
@@ -225,8 +222,8 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
             tile.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(120L + i * 45L).setDuration(pop.durationMs).setInterpolator(pop).start()
         }
         if (!WaveDrop.enabled(this)) {
-            body.addView(text("Wave Drop est désactivé : active-le dans l'onglet Wave Drop de l'appli pour être visible des autres appareils.", 13f, Glass.WARN)
-                .apply { setPadding(dp(4), dp(14), dp(4), 0) })
+            body.addView(plated(text("Wave Drop est désactivé : active-le dans l'onglet Wave Drop de l'appli pour être visible des autres appareils.", 13f, Glass.WARN)),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         }
     }
 
@@ -266,18 +263,20 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Glass.card(d, dpf(22), strong = true)
+            background = GlassPanel.plate(this@WaveDropActivity, 22f, strong = true)
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         val thumb = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = GradientDrawable().apply { cornerRadius = dpf(12); setColor(Color.argb(40, 255, 255, 255)) }
             clipToOutline = true
+            setImageDrawable(LineIcon(kindOf(out.mime), Color.WHITE, d))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         if (Build.VERSION.SDK_INT >= 29) {
             Thread {
                 val bmp = try { contentResolver.loadThumbnail(out.uri, Size(160, 160), null) } catch (e: Exception) { null }
-                if (bmp != null) runOnUiThread { thumb.setImageBitmap(bmp) }
+                if (bmp != null) runOnUiThread { thumb.setPadding(0, 0, 0, 0); thumb.scaleType = ImageView.ScaleType.CENTER_CROP; thumb.setImageBitmap(bmp) }
             }.start()
         }
         card.addView(thumb, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(12) })
@@ -294,11 +293,11 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         // Ondes : on cherche
         val radar = Radar(this)
         body.addView(radar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96)).apply { topMargin = dp(8) })
-        body.addView(text(
+        body.addView(plated(text(
             if (nfc?.isEnabled == true) "Colle l'autre téléphone au dos du tien (NFC) ou rapproche l'appareil."
             else "Rapproche l'autre appareil (téléphone ou PC avec Wave Island).",
-            13f, Glass.INK_SOFT
-        ).apply { gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), dp(6)) })
+            13f, Color.WHITE
+        ).apply { gravity = Gravity.CENTER }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) })
         nearbyBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         body.addView(nearbyBox)
         nearbyChanged()
@@ -310,7 +309,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         box.removeAllViews()
         val list = WaveDrop.nearbyList()
         if (list.isEmpty()) {
-            box.addView(text("Aucun appareil Wave Drop autour pour l'instant…", 13f, Glass.INK_SOFT).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(6)) })
+            box.addView(plated(text("Aucun appareil Wave Drop autour pour l'instant…", 13f, Color.WHITE).apply { gravity = Gravity.CENTER }))
             return
         }
         list.take(5).forEachIndexed { i, n ->
@@ -318,13 +317,14 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = if (best) Glass.tinted(d, dpf(20), 70) else Glass.card(d, dpf(20))
+                background = GlassPanel.plate(this@WaveDropActivity, 20f, strong = best)
                 setPadding(dp(14), dp(10), dp(10), dp(10))
             }
-            row.addView(text(if (n.beacon.isPc) "💻" else "📱", 22f, Color.WHITE), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(12) })
+            row.addView(ImageView(this).apply { setImageDrawable(LineIcon(if (n.beacon.isPc) LineIcon.Kind.LAPTOP else LineIcon.Kind.PHONE, Color.WHITE, d)) },
+                LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(12) })
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             col.addView(text(n.label, 15f, Color.WHITE, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-            col.addView(text(distance(n), 12f, Glass.INK_SOFT))
+            col.addView(text(distance(n), 12f, Color.argb(210, 255, 255, 255)))
             row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(text("Envoyer", 14f, Glass.ON_ACCENT, bold = true).apply {
                 gravity = Gravity.CENTER
@@ -350,14 +350,17 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     private fun showRequest(r: WaveDrop.Request) {
         request = r
         body.removeAllViews()
-        body.addView(text("${r.from} veut t'envoyer", 15f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(8)) })
+        body.addView(plated(text("${r.from} veut t'envoyer", 15f, Color.WHITE)), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12); bottomMargin = dp(8) })
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.card(d, dpf(22), strong = true)
+            background = GlassPanel.plate(this@WaveDropActivity, 22f, strong = true)
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
-        card.addView(text(icon(r.offer.mime) + "  " + r.offer.name, 16f, Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.MIDDLE })
-        card.addView(text(size(r.offer.size) + " · " + r.offer.mime, 12f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) })
+        val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        line.addView(ImageView(this).apply { setImageDrawable(LineIcon(kindOf(r.offer.mime), Color.WHITE, d)) }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(12) })
+        line.addView(text(r.offer.name, 16f, Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.MIDDLE })
+        card.addView(line)
+        card.addView(text(size(r.offer.size) + " · " + r.offer.mime, 12f, Color.argb(210, 255, 255, 255)).apply { setPadding(dp(40), dp(4), 0, 0) })
         body.addView(card)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(14), 0, 0) }
         buttons.addView(button("Refuser", primary = false) { r.answer(false); close() }, LinearLayout.LayoutParams(0, dp(50), 1f))
@@ -440,6 +443,22 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
 
     // ================== Outils ==================
 
+    /** Texte (ou vue) pose sur un petit carre translucide : lisible sur n'importe quel fond. */
+    private fun plated(v: View): View {
+        v.background = GlassPanel.plate(this, 14f)
+        v.setPadding(dp(12), dp(6), dp(12), dp(7))
+        return v
+    }
+
+    private fun kindOf(mime: String) = when {
+        mime.startsWith("image") -> LineIcon.Kind.IMAGE
+        mime.startsWith("video") -> LineIcon.Kind.VIDEO
+        mime.startsWith("audio") -> LineIcon.Kind.MUSIC
+        mime.contains("android.package") -> LineIcon.Kind.APPS
+        mime.startsWith("text") || mime.contains("pdf") || mime.contains("document") -> LineIcon.Kind.DOCUMENT
+        else -> LineIcon.Kind.FOLDER
+    }
+
     private fun text(s: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
         text = s
         textSize = size
@@ -450,7 +469,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     private fun button(label: String, primary: Boolean, action: () -> Unit) = text(label, 15f, if (primary) Glass.ON_ACCENT else Glass.INK, bold = true).apply {
         gravity = Gravity.CENTER
         val r = dpf(25)
-        background = if (primary) Glass.pressable(Glass.tinted(d, r), r, dark = true) else Glass.pressable(Glass.card(d, r, strong = true), r)
+        background = if (primary) Glass.pressable(Glass.tinted(d, r), r, dark = true) else Glass.pressable(GlassPanel.plate(this@WaveDropActivity, 25f, strong = true), r)
         isClickable = true
         setOnClickListener { action() }
     }

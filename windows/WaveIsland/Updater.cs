@@ -9,7 +9,8 @@ namespace WaveIsland
 {
     /// <summary>
     /// Mises a jour depuis l'ilot : la derniere version est publiee sur GitHub (release « windows »).
-    /// Verification au lancement puis toutes les 6 heures. L'ilot propose la mise a jour ; un clic la telecharge
+    /// Verification au lancement, toutes les 30 minutes, au deverrouillage et a la sortie de veille
+    /// (un petit fichier texte : quasi gratuit). Une version deja proposee revient au plus une fois par heure. L'ilot propose la mise a jour ; un clic la telecharge
     /// (barre de progression dans l'ilot), remplace l'appli et la relance.
     /// </summary>
     public static class Updater
@@ -18,6 +19,8 @@ namespace WaveIsland
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         private static DispatcherTimer _timer;
         private static bool _busy;
+        private static int _offered;
+        private static DateTime _offeredAt, _checkedAt;
 
         /// <summary>Derniere version vue en ligne (0 = inconnue).</summary>
         public static int Latest { get; private set; }
@@ -48,9 +51,29 @@ namespace WaveIsland
 
         public static void Start(IslandWindow island)
         {
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
             _timer.Tick += (a, b) => CheckNow(island, false);
             _timer.Start();
+            // Deverrouillage de la session / sortie de veille : on reverifie (le reseau revient en quelques secondes)
+            void Soon()
+            {
+                var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+                t.Tick += (a, b) =>
+                {
+                    t.Stop();
+                    if (DateTime.Now - _checkedAt > TimeSpan.FromMinutes(10)) CheckNow(island, false);
+                    else if (Available) Offer(island, false);
+                };
+                t.Start();
+            }
+            Microsoft.Win32.SystemEvents.SessionSwitch += (a, e) =>
+            {
+                if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionUnlock) island.Dispatcher.BeginInvoke(new Action(Soon));
+            };
+            Microsoft.Win32.SystemEvents.PowerModeChanged += (a, e) =>
+            {
+                if (e.Mode == Microsoft.Win32.PowerModes.Resume) island.Dispatcher.BeginInvoke(new Action(Soon));
+            };
             var once = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
             once.Tick += (a, b) => { once.Stop(); CheckNow(island, false); };
             once.Start();
@@ -63,20 +86,15 @@ namespace WaveIsland
             _busy = true;
             try
             {
-                string s = await Http.GetStringAsync(Base + "version.txt");
+                _checkedAt = DateTime.Now;
+                string s = await Http.GetStringAsync(Base + "version.txt?t=" + DateTime.UtcNow.Ticks);
                 Latest = int.Parse(s.Trim());
-                Log.I($"Mise a jour : version en ligne 1.0.{Latest}, installee {CurrentVersion}");
+                Log.I($"Mise a jour : version en ligne 2.0.{Latest}, installee {CurrentVersion}");
                 island.RefreshMenu();
                 if (Available)
                 {
                     if (install) { _busy = false; Install(island); return; }
-                    island.ShowNote(new IslandNote
-                    {
-                        App = "Wave Island",
-                        Title = "Mise à jour disponible",
-                        Text = $"Nouvelle version (n° {Latest}) — clique pour l'installer",
-                        OnClick = () => Install(island)
-                    });
+                    Offer(island, manual);
                 }
                 else if (manual)
                     island.ShowNote(new IslandNote { App = "Wave Island", Title = "Tu as la dernière version", Text = CurrentVersion, OnClick = () => { } });
@@ -87,6 +105,21 @@ namespace WaveIsland
                 if (manual) island.ShowNote(new IslandNote { App = "Wave Island", Title = "Vérification impossible", Text = "Pas de connexion ?", OnClick = () => { } });
             }
             finally { _busy = false; }
+        }
+
+        /// <summary>Propose la mise a jour dans l'ilot (au plus une fois par heure pour la meme version).</summary>
+        private static void Offer(IslandWindow island, bool force)
+        {
+            if (!force && _offered == Latest && DateTime.Now - _offeredAt < TimeSpan.FromHours(1)) return;
+            _offered = Latest;
+            _offeredAt = DateTime.Now;
+            island.ShowNote(new IslandNote
+            {
+                App = "Wave Island",
+                Title = "Mise à jour disponible",
+                Text = $"Wave Island 2.0.{Latest} — clique pour l'installer",
+                OnClick = () => Install(island)
+            });
         }
 
         public static async void Install(IslandWindow island)

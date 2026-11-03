@@ -33,6 +33,8 @@ class LiquidGlass(private val density: Float) {
     /** Direction de la lumiere, -1..1 (inclinaison du telephone). */
     var lightX = 0f
     var lightY = 0f
+    /** Rayon des coins impose (panneaux) ; 0 = capsule (moitie de la hauteur) */
+    var fixedRadius = 0f
     /** 0 = bord deforme cache (le fond vient de changer), 1 = visible */
     var fade = 1f
 
@@ -104,7 +106,7 @@ class LiquidGlass(private val density: Float) {
         if (w <= 0f || h <= 0f) return
         val inset = dp(1.8f)
         if (!notch) {
-            radius = min(h, w) / 2f
+            radius = if (fixedRadius > 0f) min(fixedRadius, min(h, w) / 2f) else min(h, w) / 2f
             path.addRoundRect(rect, radius, radius, Path.Direction.CW)
             tmp.set(l + inset, t + inset, r - inset, b - inset)
             val ri = max(0f, radius - inset)

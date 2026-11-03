@@ -280,9 +280,11 @@ class MainActivity : Activity() {
             setPadding(dp(5), dp(5), dp(5), dp(5))
             elevation = dpf(10)
         }
-        listOf("⚙  Paramètres", "📡  Wave Drop").forEachIndexed { i, label ->
+        listOf("Paramètres" to LineIcon.Kind.SETTINGS, "Wave Drop" to LineIcon.Kind.DROP).forEachIndexed { i, (label, kind) ->
             val t = text(label, 15f, Glass.INK).apply {
                 gravity = Gravity.CENTER
+                tag = kind
+                compoundDrawablePadding = dp(8)
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setPadding(dp(20), 0, dp(20), 0)
                 isClickable = true
@@ -300,6 +302,8 @@ class MainActivity : Activity() {
             val on = i == tab
             t.background = if (on) Glass.tinted(d, dpf(24)) else null
             t.setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+            val ic = LineIcon(t.tag as LineIcon.Kind, if (on) Glass.ON_ACCENT else Glass.INK, d).apply { setBounds(0, 0, dp(20), dp(20)) }
+            t.setCompoundDrawables(ic, null, null, null)
         }
     }
 
@@ -460,9 +464,11 @@ class MainActivity : Activity() {
         val list = if (wd.running) wd.nearbyList() else emptyList()
         if (list.isEmpty()) dropNearby.addView(text(if (wd.running) "Aucun appareil Wave Drop autour." else "Active Wave Drop pour voir les appareils autour.", 14f, Glass.INK_SOFT))
         list.take(6).forEach { n ->
-            dropNearby.addView(text((if (n.beacon.isPc) "💻  " else "📱  ") + n.label + "   ·   " +
+            dropNearby.addView(text(n.label + "   ·   " +
                 (if (n.close) "tout près" else "à proximité") + (if (n.beacon.ip != null) " · Wi-Fi" else " · Bluetooth"), 14f, Glass.INK).apply {
                 setPadding(dp(4), dp(6), dp(4), dp(6))
+                compoundDrawablePadding = dp(10)
+                setCompoundDrawables(LineIcon(if (n.beacon.isPc) LineIcon.Kind.LAPTOP else LineIcon.Kind.PHONE, Glass.INK, d).apply { setBounds(0, 0, dp(22), dp(22)) }, null, null, null)
             })
         }
     }
