@@ -132,6 +132,29 @@ sleep 2
 adb devices >&2
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed" >&2
 
+# ---------- Wave Drop (2.0) ----------
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 0
+sleep 2
+for perm in BLUETOOTH_SCAN BLUETOOTH_ADVERTISE BLUETOOTH_CONNECT; do adb shell pm grant $P android.permission.$perm 2>/dev/null || true; done
+adb shell am start -W -n $P/.MainActivity --es ci dropon
+sleep 3
+shot 18-wavedrop-onglet
+# Glisser l'ilot replie vers le bas : le panneau Wave Drop coule depuis l'ilot
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+W=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1 | cut -dx -f1)
+adb shell input swipe $((W / 2)) 70 $((W / 2)) 600 350
+sleep 2.5
+shot 19-wavedrop-panneau
+adb shell input keyevent KEYCODE_BACK
+sleep 1.5
+adb shell am start -W -n $P/.MainActivity --es ci dropsend
+sleep 2.5
+shot 19b-wavedrop-panneau-bouton
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
 timeout 90 "$ADB_BIN" logcat -d > $OUT/logcat-complet.txt
 echo "::notice::logcat $(wc -l < $OUT/logcat-complet.txt) lignes"
 grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.txt
@@ -154,6 +177,8 @@ grep -q "Menu ouvert" $OUT/log.txt && [ "$(grep -n 'Plein ecran : oui' $OUT/log.
 grep -E "filtre des touches|Touche recue" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 grep -q "Volume : " $OUT/log.txt || { echo "::error::Les boutons de volume ne sont pas passes par l'indicateur"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
+grep -q "Wave Drop : demarrage" $OUT/log.txt || { echo "::error::Wave Drop ne s'est pas lance"; fail=1; }
+grep -q "panneau ouvert depuis l'ilot" $OUT/log.txt || echo "::warning::Glisser l'ilot n'a pas ouvert Wave Drop"
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 
