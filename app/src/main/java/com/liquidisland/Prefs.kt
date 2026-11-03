@@ -33,6 +33,10 @@ object Prefs {
     fun refraction(c: Context) = sp(c).getBoolean("refraction", true)
     fun setRefraction(c: Context, v: Boolean) = sp(c).edit().putBoolean("refraction", v).apply()
 
+    /** L'utilisateur veut l'effet en direct (a accepte la capture) : on la repropose si Android la coupe */
+    fun liveWanted(c: Context) = sp(c).getBoolean("liveWanted", false)
+    fun setLiveWanted(c: Context, v: Boolean) = sp(c).edit().putBoolean("liveWanted", v).apply()
+
     fun isDark(c: Context): Boolean = theme(c) != "light"
     fun isClear(c: Context): Boolean = theme(c) == "clear"
 

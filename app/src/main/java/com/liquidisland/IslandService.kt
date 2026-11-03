@@ -261,8 +261,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
     private val screenReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
-            screenOn = i.action == Intent.ACTION_SCREEN_ON
-            if (screenOn) startLive() else stopLive()
+            when (i.action) {
+                Intent.ACTION_SCREEN_ON -> { screenOn = true; startLive() }
+                Intent.ACTION_SCREEN_OFF -> { screenOn = false; stopLive() }
+                // Telephone deverrouille : si Android a coupe la capture, on repropose l'autorisation
+                Intent.ACTION_USER_PRESENT -> askLiveAgain()
+            }
         }
     }
     private var dark = true
@@ -317,10 +321,16 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             NotificationChannel(CHANNEL, "Îlot actif", NotificationManager.IMPORTANCE_MIN)
         )
         val notif = buildNotif()
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(1, notif)
+        // Relance automatique en arriere-plan (apres que HyperOS a tue l'appli) : Android peut refuser
+        // le premier plan. Sans cette protection, l'appli plantait et Android coupait l'accessibilite.
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(1, notif)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Premier plan refuse pour l'instant : $e")
         }
         if (!Settings.canDrawOverlays(this) && IslandAccessibility.instance == null) {
             stopSelf()
@@ -332,6 +342,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         registerReceiver(screenReceiver, android.content.IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
         })
         screenOn = (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
         if (Build.VERSION.SDK_INT >= 33) live = LiveCapture(this, main, liveListener)
@@ -381,6 +392,20 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         try {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(1, buildNotif())
         } catch (e: Exception) { }
+    }
+
+    /** La capture en direct a ete coupee (verrouillage, HyperOS...) : on redemande l'autorisation. */
+    private fun askLiveAgain() {
+        if (Build.VERSION.SDK_INT < 33 || liveActive || !Prefs.refraction(this) || !Prefs.liveWanted(this)) return
+        Log.i(TAG, "Capture en direct coupee : nouvelle demande d'autorisation")
+        main.postDelayed({
+            if (liveActive) return@postDelayed
+            try {
+                startActivity(Intent(this, CaptureConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                Log.w(TAG, "Demande d'autorisation impossible : $e")
+            }
+        }, 700)
     }
 
     /** Lance la capture en direct avec l'autorisation donnee par l'utilisateur. */

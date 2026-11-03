@@ -73,7 +73,9 @@ class LiveCapture(private val ctx: Context, private val main: Handler, private v
             override fun onStop() {
                 main.post {
                     if (projection != null) {
-                        Log.i(TAG, "Capture en direct arretee par le systeme")
+                        val pm = ctx.getSystemService(android.os.PowerManager::class.java)
+                        val km = ctx.getSystemService(android.app.KeyguardManager::class.java)
+                        Log.i(TAG, "Capture en direct arretee par le systeme (ecran allume=${pm.isInteractive}, verrouille=${km.isKeyguardLocked})")
                         release()
                         listener.onLiveStopped()
                     }

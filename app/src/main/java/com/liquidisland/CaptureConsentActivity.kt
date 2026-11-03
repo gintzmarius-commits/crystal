@@ -36,11 +36,14 @@ class CaptureConsentActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ && resultCode == RESULT_OK && data != null) {
             Log.i("LiquidIsland", "Capture d'ecran autorisee")
+            Prefs.setLiveWanted(this, true)
             LiveCapture.pendingResult = resultCode to data
             Prefs.setEnabled(this, true)
             startForegroundService(Intent(this, IslandService::class.java).setAction(IslandService.ACTION_LIVE))
         } else {
             Log.i("LiquidIsland", "Capture d'ecran refusee")
+            // Refus : on ne redemandera plus tout seul (le bouton dans l'appli reste disponible)
+            Prefs.setLiveWanted(this, false)
         }
         finish()
         overridePendingTransition(0, 0)
