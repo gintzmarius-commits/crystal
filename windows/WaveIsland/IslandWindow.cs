@@ -342,7 +342,7 @@ namespace WaveIsland
                 case "dark": return see ? (expanded ? 0.86 : 0.8) : 0.93;
                 case "light": return see ? (expanded ? 0.8 : 0.7) : 0.9;
                 // Transparent : pur verre ; un voile sombre leger seulement quand il y a du texte a lire
-                default: return see ? (expanded ? 0.3 : 0.0) : (expanded ? 0.7 : 0.55);
+                default: return see ? (expanded ? 0.46 : 0.0) : (expanded ? 0.7 : 0.55);
             }
         }
 
