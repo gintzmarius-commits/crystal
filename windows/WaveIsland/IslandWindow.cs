@@ -23,7 +23,7 @@ namespace WaveIsland
         private enum Mode { Collapsed, Volume, Note, Menu }
 
         /// <summary>Marge autour de l'ilot (pour que le verre puisse aller chercher le fond autour).</summary>
-        private const double Margin = 26;
+        private const double Pad = 26;
         private const double WinW = 540;
 
         private readonly VolumeService _volume;
@@ -201,13 +201,13 @@ namespace WaveIsland
         {
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds; // pixels physiques
             double sl = sb.Left / _scale, st = sb.Top / _scale, sw = sb.Width / _scale;
-            double h = Settings.Current.Top + 84 + Margin + 8;
+            double h = Settings.Current.Top + 84 + Pad + 8;
             Width = WinW;
             Height = h;
             switch (Settings.Current.Position)
             {
-                case "left": Left = sl + 14 - Margin; break;
-                case "right": Left = sl + sw - 14 + Margin - WinW; break;
+                case "left": Left = sl + 14 - Pad; break;
+                case "right": Left = sl + sw - 14 + Pad - WinW; break;
                 default: Left = sl + (sw - WinW) / 2; break;
             }
             Top = st;
@@ -324,7 +324,7 @@ namespace WaveIsland
                     sw = _hover ? Spring.Pop : Spring.Close; sh = sw;
                     break;
             }
-            w = Math.Min(w, WinW - 2 * Margin);
+            w = Math.Min(w, WinW - 2 * Pad);
             if (Math.Abs(_w.Target - w) > 0.1) _w.AnimateTo(w, sw);
             if (Math.Abs(_h.Target - h) > 0.1) _h.AnimateTo(h, sh);
             bool expanded = _mode != Mode.Collapsed;
@@ -438,8 +438,8 @@ namespace WaveIsland
         {
             switch (Settings.Current.Position)
             {
-                case "left": return Margin + w / 2;
-                case "right": return WinW - Margin - w / 2;
+                case "left": return Pad + w / 2;
+                case "right": return WinW - Pad - w / 2;
                 default: return WinW / 2;
             }
         }
@@ -452,12 +452,18 @@ namespace WaveIsland
             double radius = Math.Min(h / 2, 30);
             double k = _scale;
 
-            _fx.Geo = new Point4D(cx * k, (top + h / 2) * k, w / 2 * k, h / 2 * k);
-            _fx.Sizes = new Point4D(WinW * k, Height * k, radius * k, Math.Min(h * 0.42, 18) * k);
+            double aw = WinW * k, ah = Height * k;
+            double mag = 0.95, strength = Math.Min(h * 0.4, 14) * k;
+            _fx.Geo = new Point4D(cx * k, (top + h / 2) * k, (w / 2 - radius) * k, (h / 2 - radius) * k);
+            _fx.Sizes = new Point4D(aw, ah, radius * k, 1.0 / (Math.Min(h * 0.42, 18) * k));
+            // Loupe autour du centre de l'ilot : uv' = uv * mag + centre * (1 - mag)
+            _fx.Bend = new Point4D(strength / aw, strength / ah, cx * k / aw * (1 - mag), (top + h / 2) * k / ah * (1 - mag));
             bool dark = s.Theme != "light";
-            _fx.Opt = new Point4D(Math.Min(h * 0.4, 14) * k, 0.14, Math.Max(0, Math.Min(1, _tint.Value)), dark ? 1 : 0);
+            double tint = Math.Max(0, Math.Min(1, _tint.Value));
+            _fx.Tint = dark ? new Point4D(0.05, 0.06, 0.08, tint) : new Point4D(0.97, 0.98, 1.0, tint);
+            _fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             var l = _fx.Light;
-            _fx.Light = new Point4D(l.X, l.Y, 1, 0.95);
+            _fx.Light = new Point4D(l.X, l.Y, 1, mag);
 
             if (!(s.Refraction && _excluded) && _glass.Source != FlatSource()) _glass.Source = FlatSource();
 
