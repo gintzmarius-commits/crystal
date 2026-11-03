@@ -212,7 +212,8 @@ class LiquidGlass(private val density: Float) {
         if (path.isEmpty) return
         shade.strokeWidth = dp(2f)
         c.drawPath(path, shade)
-        if (Build.VERSION.SDK_INT >= 33 && backdrop != null && refract != null && fade > 0.01f) {
+        // Dessin sans carte graphique (certains Xiaomi) : pas de shader, sinon Android plante
+        if (Build.VERSION.SDK_INT >= 33 && c.isHardwareAccelerated && backdrop != null && refract != null && fade > 0.01f) {
             // On ne calcule la lentille que sur la bande du bord (le centre reste transparent)
             refract?.setFloatUniform("fade", fade.coerceIn(0f, 1f))
             c.save()
