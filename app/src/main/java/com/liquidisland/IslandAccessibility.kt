@@ -43,6 +43,9 @@ class IslandAccessibility : AccessibilityService() {
 
     /** Boutons de volume : l'indicateur facon iPhone remplace celui du telephone. */
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean = try {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            Log.i("LiquidIsland", "Touche recue : ${android.view.KeyEvent.keyCodeToString(event.keyCode)}")
+        }
         IslandService.instance?.onVolumeKey(event) ?: false
     } catch (e: Exception) {
         Log.w("LiquidIsland", "Touche : $e")
