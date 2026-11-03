@@ -45,3 +45,11 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}
+
+android.testOptions.unitTests.all {
+    it.testLogging { events("passed", "failed", "skipped"); showStandardStreams = true; exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
+}

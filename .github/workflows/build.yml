@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     paths-ignore:
-      - 'windows/**'
+      - 'windows/WaveIsland/*.xaml'
       - '.github/workflows/windows.yml'
   workflow_dispatch:
 
@@ -44,6 +44,17 @@ jobs:
         if: failure()
         run: |
           grep -E "^e: |error:|What went wrong" -A2 build.log | head -40 | while read -r l; do echo "::error::$l"; done
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Wave Drop protocol tests (Kotlin <-> C#)
+        run: |
+          set -o pipefail
+          dotnet build windows/Interop/WaveDropInterop.csproj -c Release -o interop 2>&1 | tail -5
+          WD_INTEROP=$PWD/interop/WaveDropInterop.dll gradle testDebugUnitTest --no-daemon 2>&1 | tee test.log | grep -E "Test.*(PASSED|FAILED|SKIPPED)|AssertionError|Exception|BUILD" || true
+          grep -q "BUILD SUCCESSFUL" test.log || { grep -E "FAILED|Error|expected" test.log | head -30 | while read -r l; do echo "::error::$l"; done; exit 1; }
 
       - name: Publish APK as a release (direct download link)
         env:
