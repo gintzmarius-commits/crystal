@@ -242,7 +242,7 @@ namespace WaveIsland
             string theme = Settings.Current.Theme;
             bool light = theme == "light";
             double tintA = theme == "dark" ? 0.8 : light ? 0.7 : 0.0;
-            double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.5;
+            double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.62;
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
             _fx.Light = new Point4D(-0.5, -0.866, 1, tintB);
             _fx.Blend = new Point4D(0.5 / (Blend * k), Blend * k, 0, 0);
