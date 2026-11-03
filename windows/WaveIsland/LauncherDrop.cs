@@ -210,7 +210,9 @@ namespace WaveIsland
             {
                 CornerRadius = new CornerRadius(18), Padding = new Thickness(20, 8, 20, 9), Margin = new Thickness(0, 0, 10, 0), Cursor = Cursors.Hand,
                 Background = primary ? new SolidColorBrush(Color.FromRgb(176, 240, 210)) : _plateOn,
-                Child = new TextBlock { Text = label, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = primary ? new SolidColorBrush(Color.FromRgb(12, 34, 24)) : null },
+                Child = primary
+                    ? new TextBlock { Text = label, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(12, 34, 24)) }
+                    : new TextBlock { Text = label, FontSize = 14, FontWeight = FontWeights.SemiBold },
                 RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1)
             };
             b.MouseLeftButtonDown += (x, y) => y.Handled = true;

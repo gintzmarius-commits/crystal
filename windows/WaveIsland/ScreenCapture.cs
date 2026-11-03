@@ -18,6 +18,7 @@ namespace WaveIsland
         public WriteableBitmap Bitmap { get; private set; }
         private ulong _lastHash;
         private Int32Rect _lastSub;
+        private int _lumaTick;
         /// <summary>Luminosite moyenne de la derniere capture (0 = noir, 1 = blanc).</summary>
         public double Luma { get; private set; } = 0.3;
 
@@ -49,7 +50,9 @@ namespace WaveIsland
             _lastHash = hash;
             _lastSub = sub;
 
-            // Luminosite moyenne (pour choisir un texte clair ou fonce, comme sur iPhone)
+            // Luminosite moyenne (pour choisir un texte clair ou fonce) : une image sur 8 suffit
+            if (++_lumaTick % 8 == 1)
+            {
             double sum = 0; int count = 0;
             for (int row = sy; row < sy + sh; row += 4)
             {
@@ -62,13 +65,8 @@ namespace WaveIsland
                 }
             }
             if (count > 0) Luma = sum / count / 255.0;
-
-            // Les pixels captures sont opaques : on force l'alpha a 255
-            for (int row = sy; row < sy + sh; row++)
-            {
-                uint* line = p + row * w;
-                for (int i = sx; i < sx + sw; i++) line[i] |= 0xFF000000;
             }
+            // Image en Bgr32 : l'alpha est ignore, plus besoin de le corriger pixel par pixel
             int stride = w * 4;
             IntPtr start = _bits + (sy * w + sx) * 4;
             Bitmap.WritePixels(new Int32Rect(sx, sy, sw, sh), start, (sh - 1) * stride + sw * 4, stride);
@@ -88,7 +86,7 @@ namespace WaveIsland
             };
             _dib = Native.CreateDIBSection(_memDc, ref bmi, 0, out _bits, IntPtr.Zero, 0);
             _old = Native.SelectObject(_memDc, _dib);
-            Bitmap = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+            Bitmap = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr32, null);
             _lastHash = 0;
         }
 

@@ -334,7 +334,15 @@ namespace WaveIsland
             if (!Native.GetWindowRect(_hwnd, out var r)) return;
             try
             {
-                if (_cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) && _glass.Source != _cap.Bitmap)
+                // Seulement la zone utile : les deux gouttes (ilot + menu) et la marge du verre
+                double k = _scale, pad = 30;
+                double x0 = Math.Min(_acx - _aw.Value / 2, _bx.Value - _bw.Value / 2) - pad;
+                double x1 = Math.Max(_acx + _aw.Value / 2, _bx.Value + _bw.Value / 2) + pad;
+                double y1 = Math.Max(_top + _ah.Value, _by.Value + _bh.Value / 2) + pad;
+                int ww = r.Right - r.Left, wh = r.Bottom - r.Top;
+                int sx = Math.Max(0, (int)(x0 * k) & ~15), sw = Math.Min(ww - sx, (int)Math.Ceiling((x1 - x0) * k) + 32);
+                var sub = new Int32Rect(sx, 0, Math.Max(16, sw), Math.Min(wh, (int)Math.Ceiling(y1 * k) + 16));
+                if (_cap.Grab(r.Left, r.Top, ww, wh, sub) && _glass.Source != _cap.Bitmap)
                     _glass.Source = _cap.Bitmap;
             }
             catch { }
@@ -456,11 +464,8 @@ namespace WaveIsland
             var ink = dark ? new SolidColorBrush(Color.FromRgb(18, 20, 24)) : Brushes.White;
             TextElement.SetForeground(_content, ink);
             PaintPlates(dark);
-            ((FrameworkElement)_content.Child).Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                ShadowDepth = 0, BlurRadius = 8, Opacity = 0.7, Color = dark ? Colors.White : Colors.Black,
-                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
-            };
+            // Plus d'ombre sous tout le contenu (tres couteux pendant les animations) : les petits carres suffisent
+            ((FrameworkElement)_content.Child).Effect = null;
         }
 
         private void FillSections()

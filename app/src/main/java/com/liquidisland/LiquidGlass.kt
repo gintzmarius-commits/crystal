@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -73,10 +74,17 @@ class LiquidGlass(private val density: Float) {
         }
 
     private val key = FloatArray(10) { Float.NaN }
+    private val k = FloatArray(10)
+    // Degrades calcules une seule fois en coordonnees 0..1, puis simplement places sur la forme a chaque image
+    // (avant : 5 degrades recrees a chaque image de l'animation -> ramasse-miettes et saccades)
+    private val shaderKey = FloatArray(6) { Float.NaN }
+    private val unitMatrix = Matrix()
+    private val bodyMatrix = Matrix()
 
     /** Vrai si la forme ou la lumiere ont change depuis le dernier calcul (sinon on garde tout en cache). */
     private fun changed(l: Float, t: Float, r: Float, b: Float): Boolean {
-        val k = floatArrayOf(l, t, r, b, tint, lightX, lightY, (if (dark) 1f else 0f) + (if (clear) 2f else 0f), if (blurred) 1f else 0f, if (notch) 1f else 0f)
+        k[0] = l; k[1] = t; k[2] = r; k[3] = b; k[4] = tint; k[5] = lightX; k[6] = lightY
+        k[7] = (if (dark) 1f else 0f) + (if (clear) 2f else 0f); k[8] = if (blurred) 1f else 0f; k[9] = if (notch) 1f else 0f
         var diff = false
         for (i in k.indices) if (kotlin.math.abs(k[i] - key[i]) > 0.0005f || key[i].isNaN()) { diff = true; break }
         if (diff) k.copyInto(key)
@@ -118,71 +126,29 @@ class LiquidGlass(private val density: Float) {
             path.close()
         }
 
-        val f = tint.coerceIn(0f, 1f)
-        // Teinte : quasi nulle quand l'ilot est replie (verre transparent), plus dense ouvert pour lire
-        val aTop: Float
-        val aBot: Float
-        if (clear) {
-            // Transparent : juste un voile infime qui donne de la matiere, sans blanchir le fond
-            aTop = lerp(8f, 26f, f)
-            aBot = lerp(14f, 34f, f)
-        } else if (blurred) {
-            aTop = lerp(if (dark) 60f else 50f, 145f, f)
-            aBot = lerp(if (dark) 80f else 40f, if (dark) 170f else 125f, f)
-        } else {
-            aTop = lerp(if (dark) 14f else 10f, if (dark) 168f else 175f, f)
-            aBot = lerp(if (dark) 22f else 6f, if (dark) 190f else 150f, f)
-        }
-        body.shader = if (dark) LinearGradient(
-            0f, t, 0f, b,
-            Color.argb(aTop.toInt(), 30, 34, 42), Color.argb(aBot.toInt(), 10, 12, 18), Shader.TileMode.CLAMP
-        ) else LinearGradient(
-            0f, t, 0f, b,
-            Color.argb(aTop.toInt(), 255, 255, 255), Color.argb(aBot.toInt(), 238, 242, 250), Shader.TileMode.CLAMP
-        )
-
-        // La lumiere vient du haut, decalee selon l'inclinaison
         val lx = lightX.coerceIn(-1f, 1f)
         val ly = lightY.coerceIn(-1f, 1f)
         val cx = (l + r) / 2f
+        rebuildShaders(lx, ly)
 
+        // Placement des degrades sur la forme (aucune allocation)
+        unitMatrix.setScale(w, h)
+        unitMatrix.postTranslate(l, t)
+        bodyMatrix.setScale(1f, h)
+        bodyMatrix.postTranslate(0f, t)
+        body.shader.setLocalMatrix(bodyMatrix)
+        edge.shader.setLocalMatrix(unitMatrix)
+        iris.shader.setLocalMatrix(unitMatrix)
+        rim.shader.setLocalMatrix(unitMatrix)
+        innerRim.shader.setLocalMatrix(bodyMatrix)
         // Reflet speculaire : tache allongee pres du bord du haut, qui glisse avec l'inclinaison
         val sx = cx + lx * w * 0.32f
         val sy = t + h * (0.16f + 0.06f * ly)
         val sr = max(dp(8f), h * 0.55f)
-        val g = RadialGradient(sx, sy, sr, white(85f), white(0f), Shader.TileMode.CLAMP)
-        specMatrix.reset()
-        specMatrix.setScale(min(3.2f, max(1f, w / h * 0.9f)), 0.55f, sx, sy)
-        g.setLocalMatrix(specMatrix)
-        spec.shader = g
+        specMatrix.setScale(sr * min(3.2f, max(1f, w / h * 0.9f)), sr * 0.55f)
+        specMatrix.postTranslate(sx, sy)
+        spec.shader.setLocalMatrix(specMatrix)
 
-        // Epaisseur : bord interieur clair cote lumiere, plus sombre a l'oppose
-        edge.shader = LinearGradient(
-            cx - lx * w * 0.5f, t - ly * h, cx + lx * w * 0.5f, b + h * 0.2f,
-            white(if (dark) 70f else 110f), black(if (dark) 55f else 28f), Shader.TileMode.CLAMP
-        )
-        // Touche irisee sur le bas, comme sur l'image Apple
-        iris.shader = LinearGradient(
-            l + w * (0.15f - lx * 0.1f), 0f, r - w * (0.15f + lx * 0.1f), 0f,
-            intArrayOf(
-                Color.argb(0, 120, 220, 255),
-                Color.argb(120, 120, 220, 255),
-                Color.argb(120, 255, 140, 220),
-                Color.argb(110, 255, 225, 130),
-                Color.argb(0, 255, 225, 130)
-            ),
-            floatArrayOf(0f, 0.3f, 0.55f, 0.78f, 1f), Shader.TileMode.CLAMP
-        )
-        // Liseré : accroche la lumiere d'un cote et le bas oppose
-        rim.shader = LinearGradient(
-            cx - w * 0.5f + lx * w * 0.3f, t, cx + w * 0.5f + lx * w * 0.3f, b,
-            intArrayOf(white(235f), white(70f), white(40f), white(170f)),
-            floatArrayOf(0f, 0.42f, 0.6f, 1f), Shader.TileMode.CLAMP
-        )
-        // Second liseré interieur tres fin (le « double contour » du verre epais)
-        innerRim.shader = LinearGradient(
-            0f, t, 0f, b, white(70f), white(25f), Shader.TileMode.CLAMP
-        )
         shade.color = if (dark) Color.argb(60, 0, 0, 0) else Color.argb(36, 30, 40, 70)
 
         // Parametres de la refraction
@@ -205,6 +171,51 @@ class LiquidGlass(private val density: Float) {
                 rs.setFloatUniform("clearTint", if (clear) 1f else 1f - tint.coerceIn(0f, 1f))
             }
         }
+    }
+
+    /** Recree les degrades seulement si la teinte, le theme ou la lumiere ont change (pas a chaque image). */
+    private fun rebuildShaders(lx: Float, ly: Float) {
+        val q0 = tint; val q1 = lx; val q2 = ly
+        val q3 = (if (dark) 1f else 0f) + (if (clear) 2f else 0f) + (if (blurred) 4f else 0f)
+        if (abs(q0 - shaderKey[0]) < 0.004f && abs(q1 - shaderKey[1]) < 0.01f && abs(q2 - shaderKey[2]) < 0.01f &&
+            q3 == shaderKey[3] && body.shader != null) return
+        shaderKey[0] = q0; shaderKey[1] = q1; shaderKey[2] = q2; shaderKey[3] = q3
+
+        val f = tint.coerceIn(0f, 1f)
+        // Teinte : quasi nulle quand l'ilot est replie (verre transparent), plus dense ouvert pour lire
+        val aTop: Float
+        val aBot: Float
+        if (clear) {
+            aTop = lerp(8f, 26f, f)
+            aBot = lerp(14f, 34f, f)
+        } else if (blurred) {
+            aTop = lerp(if (dark) 60f else 50f, 145f, f)
+            aBot = lerp(if (dark) 80f else 40f, if (dark) 170f else 125f, f)
+        } else {
+            aTop = lerp(if (dark) 14f else 10f, if (dark) 168f else 175f, f)
+            aBot = lerp(if (dark) 22f else 6f, if (dark) 190f else 150f, f)
+        }
+        body.shader = if (dark) LinearGradient(0f, 0f, 0f, 1f,
+            Color.argb(aTop.toInt(), 30, 34, 42), Color.argb(aBot.toInt(), 10, 12, 18), Shader.TileMode.CLAMP)
+        else LinearGradient(0f, 0f, 0f, 1f,
+            Color.argb(aTop.toInt(), 255, 255, 255), Color.argb(aBot.toInt(), 238, 242, 250), Shader.TileMode.CLAMP)
+        spec.shader = RadialGradient(0f, 0f, 1f, white(85f), white(0f), Shader.TileMode.CLAMP)
+        // Epaisseur : bord interieur clair cote lumiere, plus sombre a l'oppose
+        edge.shader = LinearGradient(0.5f - lx * 0.5f, -ly, 0.5f + lx * 0.5f, 1.2f,
+            white(if (dark) 70f else 110f), black(if (dark) 55f else 28f), Shader.TileMode.CLAMP)
+        // Touche irisee sur le bas, comme sur l'image Apple
+        iris.shader = LinearGradient(0.15f - lx * 0.1f, 0f, 0.85f - lx * 0.1f, 0f,
+            intArrayOf(
+                Color.argb(0, 120, 220, 255), Color.argb(120, 120, 220, 255), Color.argb(120, 255, 140, 220),
+                Color.argb(110, 255, 225, 130), Color.argb(0, 255, 225, 130)
+            ),
+            floatArrayOf(0f, 0.3f, 0.55f, 0.78f, 1f), Shader.TileMode.CLAMP)
+        // Liseré : accroche la lumiere d'un cote et le bas oppose
+        rim.shader = LinearGradient(lx * 0.3f, 0f, 1f + lx * 0.3f, 1f,
+            intArrayOf(white(235f), white(70f), white(40f), white(170f)),
+            floatArrayOf(0f, 0.42f, 0.6f, 1f), Shader.TileMode.CLAMP)
+        // Second liseré interieur tres fin (le « double contour » du verre epais)
+        innerRim.shader = LinearGradient(0f, 0f, 0f, 1f, white(70f), white(25f), Shader.TileMode.CLAMP)
     }
 
     /** Corps du verre (avant le contenu) : fond deforme sur les bords, puis teinte. */
