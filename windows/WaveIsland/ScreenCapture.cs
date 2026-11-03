@@ -6,9 +6,10 @@ using System.Windows.Media.Imaging;
 namespace WaveIsland
 {
     /// <summary>
-    /// Copie la zone de l'ecran situee derriere l'ilot dans une image WPF.
-    /// La fenetre de l'ilot est exclue de la capture (SetWindowDisplayAffinity), elle ne se voit donc pas elle-meme.
-    /// Optimisation : l'image n'est envoyee a la carte graphique que si le fond a change.
+    /// Copie la zone de l'ecran situee derriere une fenetre dans une image WPF.
+    /// La fenetre est exclue de la capture (SetWindowDisplayAffinity), elle ne se voit donc pas elle-meme.
+    /// Optimisations : on ne copie que la partie utile (autour de l'ilot), et l'image n'est envoyee
+    /// a la carte graphique que si le fond a vraiment change.
     /// </summary>
     public sealed class ScreenCapture : IDisposable
     {
@@ -16,30 +17,45 @@ namespace WaveIsland
         private int _w, _h;
         public WriteableBitmap Bitmap { get; private set; }
         private ulong _lastHash;
+        private Int32Rect _lastSub;
 
         /// <summary>Capture le rectangle (pixels physiques). Renvoie true si l'image a change.</summary>
-        public unsafe bool Grab(int x, int y, int w, int h)
+        public bool Grab(int x, int y, int w, int h) => Grab(x, y, w, h, new Int32Rect(0, 0, w, h));
+
+        /// <summary>Capture seulement la partie « sub » (relative au rectangle) de la zone x, y, w, h.</summary>
+        public unsafe bool Grab(int x, int y, int w, int h, Int32Rect sub)
         {
             if (w <= 0 || h <= 0) return false;
             if (w != _w || h != _h) Allocate(w, h);
+            int sx = Math.Max(0, Math.Min(w, sub.X)), sy = Math.Max(0, Math.Min(h, sub.Y));
+            int sw = Math.Max(0, Math.Min(w - sx, sub.Width)), sh = Math.Max(0, Math.Min(h - sy, sub.Height));
+            if (sw == 0 || sh == 0) return false;
+
             IntPtr screen = Native.GetDC(IntPtr.Zero);
-            try
-            {
-                Native.BitBlt(_memDc, 0, 0, w, h, screen, x, y, Native.SRCCOPY);
-            }
+            try { Native.BitBlt(_memDc, sx, sy, sw, sh, screen, x + sx, y + sy, Native.SRCCOPY); }
             finally { Native.ReleaseDC(IntPtr.Zero, screen); }
 
             // Empreinte rapide (1 pixel sur 7) : si rien n'a change, on ne renvoie pas l'image
             uint* p = (uint*)_bits;
-            ulong hash = 1469598103934665603UL;
-            int n = w * h;
-            for (int i = 0; i < n; i += 7) { hash ^= p[i]; hash *= 1099511628211UL; }
-            if (hash == _lastHash) return false;
+            ulong hash = 1469598103934665603UL ^ (ulong)(sx * 73856093 ^ sy * 19349663 ^ sw * 83492791 ^ sh);
+            for (int row = sy; row < sy + sh; row += 2)
+            {
+                uint* line = p + row * w;
+                for (int i = sx + (row % 7); i < sx + sw; i += 7) { hash ^= line[i]; hash *= 1099511628211UL; }
+            }
+            if (hash == _lastHash && sub.Equals(_lastSub)) return false;
             _lastHash = hash;
+            _lastSub = sub;
 
             // Les pixels captures sont opaques : on force l'alpha a 255
-            for (int i = 0; i < n; i++) p[i] |= 0xFF000000;
-            Bitmap.WritePixels(new Int32Rect(0, 0, w, h), _bits, w * h * 4, w * 4);
+            for (int row = sy; row < sy + sh; row++)
+            {
+                uint* line = p + row * w;
+                for (int i = sx; i < sx + sw; i++) line[i] |= 0xFF000000;
+            }
+            int stride = w * 4;
+            IntPtr start = _bits + (sy * w + sx) * 4;
+            Bitmap.WritePixels(new Int32Rect(sx, sy, sw, sh), start, (sh - 1) * stride + sw * 4, stride);
             return true;
         }
 

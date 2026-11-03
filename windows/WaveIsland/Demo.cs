@@ -24,7 +24,7 @@ namespace WaveIsland
 
         private static Task Wait(double s) => Task.Delay(TimeSpan.FromSeconds(s));
 
-        public static async void Run(IslandWindow island, VolumeService volume)
+        public static async void Run(IslandWindow island, VolumeService volume, MediaService media, DownloadWatcher downloads)
         {
             try
             {
@@ -93,6 +93,58 @@ namespace WaveIsland
                 s.Theme = "clear";
                 Settings.Notify();
 
+                // Notification de test : un clic ouvre l'appli concernee (Parametres)
+                island.ShowNote(new IslandNote
+                {
+                    App = "Paramètres", Title = "Notification de test", Text = "Clique dessus : ça ouvre l'appli Paramètres",
+                    Aumid = "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"
+                });
+                await Wait(1.0);
+                island.ClickNote();
+                await Wait(1.5);
+
+                // Musique en arriere-plan
+                media.Fake = new MediaInfo
+                {
+                    Title = "Vagues de nuit", Artist = "Les Reflets", App = "Spotify", Playing = true,
+                    Duration = TimeSpan.FromSeconds(214), Position = TimeSpan.FromSeconds(71), PositionAt = DateTime.Now,
+                    Art = FakeArt()
+                };
+                await Wait(2.0);
+                island.Snap("11-musique-repos", Folder);
+                island.ShowLive();
+                await Wait(1.2);
+                island.Snap("12-musique-survol", Folder);
+                island.Collapse();
+                await Wait(1.0);
+
+                // Telechargement en cours (un fichier qui grossit dans le dossier surveille)
+                string dl = Path.Combine(downloads.Folder, "video-vacances.mp4.crdownload");
+                using (var f = new FileStream(dl, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    var chunk = new byte[350 * 1024];
+                    for (int i = 0; i < 14; i++)
+                    {
+                        f.Write(chunk, 0, chunk.Length);
+                        f.Flush();
+                        await Wait(0.3);
+                        if (i == 8) island.Snap("13-telechargement-repos", Folder);
+                    }
+                    island.ShowLive();
+                    for (int i = 0; i < 5; i++) { f.Write(chunk, 0, chunk.Length); f.Flush(); await Wait(0.3); }
+                    island.Snap("14-activites", Folder);
+                }
+                island.Collapse();
+                await Wait(0.5);
+                File.Move(dl, Path.Combine(downloads.Folder, "video-vacances.mp4"), true);
+                await Wait(1.8);
+                island.Snap("15-telechargement-termine", Folder);
+                media.Fake = null;
+                await Wait(1.5);
+                island.Collapse();
+                await Wait(1.0);
+                island.Snap("16-fin", Folder);
+
                 App.OpenSettings();
                 await Wait(1.5);
                 SnapWindow(App.SettingsWin, "10-reglages");
@@ -103,6 +155,21 @@ namespace WaveIsland
             catch (Exception e) { Log.I("DEMO ERREUR : " + e); }
             await Wait(0.5);
             App.Quit();
+        }
+
+        /// <summary>Fausse pochette (degrade) pour le test de la musique.</summary>
+        private static ImageSource FakeArt()
+        {
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(255, 94, 98), Color.FromRgb(80, 60, 220), 45), null, new Rect(0, 0, 120, 120));
+                dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(150, 255, 230, 120)), null, new Point(80, 40), 26, 26);
+            }
+            var bmp = new RenderTargetBitmap(120, 120, 96, 96, PixelFormats.Pbgra32);
+            bmp.Render(dv);
+            bmp.Freeze();
+            return bmp;
         }
 
         private static void SnapWindow(Window w, string name)

@@ -10,9 +10,12 @@ namespace WaveIsland
     {
         public static IslandWindow Island { get; private set; }
         public static VolumeService Volume { get; private set; }
+        public static MediaService Media { get; private set; }
+        public static DownloadWatcher Downloads { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
         private static SettingsWindow _settings;
+        private static bool _closeHintShown;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -24,7 +27,8 @@ namespace WaveIsland
             if (Program.Demo) new Backdrop().Show();
 
             Volume = new VolumeService(Dispatcher);
-            Island = new IslandWindow(Volume);
+            Media = new MediaService(Dispatcher);
+            Island = new IslandWindow(Volume, Media);
             Island.Show();
             Volume.Changed += (v, m) => Island.ShowVolume(v, m);
             Volume.Start();
@@ -33,11 +37,23 @@ namespace WaveIsland
             _notes.Arrived += n => { Island.ShowNote(n); Demo.NoteArrived(n); };
             _notes.Start();
 
+            // Activites en arriere-plan : musique et telechargements
+            Media.Changed += m => Island.SetMedia(m);
+            Media.Start();
+            Downloads = new DownloadWatcher(Dispatcher);
+            Downloads.Changed += l => Island.SetDownloads(l);
+            Downloads.Finished += path => Island.ShowNote(new IslandNote
+            {
+                App = "Téléchargements", Title = "Téléchargement terminé", Text = System.IO.Path.GetFileName(path),
+                OnClick = () => { try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); } catch { } }
+            });
+            Downloads.Start();
+
             CreateTray();
 
             if (Program.Demo)
             {
-                Demo.Run(Island, Volume);
+                Demo.Run(Island, Volume, Media, Downloads);
                 return;
             }
 
@@ -90,7 +106,19 @@ namespace WaveIsland
             if (_settings == null)
             {
                 _settings = new SettingsWindow();
-                _settings.Closed += (a, b) => _settings = null;
+                _settings.Closed += (a, b) =>
+                {
+                    _settings = null;
+                    if (!_closeHintShown && !Program.Demo)
+                    {
+                        _closeHintShown = true;
+                        Island?.ShowNote(new IslandNote
+                        {
+                            App = "Wave Island", Title = "Réglages fermés, l'îlot reste actif",
+                            Text = "Pour quitter : icône Wave Island près de l'horloge", OnClick = () => { }
+                        });
+                    }
+                };
                 _settings.Show();
             }
             _settings.Activate();

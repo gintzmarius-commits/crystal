@@ -21,6 +21,10 @@ namespace WaveIsland
         public bool Notifications { get; set; } = true;
         public bool HideInFullscreen { get; set; } = true;
         public bool StartWithWindows { get; set; } = true;
+        /// <summary>Musique / videos en cours dans l'ilot (avec les commandes)</summary>
+        public bool LiveMedia { get; set; } = true;
+        /// <summary>Telechargements en cours dans l'ilot (avec leur barre)</summary>
+        public bool LiveDownloads { get; set; } = true;
         public List<string> Shortcuts { get; set; } = new List<string>
         {
             "action:explorer", "action:settings", "action:calc", "action:snip", "action:playpause"

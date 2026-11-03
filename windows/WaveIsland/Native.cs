@@ -69,5 +69,23 @@ namespace WaveIsland
         [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+
+        // --- Ouvrir / ramener une appli au premier plan ---
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+        [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);
+        public const int SW_RESTORE = 9;
+
+        [DllImport("shell32.dll")]
+        public static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid id, uint flags, IntPtr token, out IntPtr path);
+
+        public static string KnownFolder(Guid id)
+        {
+            if (SHGetKnownFolderPath(id, 0, IntPtr.Zero, out IntPtr p) != 0) return null;
+            try { return Marshal.PtrToStringUni(p); } finally { Marshal.FreeCoTaskMem(p); }
+        }
+
+        public static readonly Guid FOLDERID_Downloads = new Guid("374DE290-123F-4565-9164-39C4925E467B");
     }
 }

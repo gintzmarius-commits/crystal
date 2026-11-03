@@ -53,8 +53,9 @@ jobs:
         shell: powershell
         env:
           WAVE_SHOTS: ${{ github.workspace }}\shots
+          WAVE_DOWNLOADS: ${{ github.workspace }}\dl
         run: |
-          New-Item -ItemType Directory -Force shots | Out-Null
+          New-Item -ItemType Directory -Force shots, dl | Out-Null
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           function Shot($name) {
             $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -77,7 +78,7 @@ jobs:
             [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show([Windows.UI.Notifications.ToastNotification]::new($xml))
             Write-Host "Toast envoye"
           } catch { Write-Host "Toast impossible: $_" }
-          if (-not $p.WaitForExit(120000)) { Write-Host "::warning::La demo ne s'est pas terminee"; Shot "99-bloque"; $p.Kill() }
+          if (-not $p.WaitForExit(180000)) { Write-Host "::warning::La demo ne s'est pas terminee"; Shot "99-bloque"; $p.Kill() }
           $log = "$env:APPDATA\WaveIsland\journal.txt"
           if (Test-Path $log) { Copy-Item $log shots\journal.txt; Get-Content $log }
           $crash = "$env:APPDATA\WaveIsland\dernier-plantage.txt"

@@ -17,7 +17,7 @@ namespace WaveIsland
         private static readonly Brush AccentBrush = new SolidColorBrush(Accent);
         private static readonly Brush Ink = Brushes.White;
         private static readonly Brush InkSoft = new SolidColorBrush(Color.FromArgb(160, 255, 255, 255));
-        private static readonly Brush Card = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255));
+        private static readonly Brush Card = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
         private static readonly Brush CardLine = new SolidColorBrush(Color.FromArgb(26, 255, 255, 255));
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -27,6 +27,32 @@ namespace WaveIsland
         private WrapPanel _shortcutAdd;
 
         private Settings S => Settings.Current;
+        private ScrollViewer _scroll;
+        private double _scrollTarget;
+        private bool _scrolling;
+
+        /// <summary>Defilement doux, pixel par pixel (avant : une section entiere par cran de molette).</summary>
+        private void SmoothWheel(object sender, MouseWheelEventArgs e)
+        {
+            e.Handled = true;
+            if (!_scrolling) _scrollTarget = _scroll.VerticalOffset;
+            _scrollTarget = Math.Max(0, Math.Min(_scroll.ScrollableHeight, _scrollTarget - e.Delta * 0.45));
+            if (_scrolling) return;
+            _scrolling = true;
+            CompositionTarget.Rendering += ScrollFrame;
+        }
+
+        private void ScrollFrame(object sender, EventArgs e)
+        {
+            double cur = _scroll.VerticalOffset, next = cur + (_scrollTarget - cur) * 0.2;
+            if (Math.Abs(_scrollTarget - next) < 0.5)
+            {
+                next = _scrollTarget;
+                _scrolling = false;
+                CompositionTarget.Rendering -= ScrollFrame;
+            }
+            _scroll.ScrollToVerticalOffset(next);
+        }
 
         public SettingsWindow()
         {
@@ -41,22 +67,27 @@ namespace WaveIsland
             FontFamily = Ui;
             try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/WaveIsland;component/wave.ico")); } catch { }
 
+            // Fond en verre liquide : le bureau est vu a travers la fenetre (pas de flou),
+            // avec un voile sombre juste assez marque pour lire les reglages
+            var glass = new GlassBackdrop(this, 26, 0.58);
             var frame = new Border
             {
-                CornerRadius = new CornerRadius(24),
-                Background = new LinearGradientBrush(Color.FromRgb(22, 27, 30), Color.FromRgb(12, 14, 16), 90),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                CornerRadius = new CornerRadius(26),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(10),
-                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Opacity = 0.5 }
             };
             var dock = new DockPanel();
             dock.Children.Add(Header());
             DockPanel.SetDock(dock.Children[0], Dock.Top);
-            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = _col };
-            dock.Children.Add(scroll);
+            _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = _col, CanContentScroll = false };
+            _scroll.PreviewMouseWheel += SmoothWheel;
+            dock.Children.Add(_scroll);
             frame.Child = dock;
-            Content = frame;
+            var root = new Grid();
+            root.Children.Add(glass.Image);
+            root.Children.Add(frame);
+            root.Clip = new RectangleGeometry(new Rect(0, 0, Width, Height), 26, 26);
+            Content = root;
 
             Build();
             KeyDown += (a, b) => { if (b.Key == Key.Escape) Close(); };
@@ -80,7 +111,8 @@ namespace WaveIsland
                 Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = Card, Cursor = Cursors.Hand,
                 Child = Center(G("", 12))
             };
-            close.MouseLeftButtonUp += (a, b) => Close();
+            close.MouseLeftButtonDown += (a, b) => b.Handled = true; // sinon la fenetre se deplace et le clic est perdu
+            close.MouseLeftButtonUp += (a, b) => { b.Handled = true; Close(); };
             Grid.SetColumn(titles, 1);
             Grid.SetColumn(close, 2);
             g.Children.Add(logo);
@@ -123,15 +155,20 @@ namespace WaveIsland
                 () => S.VolumeInIsland, v => { S.VolumeInIsland = v; S.Save(); }));
             fx.Children.Add(Toggle("Notifications dans l'îlot", "Clique dessus pour ouvrir l'appli",
                 () => S.Notifications, v => { S.Notifications = v; S.Save(); }));
+            fx.Children.Add(Toggle("Musique et vidéos", "Titre, pochette et commandes quand quelque chose joue (survole l'îlot)",
+                () => S.LiveMedia, v => { S.LiveMedia = v; S.Save(); }));
+            fx.Children.Add(Toggle("Téléchargements en cours", "Une barre de progression par téléchargement",
+                () => S.LiveDownloads, v => { S.LiveDownloads = v; S.Save(); }));
             fx.Children.Add(Toggle("Cacher en plein écran", "Jeux, films, présentations",
                 () => S.HideInFullscreen, v => { S.HideInFullscreen = v; S.Save(); }));
             fx.Children.Add(Toggle("Lancer avec Windows", "La Wave Island démarre toute seule",
                 () => S.StartWithWindows, v => { S.StartWithWindows = v; S.Save(); }));
-            var tip = T("Pour ne plus voir les bannières de Windows en bas à droite, active « Ne pas déranger » : " +
-                        "les notifications arrivent quand même dans l'îlot.", 12, FontWeights.Normal, InkSoft);
+            var tip = T("Masquer les notifications de Windows en bas à droite : dans Paramètres > Système > Notifications, " +
+                        "active « Ne pas déranger » (et décoche les règles automatiques). Les notifications arrivent quand même " +
+                        "dans l'îlot, mais plus en bas de l'écran.", 12, FontWeights.Normal, InkSoft);
             tip.Margin = new Thickness(2, 10, 2, 8);
             fx.Children.Add(tip);
-            fx.Children.Add(Button("Ouvrir les réglages de notifications", () => Shortcuts.Start("ms-settings:notifications")));
+            fx.Children.Add(Button("Ouvrir « Ne pas déranger »", () => Shortcuts.Start("ms-settings:notifications")));
             _col.Children.Add(fx.Parent as FrameworkElement);
 
             // --- Raccourcis ---
@@ -152,7 +189,8 @@ namespace WaveIsland
             row.Children.Add(Button("Volume", () => App.Island.ShowVolume(0.6f, false), compact: true));
             row.Children.Add(Button("Notification", () => App.Island.ShowNote(new IslandNote
             {
-                App = "Wave Island", Title = "Ça marche !", Text = "Les notifications s'affichent ici", OnClick = () => { }
+                App = "Paramètres", Title = "Notification de test", Text = "Clique dessus : ça ouvre l'appli Paramètres",
+                Aumid = "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"
             }), compact: true));
             row.Children.Add(Button("Menu", () => App.Island.ShowMenu(), compact: true));
             test.Children.Add(row);
@@ -165,7 +203,7 @@ namespace WaveIsland
             help.Children.Add(Button("Copier le rapport de bug", App.CopyReport));
             help.Children.Add(Button("Ouvrir le dossier du journal", App.OpenLogFolder));
             help.Children.Add(Button("Quitter la Wave Island", App.Quit, danger: true));
-            var hint = T("Clic sur l'îlot : raccourcis • molette : volume • clic droit : réglages", 12, FontWeights.Normal, InkSoft);
+            var hint = T("Survol de l'îlot : musique et téléchargements • clic : raccourcis • molette : volume • clic droit : réglages", 12, FontWeights.Normal, InkSoft);
             hint.Margin = new Thickness(2, 10, 2, 2);
             help.Children.Add(hint);
             _col.Children.Add(help.Parent as FrameworkElement);
