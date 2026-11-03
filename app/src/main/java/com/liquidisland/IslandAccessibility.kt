@@ -37,7 +37,11 @@ class IslandAccessibility : AccessibilityService() {
     /** L'ecran change (appli ouverte, defilement) : l'ilot cache son bord deforme le temps d'une nouvelle capture. */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // Jamais de plantage ici : Android couperait l'accessibilite (l'ilot passerait sous la barre d'etat)
-        try { IslandService.instance?.onScreenChanged() } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }
+        try {
+            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.packageName?.toString()?.contains("systemui") == true) IslandService.instance?.onShadeShown()
+            IslandService.instance?.onScreenChanged()
+        } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }
     }
     override fun onInterrupt() {}
 

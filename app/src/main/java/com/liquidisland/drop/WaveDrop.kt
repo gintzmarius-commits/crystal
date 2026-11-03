@@ -110,7 +110,11 @@ object WaveDrop {
     private fun prefs(c: Context = app) = c.getSharedPreferences("wavedrop", Context.MODE_PRIVATE)
 
     fun enabled(c: Context) = prefs(c.applicationContext).getBoolean("on", false)
-    fun setEnabled(c: Context, v: Boolean) { prefs(c.applicationContext).edit().putBoolean("on", v).apply() }
+    fun setEnabled(c: Context, v: Boolean) {
+        val was = enabled(c)
+        prefs(c.applicationContext).edit().putBoolean("on", v).apply()
+        if (was != v) android.os.Handler(android.os.Looper.getMainLooper()).post { com.liquidisland.IslandService.instance?.dropToggled(v) }
+    }
 
     val myId: Int get() {
         val p = prefs()

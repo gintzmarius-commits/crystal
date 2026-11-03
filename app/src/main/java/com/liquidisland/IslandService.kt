@@ -1605,9 +1605,35 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             return
         }
         if (mode != Mode.COLLAPSED || !com.liquidisland.drop.WaveDrop.enabled(this)) return
+        // Le volet (ou le centre de controle de HyperOS) va s'ouvrir : des qu'il apparait on le referme
+        // (retour), puis le panneau coule depuis l'ilot. Sans volet detecte, on ouvre quand meme.
+        shadePending = android.os.SystemClock.uptimeMillis()
+        main.removeCallbacks(shadeFallback)
+        main.postDelayed(shadeFallback, 1100)
+        // L'ilot s'etire deja : le geste est bien compris
+        view?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+
+    private var shadePending = 0L
+    private val shadeFallback = Runnable {
+        if (shadePending == 0L) return@Runnable
+        shadePending = 0L
+        Log.i(TAG, "Wave Drop : aucun volet detecte, ouverture du panneau")
         if (Build.VERSION.SDK_INT >= 31) IslandAccessibility.instance?.performGlobalAction(
             android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         openWaveDrop()
+    }
+
+    /** Une fenetre du systeme (volet des notifications, centre de controle) vient de s'afficher. */
+    fun onShadeShown() {
+        val t = shadePending
+        if (t == 0L || android.os.SystemClock.uptimeMillis() - t > 2500) return
+        shadePending = 0L
+        main.removeCallbacks(shadeFallback)
+        Log.i(TAG, "Wave Drop : volet ouvert par Android, on le referme")
+        val acc = IslandAccessibility.instance
+        acc?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        main.postDelayed({ openWaveDrop() }, 280)
     }
 
     override fun outside() {
@@ -1647,6 +1673,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         private val icon get() = applicationInfo.loadIcon(packageManager)
 
         override fun request(r: com.liquidisland.drop.WaveDrop.Request) {
+            // Un appareil veut envoyer (colle ou a cote) : le panneau s'ouvre tout seul pour accepter
+            if (com.liquidisland.drop.WaveDrop.uis.none { it is com.liquidisland.drop.WaveDropActivity }) {
+                try {
+                    view?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    com.liquidisland.drop.WaveDropActivity.open(this@IslandService, r.id)
+                    Log.i(TAG, "Wave Drop : demande de ${r.from}, panneau ouvert")
+                    return
+                } catch (e: Exception) { Log.w(TAG, "Wave Drop : ouverture du panneau refusee : $e") }
+            } else return
             show(IslandNote(
                 "${r.from} veut t'envoyer un fichier",
                 r.offer.name + " · " + com.liquidisland.drop.WaveDropActivity.size(r.offer.size) + " — touche pour répondre",
@@ -1665,6 +1700,19 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             show(IslandNote(title, text + if (received != null) " — touche pour l'ouvrir" else "", icon, null, packageName,
                 action = { if (received != null) com.liquidisland.drop.WaveDropActivity.openFile(this@IslandService, received, mime) }))
         }
+    }
+
+    /** Wave Drop active ou coupe (appli, pastille des reglages rapides) : l'ilot le montre 1,8 s. */
+    fun dropToggled(on: Boolean) {
+        if (mode == Mode.NOTIF || mode == Mode.MENU) return
+        Log.i(TAG, "Wave Drop ${if (on) "active" else "coupe"} : affiche sur l'ilot")
+        show(IslandNote(
+            if (on) "Wave Drop activé" else "Wave Drop désactivé",
+            if (on) "Visible des appareils proches" else "Plus visible",
+            LineIcon(LineIcon.Kind.DROP, if (on) Glass.ACCENT else Color.WHITE, density), null, packageName, action = {}
+        ))
+        main.removeCallbacks(collapseRunnable)
+        main.postDelayed(collapseRunnable, 1800)
     }
 
     /** Glisser l'ilot replie vers le bas : le panneau Wave Drop coule depuis l'ilot. */
