@@ -98,6 +98,21 @@ class MainActivity : Activity() {
         col.addView(section("Volume"))
         col.addView(volumeCard())
 
+        // Activites en arriere-plan
+        col.addView(section("Activités en cours"))
+        val live = card()
+        live.addView(switchRow(
+            "Musique et vidéos",
+            text("Pochette et barres qui dansent sur l'îlot. Touche l'îlot : morceau précédent, pause, suivant.", 13f, Glass.INK_SOFT),
+            Prefs.liveMedia(this)
+        ) { Prefs.setLiveMedia(this, it); IslandService.instance?.applySettings() })
+        live.addView(switchRow(
+            "Téléchargements et tâches",
+            text("Une barre de progression par téléchargement (navigateur, Play Store, envois...).", 13f, Glass.INK_SOFT),
+            Prefs.liveDownloads(this)
+        ) { Prefs.setLiveDownloads(this, it); IslandService.instance?.applySettings() })
+        col.addView(live)
+
         // Raccourcis du mini menu
         col.addView(section("Menu de l'îlot"))
         col.addView(shortcutsCard())

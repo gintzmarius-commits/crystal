@@ -52,6 +52,14 @@ object Prefs {
     fun volumePos(c: Context) = sp(c).getInt("volumePos", 30)
     fun setVolumePos(c: Context, v: Int) = sp(c).edit().putInt("volumePos", v).apply()
 
+    /** Musique en cours dans l'ilot (pochette, commandes) */
+    fun liveMedia(c: Context) = sp(c).getBoolean("liveMedia", true)
+    fun setLiveMedia(c: Context, v: Boolean) = sp(c).edit().putBoolean("liveMedia", v).apply()
+
+    /** Telechargements et autres taches en cours (barre de progression) dans l'ilot */
+    fun liveDownloads(c: Context) = sp(c).getBoolean("liveDownloads", true)
+    fun setLiveDownloads(c: Context, v: Boolean) = sp(c).edit().putBoolean("liveDownloads", v).apply()
+
     // Tailles en dp
     const val W_MIN = 60; const val W_MAX = 260
     const val H_MIN = 20; const val H_MAX = 60

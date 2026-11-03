@@ -216,7 +216,7 @@ class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
 
 class IslandService : Service(), IslandGestures, android.hardware.SensorEventListener {
 
-    private enum class Mode { COLLAPSED, NOTIF, MENU }
+    private enum class Mode { COLLAPSED, NOTIF, MENU, LIVE }
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var wm: WindowManager
@@ -277,6 +277,31 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private lateinit var titleView: TextView
     private lateinit var textView: TextView
     private lateinit var menu: LinearLayout
+
+    // ---------- Activites en arriere-plan (musique, telechargements) ----------
+    private var mediaWatcher: MediaWatcher? = null
+    private var mediaNow: MediaNow? = null
+    private val tasks = LinkedHashMap<String, ProgressNow>()
+    private lateinit var compact: FrameLayout
+    private lateinit var compactArt: ImageView
+    private lateinit var eq: EqualizerView
+    private lateinit var ring: RingView
+    private lateinit var livePanel: LinearLayout
+    private var liveTimes: Triple<TextView, BarView, TextView>? = null
+    private var livePlay: ImageView? = null
+    private val liveRows = mutableListOf<Triple<ProgressNow, TextView, BarView>>()
+    private var liveSig = ""
+    private var lhMax = 0
+    private fun hasLive() = mediaNow != null || tasks.isNotEmpty()
+    /** Largeur de l'ilot au repos : elargi quand une activite tourne (pochette a gauche, barres a droite). */
+    private fun restW() = if (hasLive()) cw + dp(COMPACT_EXTRA) else cw
+    private fun winH() = max(max(eh, mh), lhMax) + bottomPad
+    private val liveTicker = object : Runnable {
+        override fun run() {
+            updateLiveProgress()
+            if (mode == Mode.LIVE) main.postDelayed(this, 500)
+        }
+    }
 
     private var mode = Mode.COLLAPSED
     private var aboveStatusBar = false
@@ -349,6 +374,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (screenOn) startLive()
         if (LiveCapture.pendingResult != null) startLiveCapture()
         updateNotif()
+        mediaWatcher = MediaWatcher(this, main) { onMediaChanged() }.also { it.start() }
+        NotifListener.replayTasks()
     }
 
     /** Accessibilite cochee dans les reglages mais pas connectee : Android l'a arretee (apres un plantage). */
@@ -616,9 +643,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     /** Taille de l'ilot au repos : normale, cachee, ou juste autour de la camera en plein ecran. */
     private fun restSize(): Pair<Float, Float> {
-        if (!fullscreen) return cw.toFloat() to ch.toFloat()
+        if (!fullscreen) return restW().toFloat() to ch.toFloat()
         // En plein ecran l'ilot reste visible (contre la camera), sauf si on a choisi de le cacher
-        return if (Prefs.fullscreen(this) == "hide") 0f to 0f else cw.toFloat() to ch.toFloat()
+        return if (Prefs.fullscreen(this) == "hide") 0f to 0f else restW().toFloat() to ch.toFloat()
     }
     private fun ink() = if (dark) Color.WHITE else Glass.ISLAND_INK
     private fun inkSoft() = if (dark) Color.argb(205, 255, 255, 255) else Glass.ISLAND_INK_SOFT
@@ -651,6 +678,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         eh = contentTop + body + dp(8)
         val rows = max(1, (Shortcuts.load(this).size + 3) / 4)
         mh = menuTop + dp(14) * 2 + rows * dp(78)
+        // Activites en grand : lecteur (~150 dp) + 3 telechargements au plus
+        lhMax = menuTop + dp(14) + dp(150) + 3 * dp(64) + dp(12)
     }
 
     private fun createIsland() {
@@ -693,10 +722,13 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
+        createLiveViews()
         val v = IslandView(this)
+        v.addView(compact, compactParams())
         v.addView(content, contentParams())
         v.addView(menu, menuParams())
-        v.pw = cw.toFloat()
+        v.addView(livePanel, liveParams())
+        v.pw = restW().toFloat()
         v.ph = ch.toFloat()
         v.glass.notch = notch
         v.glass.dark = dark
@@ -738,12 +770,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         applyWindow(big = false, update = false)
         createBlur(acc ?: this, lp.type)
         v.glass.blurred = blurDialog != null
-        val r = wrap(v, ew + 2 * side, max(eh, mh) + bottomPad)
+        val r = wrap(v, ew + 2 * side, winH())
         rootView = r
         wm.addView(r, lp)
         val p = TouchPad(this, this)
         pad = p
-        val rp = wrap(p, cw + 2 * dp(6), ch + dp(8))
+        val rp = wrap(p, restW() + 2 * dp(6), ch + dp(8))
         rootPad = rp
         wm.addView(rp, lpPad)
         // L'indicateur de volume a besoin de l'accessibilite (boutons + affichage au-dessus de tout)
@@ -758,6 +790,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         addProbe()
         Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
+
+    private fun compactParams() =
+        FrameLayout.LayoutParams(cw + dp(COMPACT_EXTRA), ch, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+
+    private fun liveParams() =
+        FrameLayout.LayoutParams(ew, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = menuTop
+        }
 
     private fun contentParams() =
         FrameLayout.LayoutParams(ew, dp(64), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = contentTop }
@@ -1028,14 +1068,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private fun applyWindow(big: Boolean, update: Boolean = true) {
         windowBig = big
         val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        place(lp, ew + 2 * side, max(eh, mh) + bottomPad)
+        place(lp, ew + 2 * side, winH())
         lp.flags = if (big) lp.flags and noTouch.inv() else lp.flags or noTouch
-        place(lpPad, cw + 2 * dp(6), ch + dp(8))
+        place(lpPad, restW() + 2 * dp(6), ch + dp(8))
         // Zone tactile active seulement quand l'ilot est replie ET visible
         lpPad.flags = if (big || hidden) lpPad.flags or noTouch else lpPad.flags and noTouch.inv()
         if (update) {
-            (rootView as? Rotator)?.let { it.portraitW = ew + 2 * side; it.portraitH = max(eh, mh) + bottomPad }
-            (rootPad as? Rotator)?.let { it.portraitW = cw + 2 * dp(6); it.portraitH = ch + dp(8) }
+            (rootView as? Rotator)?.let { it.portraitW = ew + 2 * side; it.portraitH = winH() }
+            (rootPad as? Rotator)?.let { it.portraitW = restW() + 2 * dp(6); it.portraitH = ch + dp(8) }
             rootView?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
             rootPad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
         }
@@ -1085,6 +1125,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val v = view ?: return
         stopAnims()
         main.removeCallbacks(collapseRunnable)
+        main.removeCallbacks(liveTicker)
+        mediaNow = mediaWatcher?.current()
+        if (!Prefs.liveDownloads(this)) tasks.clear()
         readSettings()
         mode = Mode.COLLAPSED
         note = null
@@ -1093,6 +1136,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         content.layoutParams = contentParams()
         menu.visibility = View.GONE
         menu.layoutParams = menuParams()
+        livePanel.visibility = View.GONE
+        livePanel.layoutParams = liveParams()
+        compact.layoutParams = compactParams()
+        liveSig = ""
+        styleLive()
+        refreshCompact()
         v.glass.notch = notch
         v.glass.dark = dark
         v.glass.clear = clearGlass
@@ -1201,6 +1250,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
         if (!windowBig) applyWindow(big = true)
         if (mode == Mode.MENU) disappear(menu, gone = true)
+        if (mode == Mode.LIVE) disappear(livePanel, gone = true)
+        hideCompact()
         if (mode == Mode.NOTIF) {
             // Nouvelle notif alors que l'ilot est deja ouvert : petit rebond
             v.pw = ew * 0.94f
@@ -1236,7 +1287,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val w0 = v.pw
         val h0 = v.ph
         val w1 = ew + dp(6).toFloat()
-        val h1 = min((eh + dp(40)).toFloat(), (max(eh, mh) + bottomPad - dp(2)).toFloat())
+        val h1 = min((eh + dp(40)).toFloat(), (winH() - dp(2)).toFloat())
         val stretch = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 150
             interpolator = android.view.animation.DecelerateInterpolator(1.5f)
@@ -1402,6 +1453,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         menu.layoutParams = menuParams()
         buildMenu()
         if (mode == Mode.NOTIF) disappear(content)
+        if (mode == Mode.LIVE) disappear(livePanel, gone = true)
+        hideCompact()
         mode = Mode.MENU
         applyWindow(big = true)
         animateIsland(ew.toFloat(), mh.toFloat(), 1f, opening = true)
@@ -1417,11 +1470,16 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         Log.i(TAG, "Repli ($reason)")
         main.removeCallbacks(collapseRunnable)
         note = null
-        if (mode == Mode.MENU) disappear(menu, gone = true) else disappear(content)
+        when (mode) {
+            Mode.MENU -> disappear(menu, gone = true)
+            Mode.LIVE -> { disappear(livePanel, gone = true); main.removeCallbacks(liveTicker) }
+            else -> disappear(content)
+        }
         mode = Mode.COLLAPSED
         applyWindow(big = false)
         val (rw, rh) = restSize()
         animateIsland(rw, rh, 0f, opening = false)
+        refreshCompact()
     }
 
     // ---------- Gestes ----------
@@ -1436,7 +1494,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val s = if (down) Spring.SOFT else Spring.POP
         val v = view ?: return
         stopAnims()
-        val a = spring(v.pw, cw * k, s) { v.pw = it }
+        val a = spring(v.pw, restW() * k, s) { v.pw = it }
         val b = spring(v.ph, ch * k, s) { v.ph = it }
         running.add(a); running.add(b)
         a.start(); b.start()
@@ -1448,7 +1506,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         when (mode) {
             Mode.NOTIF -> openNote(floating = false)
             Mode.MENU -> collapse("toucher le menu")
-            Mode.COLLAPSED -> {}
+            Mode.LIVE -> collapse("toucher les activites")
+            Mode.COLLAPSED -> if (hasLive()) showLive()
         }
     }
 
@@ -1491,11 +1550,13 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     override fun outside() {
         Log.i(TAG, "Geste dehors mode=$mode")
-        if (mode == Mode.MENU) collapse("toucher dehors")
+        if (mode == Mode.MENU || mode == Mode.LIVE) collapse("toucher dehors")
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        mediaWatcher?.stop()
+        mediaWatcher = null
         stopLive()
         live?.stop()
         live = null
@@ -1516,7 +1577,303 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         super.onDestroy()
     }
 
+    // ---------- Activites en arriere-plan ----------
+
+    /** L'acces aux notifications vient d'etre donne : on suit aussi la musique. */
+    fun onListenerReady() = main.post { mediaWatcher?.start() }
+
+    private fun onMediaChanged() {
+        mediaNow = mediaWatcher?.current()
+        liveChanged()
+    }
+
+    /** Une tache avec une barre de progression a change (depuis l'acces aux notifications). */
+    fun task(p: ProgressNow) = main.post {
+        if (!Prefs.liveDownloads(this)) { if (tasks.isNotEmpty()) { tasks.clear(); liveChanged() }; return@post }
+        val isNew = !tasks.containsKey(p.key)
+        tasks[p.key] = p
+        if (isNew) Log.i(TAG, "Tache en cours : ${p.title} (${p.pkg})")
+        liveChanged()
+    }
+
+    fun taskGone(key: String) = main.post {
+        if (tasks.remove(key) != null) liveChanged()
+    }
+
+    private var hadLive = false
+
+    private fun liveChanged() {
+        if (view == null) return
+        val has = hasLive()
+        if (has != hadLive) {
+            hadLive = has
+            Log.i(TAG, if (has) "Activite en cours affichee" else "Plus d'activite en cours")
+        }
+        when (mode) {
+            Mode.COLLAPSED -> {
+                applyWindow(big = false)
+                val (rw, rh) = restSize()
+                val v = view
+                if (v != null && (kotlin.math.abs(v.pw - rw) > 1f || kotlin.math.abs(v.ph - rh) > 1f) && !opening)
+                    animateIsland(rw, rh, 0f, opening = rw > v.pw)
+                refreshCompact()
+            }
+            Mode.LIVE -> {
+                if (!has) collapse("plus d'activite")
+                else {
+                    buildLive()
+                    animateIsland(ew.toFloat(), liveHeight().toFloat(), 1f, opening = true)
+                }
+            }
+            else -> refreshCompact()
+        }
+    }
+
+    private fun createLiveViews() {
+        compactArt = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply { cornerRadius = dp(7).toFloat(); setColor(Color.argb(70, 255, 255, 255)) }
+            clipToOutline = true
+        }
+        eq = EqualizerView(this)
+        ring = RingView(this)
+        compact = FrameLayout(this).apply {
+            addView(compactArt, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.START or Gravity.CENTER_VERTICAL).apply { marginStart = dp(7) })
+            addView(eq, FrameLayout.LayoutParams(dp(19), dp(15), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(13) })
+            addView(ring, FrameLayout.LayoutParams(dp(21), dp(21), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(9) })
+            alpha = 0f
+            visibility = View.INVISIBLE
+        }
+        livePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(12))
+            visibility = View.GONE
+        }
+        styleLive()
+    }
+
+    private fun styleLive() {
+        if (!::eq.isInitialized) return
+        eq.color = ink()
+        ring.color = ink()
+    }
+
+    /** Pochette + barres (musique) ou anneau (telechargement) sur l'ilot replie. */
+    private fun refreshCompact() {
+        if (!::compact.isInitialized) return
+        val m = mediaNow
+        val t = tasks.values.firstOrNull()
+        val show = mode == Mode.COLLAPSED && hasLive() && !hidden
+        if (m != null) {
+            if (m.art != null) { compactArt.setImageBitmap(m.art); compactArt.imageTintList = null; compactArt.setPadding(0, 0, 0, 0) }
+            else { compactArt.setImageResource(android.R.drawable.ic_media_play); compactArt.imageTintList = android.content.res.ColorStateList.valueOf(ink()); compactArt.setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        } else if (t != null) {
+            compactArt.setImageDrawable(t.icon)
+            compactArt.imageTintList = null
+            compactArt.setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        eq.playing = m?.playing == true
+        eq.visibility = if (t == null && m != null) View.VISIBLE else View.GONE
+        ring.visibility = if (t != null) View.VISIBLE else View.GONE
+        if (t != null) ring.fraction = t.fraction
+        if (show) {
+            if (compact.visibility != View.VISIBLE || compact.alpha < 1f) {
+                compact.visibility = View.VISIBLE
+                compact.animate().cancel()
+                compact.animate().alpha(1f).setStartDelay(120).setDuration(220).start()
+            }
+        } else hideCompact()
+    }
+
+    private fun hideCompact() {
+        if (!::compact.isInitialized || compact.visibility != View.VISIBLE) return
+        compact.animate().cancel()
+        compact.animate().alpha(0f).setStartDelay(0).setDuration(110).withEndAction { compact.visibility = View.INVISIBLE }.start()
+    }
+
+    private fun liveHeight(): Int {
+        val spec = View.MeasureSpec.makeMeasureSpec(ew, View.MeasureSpec.EXACTLY)
+        livePanel.measure(spec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        return min(menuTop + livePanel.measuredHeight, winH() - bottomPad)
+    }
+
+    fun showLive() {
+        val v = view ?: return
+        if (!hasLive()) return
+        main.removeCallbacks(collapseRunnable)
+        hideCompact()
+        buildLive()
+        mode = Mode.LIVE
+        applyWindow(big = true)
+        animateIsland(ew.toFloat(), liveHeight().toFloat(), 1f, opening = true)
+        livePanel.layoutParams = liveParams()
+        appear(livePanel, if (notch) -dp(6).toFloat() else 0f)
+        main.removeCallbacks(liveTicker)
+        main.post(liveTicker)
+        main.postDelayed(collapseRunnable, 8000)
+        v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        Log.i(TAG, "Activites ouvertes")
+    }
+
+    private fun liveText(s: String, size: Float, soft: Boolean = false, bold: Boolean = false) = TextView(this).apply {
+        text = s
+        textSize = size
+        setTextColor(if (soft) inkSoft() else ink())
+        if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        styleText(this)
+    }
+
+    private fun clock(ms: Long): String {
+        val s = max(0L, ms / 1000)
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+    }
+
+    private fun sendSafely(pi: PendingIntent?, pkg: String?) {
+        var ok = false
+        pi?.let {
+            try {
+                val o = ActivityOptions.makeBasic()
+                if (Build.VERSION.SDK_INT >= 34) {
+                    @Suppress("DEPRECATION")
+                    o.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                }
+                it.send(this, 0, null, null, null, null, o.toBundle()); ok = true
+            } catch (e: Exception) { }
+        }
+        if (!ok && pkg != null) packageManager.getLaunchIntentForPackage(pkg)?.let {
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try { startActivity(it) } catch (e: Exception) { }
+        }
+        collapse("ouvrir l'activite")
+    }
+
+    /** Lecteur (pochette, titre, temps, commandes) et une ligne par telechargement. */
+    private fun buildLive() {
+        val m = mediaNow
+        val sig = (m?.let { "${it.title}|${it.artist}|${it.app}|${it.art != null}|${it.duration > 0}" } ?: "-") + "#" + tasks.keys.joinToString(",")
+        if (sig == liveSig && livePanel.childCount > 0) { updateLiveProgress(); return }
+        liveSig = sig
+        livePanel.removeAllViews()
+        liveTimes = null
+        livePlay = null
+        liveRows.clear()
+        if (m != null) {
+            val head = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isClickable = true
+                setOnClickListener { sendSafely(m.controller.sessionActivity, m.controller.packageName) }
+            }
+            head.addView(ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.argb(60, 255, 255, 255)) }
+                clipToOutline = true
+                if (m.art != null) setImageBitmap(m.art) else {
+                    setImageResource(android.R.drawable.ic_media_play)
+                    imageTintList = android.content.res.ColorStateList.valueOf(ink())
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                }
+            }, LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginEnd = dp(12) })
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(liveText(m.title, 15f, bold = true))
+            if (m.artist.isNotBlank()) col.addView(liveText(m.artist, 13f, soft = true))
+            col.addView(liveText(m.app, 11f, soft = true).apply { alpha = 0.8f })
+            head.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            livePanel.addView(head)
+
+            if (m.duration > 0) {
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val t0 = liveText("0:00", 11f, soft = true)
+                val bar = BarView(this).apply { color = ink() }
+                val t1 = liveText("", 11f, soft = true)
+                row.addView(t0, LinearLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.WRAP_CONTENT))
+                row.addView(bar, LinearLayout.LayoutParams(0, dp(4), 1f))
+                row.addView(t1.apply { gravity = Gravity.END }, LinearLayout.LayoutParams(dp(44), ViewGroup.LayoutParams.WRAP_CONTENT))
+                livePanel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+                liveTimes = Triple(t0, bar, t1)
+            }
+
+            val ctl = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            fun btn(res: Int, size: Int, act: () -> Unit) = ImageView(this).apply {
+                setImageResource(res)
+                imageTintList = android.content.res.ColorStateList.valueOf(ink())
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                val p = (dp(48) - dp(size)) / 2
+                setPadding(p, p, p, p)
+                isClickable = true
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(Color.argb(60, 255, 255, 255)), null,
+                    GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
+                setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    act()
+                    main.removeCallbacks(collapseRunnable)
+                    main.postDelayed(collapseRunnable, 8000)
+                }
+            }
+            val tc = m.controller.transportControls
+            ctl.addView(btn(android.R.drawable.ic_media_previous, 24) { tc.skipToPrevious() }, LinearLayout.LayoutParams(dp(56), dp(48)))
+            val play = btn(if (m.playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, 30) {
+                val playing = mediaNow?.playing == true
+                if (playing) tc.pause() else tc.play()
+                livePlay?.setImageResource(if (playing) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause)
+            }
+            livePlay = play
+            ctl.addView(play, LinearLayout.LayoutParams(dp(64), dp(48)))
+            ctl.addView(btn(android.R.drawable.ic_media_next, 24) { tc.skipToNext() }, LinearLayout.LayoutParams(dp(56), dp(48)))
+            livePanel.addView(ctl, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(6) })
+        }
+
+        tasks.values.take(3).forEachIndexed { i, t ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isClickable = true
+                setOnClickListener { sendSafely(t.intent, t.pkg) }
+            }
+            row.addView(ImageView(this).apply { setImageDrawable(t.icon) }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(10) })
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(liveText(t.title, 14f, bold = true))
+            val info = liveText(t.text, 12f, soft = true)
+            col.addView(info)
+            row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val pct = liveText("", 13f, bold = true)
+            row.addView(pct, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })
+            val top = if (i == 0 && m == null) 0 else dp(12)
+            livePanel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = top })
+            val bar = BarView(this).apply { color = ink() }
+            livePanel.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply { topMargin = dp(6); marginStart = dp(42) })
+            liveRows.add(Triple(t, pct, bar))
+            liveRows[liveRows.size - 1].second.tag = info
+        }
+        updateLiveProgress()
+    }
+
+    private fun updateLiveProgress() {
+        val m = mediaNow
+        liveTimes?.let { (t0, bar, t1) ->
+            if (m != null && m.duration > 0) {
+                val now = m.now()
+                t0.text = clock(now)
+                t1.text = "-" + clock(m.duration - now)
+                bar.fraction = now.toFloat() / m.duration
+            }
+        }
+        if (m != null) livePlay?.setImageResource(if (m.playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+        for (i in liveRows.indices) {
+            val (old, pct, bar) = liveRows[i]
+            val t = tasks[old.key] ?: continue
+            val f = t.fraction
+            pct.text = if (f >= 0f) "${(f * 100).toInt()} %" else ""
+            bar.fraction = f
+            (pct.tag as? TextView)?.text = t.text
+        }
+    }
+
     companion object {
+        private const val COMPACT_EXTRA = 92
         private const val TAG = "LiquidIsland"
         private const val CHANNEL = "island"
         private const val CAPTURE_MS = 340L
