@@ -144,7 +144,7 @@ shot 18-wavedrop-onglet
 adb shell input keyevent KEYCODE_HOME
 sleep 2
 W=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1 | cut -dx -f1)
-adb shell input swipe $((W / 2)) 70 $((W / 2)) 600 350
+adb shell input swipe 540 66 540 520 900
 sleep 2.5
 shot 19-wavedrop-panneau
 adb shell input keyevent KEYCODE_BACK
