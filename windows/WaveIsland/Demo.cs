@@ -155,6 +155,26 @@ namespace WaveIsland
                 island.Collapse();
                 await Wait(0.8);
 
+                // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)
+                Native.keybd_event((byte)Native.VK_LWIN, 0, 0x1, UIntPtr.Zero);
+                Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP | 0x1, UIntPtr.Zero);
+                var launcher = App.Launcher;
+                for (int i = 0; i < 20 && !launcher.IsOpen; i++) await Wait(0.05);
+                Log.I(launcher.IsOpen ? "DEMO : touche Windows -> menu de l'ilot" : "DEMO : la touche Windows n'a pas ouvert le menu");
+                if (!launcher.IsOpen) launcher.Open();
+                foreach (var (t, n) in new[] { (0.09, "18a-menu-etire"), (0.12, "18b-menu-detache"), (0.12, "18c-menu-descend"), (0.25, "18d-menu-ouvre"), (1.6, "18e-menu-applis") })
+                {
+                    await Wait(t);
+                    launcher.Snap(n, Folder);
+                }
+                launcher.Close2();
+                foreach (var (t, n) in new[] { (0.16, "19a-menu-remonte"), (0.2, "19b-menu-fusion"), (0.9, "19c-menu-ferme") })
+                {
+                    await Wait(t);
+                    launcher.Snap(n, Folder);
+                }
+                await Wait(0.5);
+
                 App.OpenSettings();
                 await Wait(1.5);
                 SnapWindow(App.SettingsWin, "10-appli");

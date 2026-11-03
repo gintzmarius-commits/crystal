@@ -25,6 +25,10 @@ namespace WaveIsland
         public bool LiveMedia { get; set; } = true;
         /// <summary>Telechargements en cours dans l'ilot (avec leur barre)</summary>
         public bool LiveDownloads { get; set; } = true;
+        /// <summary>Touche Windows : le menu des applis coule depuis l'ilot (a la place du menu Demarrer)</summary>
+        public bool WinKeyMenu { get; set; } = true;
+        /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
+        public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
         public List<string> Shortcuts { get; set; } = new List<string>
         {
             "action:explorer", "action:settings", "action:calc", "action:snip", "action:playpause"

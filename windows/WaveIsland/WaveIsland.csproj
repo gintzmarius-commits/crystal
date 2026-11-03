@@ -32,6 +32,7 @@
     <Resource Include="wave.ico" />
     <Resource Include="wave.png" />
     <Resource Include="Glass.ps" />
+    <Resource Include="LiquidDrop.ps" />
   </ItemGroup>
 
 </Project>

@@ -479,6 +479,25 @@ namespace WaveIsland
             _hideTimer.Start();
         }
 
+        /// <summary>Ilot au repos : centre (x ecran, en DIP), haut, largeur, hauteur.</summary>
+        public (double cx, double top, double w, double h) RestShape()
+        {
+            var s = Settings.Current;
+            double w = Math.Min(s.Width + (HasLive && !_hidden ? CompactExtra : 0), WinW - 2 * Pad);
+            return (Left + IslandCenterX(w), s.Top, w, s.Height);
+        }
+
+        /// <summary>Plein ecran (jeu, film) : l'ilot est cache.</summary>
+        public bool HiddenFullscreen => _hidden;
+
+        /// <summary>Pendant le menu des applis, c'est sa fenetre qui dessine l'ilot (pour la goutte qui se detache).</summary>
+        public void HideForLauncher(bool hide)
+        {
+            if (hide) { _hoverTimer.Stop(); Collapse(); _w.Set(_w.Target); _h.Set(_h.Target); _alpha.Set(_alpha.Target); Render(); }
+            _root.Opacity = hide ? 0 : 1;
+            _root.IsHitTestVisible = !hide;
+        }
+
         /// <summary>Comme un clic sur la notification affichee (tests).</summary>
         public void ClickNote() => OpenNote();
 

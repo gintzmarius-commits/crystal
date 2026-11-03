@@ -12,6 +12,7 @@ namespace WaveIsland
         public static VolumeService Volume { get; private set; }
         public static MediaService Media { get; private set; }
         public static DownloadWatcher Downloads { get; private set; }
+        public static LauncherWindow Launcher { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
         private static AppWindow _settings;
@@ -31,6 +32,11 @@ namespace WaveIsland
             Island = new IslandWindow(Volume, Media);
             Island.Show();
             Volume.Changed += (v, m) => Island.ShowVolume(v, m);
+            // Touche Windows : le menu des applis coule depuis l'ilot
+            Launcher = new LauncherWindow(Island);
+            Volume.WinAllowed = () => !Island.HiddenFullscreen;
+            Volume.WinTapped += () => Launcher.Toggle();
+            AppCatalog.Refresh(Dispatcher);
             Volume.Start();
 
             _notes = new NotificationWatcher(Dispatcher);

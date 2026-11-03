@@ -227,6 +227,8 @@ namespace WaveIsland
                 () => S.LiveMedia, v => { S.LiveMedia = v; S.Save(); }));
             fx.Children.Add(Toggle("Téléchargements en cours", "Une barre de progression par téléchargement",
                 () => S.LiveDownloads, v => { S.LiveDownloads = v; S.Save(); }));
+            fx.Children.Add(Toggle("Touche Windows : menu de l'îlot", "Le menu des applis coule depuis la Wave Island au lieu du menu Démarrer (Win + autre touche marche comme avant)",
+                () => S.WinKeyMenu, v => { S.WinKeyMenu = v; S.Save(); }));
             fx.Children.Add(Toggle("Cacher en plein écran", "Jeux, films, présentations",
                 () => S.HideInFullscreen, v => { S.HideInFullscreen = v; S.Save(); }));
             fx.Children.Add(Toggle("Lancer avec Windows", "La Wave Island démarre toute seule",
@@ -267,7 +269,7 @@ namespace WaveIsland
             // --- Tester ---
             Section("Tester");
             var test = CardPanel();
-            var row = new UniformGrid { Columns = 3 };
+            var row = new UniformGrid { Columns = 4 };
             row.Children.Add(Button("Volume", () => App.Island.ShowVolume(0.6f, false), compact: true));
             row.Children.Add(Button("Notification", () => App.Island.ShowNote(new IslandNote
             {
@@ -275,6 +277,7 @@ namespace WaveIsland
                 Aumid = "windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"
             }), compact: true));
             row.Children.Add(Button("Menu", () => App.Island.ShowMenu(), compact: true));
+            row.Children.Add(Button("Applis", () => App.Launcher.Open(), compact: true));
             test.Children.Add(row);
             _col.Children.Add(test.Parent as FrameworkElement);
 

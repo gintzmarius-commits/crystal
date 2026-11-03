@@ -54,7 +54,7 @@ namespace WaveIsland
         public const int WH_KEYBOARD_LL = 13;
         public const int WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105;
         public const int VK_VOLUME_MUTE = 0xAD, VK_VOLUME_DOWN = 0xAE, VK_VOLUME_UP = 0xAF;
-        public const int VK_MEDIA_PLAY_PAUSE = 0xB3, VK_LWIN = 0x5B, VK_SHIFT = 0x10;
+        public const int VK_MEDIA_PLAY_PAUSE = 0xB3, VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_SHIFT = 0x10;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct KBDLLHOOKSTRUCT { public int vkCode, scanCode, flags, time; public IntPtr extra; }

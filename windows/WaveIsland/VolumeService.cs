@@ -12,6 +12,11 @@ namespace WaveIsland
     public sealed class VolumeService : IDisposable
     {
         public event Action<float, bool> Changed;
+        /// <summary>Touche Windows appuyee seule (le menu Demarrer est remplace par celui de l'ilot).</summary>
+        public event Action WinTapped;
+        /// <summary>Dit si la touche Windows doit ouvrir le menu de l'ilot en ce moment.</summary>
+        public Func<bool> WinAllowed;
+        private bool _winDown, _winOther;
 
         private IntPtr _hook;
         private Native.HookProc _proc; // garde une reference (sinon le ramasse-miettes la libere)
@@ -65,6 +70,39 @@ namespace WaveIsland
 
         private IntPtr Hook(int code, IntPtr wParam, IntPtr lParam)
         {
+            if (code >= 0)
+            {
+                var k = Marshal.PtrToStructure<Native.KBDLLHOOKSTRUCT>(lParam);
+                int m = wParam.ToInt32();
+                bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
+                bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
+                if (!injected && k.vkCode != 0xE8)
+                {
+                    if (k.vkCode == Native.VK_LWIN || k.vkCode == Native.VK_RWIN)
+                    {
+                        if (down)
+                        {
+                            if (!_winDown) { _winDown = true; _winOther = false; }
+                        }
+                        else
+                        {
+                            bool alone = _winDown && !_winOther;
+                            _winDown = false;
+                            if (alone && Settings.Current.WinKeyMenu && (WinAllowed?.Invoke() ?? false))
+                            {
+                                // Windows ouvre le menu Demarrer si la touche est relachee seule : on glisse une
+                                // touche neutre avant le relachement, puis on ouvre le menu de l'ilot a la place.
+                                Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                                Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                                Native.keybd_event((byte)k.vkCode, 0, Native.KEYEVENTF_KEYUP | 0x1, UIntPtr.Zero);
+                                _ui.BeginInvoke(new Action(() => WinTapped?.Invoke()));
+                                return new IntPtr(1);
+                            }
+                        }
+                    }
+                    else if (down && _winDown) _winOther = true; // Win + E, Win + D... : comportement normal
+                }
+            }
             if (code >= 0 && Settings.Current.VolumeInIsland)
             {
                 var k = Marshal.PtrToStructure<Native.KBDLLHOOKSTRUCT>(lParam);
