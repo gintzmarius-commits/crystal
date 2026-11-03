@@ -2051,8 +2051,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
         @Volatile
         var instance: IslandService? = null
-        private const val UPDATE_ITEM = "wave:update"
             private set
+        private const val UPDATE_ITEM = "wave:update"
 
         /** Affiche une notification dans l'ilot, en demarrant l'ilot si besoin. */
         fun deliver(ctx: Context, note: IslandNote, pkg: String) {
