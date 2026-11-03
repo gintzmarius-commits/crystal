@@ -29,6 +29,11 @@ namespace WaveIsland
         public bool WinKeyMenu { get; set; } = true;
         /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
         public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
+        /// <summary>Applis epinglees en haut du menu (comme le menu Demarrer)</summary>
+        public List<string> Pinned { get; set; } = new List<string>();
+        public bool PinnedInit { get; set; }
+        /// <summary>Affichage de « Toutes les applis » : "categories", "grid" ou "list"</summary>
+        public string StartView { get; set; } = "categories";
         public List<string> Shortcuts { get; set; } = new List<string>
         {
             "action:explorer", "action:settings", "action:calc", "action:snip", "action:playpause"

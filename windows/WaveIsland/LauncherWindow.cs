@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -46,13 +48,7 @@ namespace WaveIsland
         // Contenu
         private TextBox _search;
         private TextBlock _placeholder;
-        private WrapPanel _grid, _favRow;
-        private StackPanel _favBlock;
         private ScrollViewer _scroll;
-        private readonly Dictionary<AppEntry, FrameworkElement> _cells = new Dictionary<AppEntry, FrameworkElement>();
-        private Brush _ink, _inkSoft;
-        private TextBlock _empty;
-        private string _builtTheme;
 
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -91,7 +87,7 @@ namespace WaveIsland
             };
             Deactivated += (a, b) => { if (_open && !_closing && !Program.Demo) Close2(); };
             PreviewKeyDown += OnKey;
-            AppCatalog.Loaded += () => { if (_grid != null) FillApps(); };
+            AppCatalog.Loaded += () => { if (_sections != null) { FillSections(); if (_open) { PopIn(new List<FrameworkElement>(_popQueue), 0); _popQueue.Clear(); } } };
         }
 
         // ================== Ouverture / fermeture ==================
@@ -126,9 +122,7 @@ namespace WaveIsland
             _glass.Height = Height;
 
             BuildContent();
-            _search.Text = "";
             _content.Opacity = 0;
-            _scroll.ScrollToVerticalOffset(0);
 
             // Depart : la goutte du menu est cachee dans l'ilot
             _aw.Set(w0); _ah.Set(h0);
@@ -140,6 +134,7 @@ namespace WaveIsland
             ForceForeground();
             _captureTimer.Start();
             Capture();
+            ApplyInk();
             Kick();
 
             // 1) L'ilot s'etire vers le bas
@@ -166,6 +161,9 @@ namespace WaveIsland
             if (gen != _gen) return;
             _alpha.AnimateTo(1, Spring.Soft);
             Kick();
+            // Les icones arrivent une par une avec un rebond
+            PopIn(new List<FrameworkElement>(_popQueue), 0);
+            _popQueue.Clear();
             _search.Focus();
             Keyboard.Focus(_search);
         }
@@ -242,7 +240,7 @@ namespace WaveIsland
             string theme = Settings.Current.Theme;
             bool light = theme == "light";
             double tintA = theme == "dark" ? 0.8 : light ? 0.7 : 0.0;
-            double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.62;
+            double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.0; // transparent comme l'ilot
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
             _fx.Light = new Point4D(-0.5, -0.866, 1, tintB);
             _fx.Blend = new Point4D(0.5 / (Blend * k), Blend * k, 0, 0);
@@ -279,40 +277,49 @@ namespace WaveIsland
             return b;
         }
 
-        // ================== Contenu ==================
+        // ================== Contenu (comme le menu Demarrer de Windows 11) ==================
+
+        private readonly List<(AppEntry app, Image img, TextBlock letter)> _iconSlots = new List<(AppEntry, Image, TextBlock)>();
+        private readonly List<FrameworkElement> _popQueue = new List<FrameworkElement>();
+        private StackPanel _sections, _results, _allHost;
+        private WrapPanel _resultsGrid;
+        private Border _overlay;
+        private Canvas _overlayLayer;
+        private readonly List<Border> _viewButtons = new List<Border>();
+        private string _openCategory;
+        private bool _darkInk;
 
         private void BuildContent()
         {
-            bool light = Settings.Current.Theme == "light";
-            var ink = light ? new SolidColorBrush(Color.FromRgb(20, 22, 26)) : Brushes.White;
-            var soft = new SolidColorBrush(light ? Color.FromArgb(150, 20, 22, 26) : Color.FromArgb(170, 255, 255, 255));
-            if (_grid != null && _builtTheme == Settings.Current.Theme) return;
-            _builtTheme = Settings.Current.Theme;
-            _ink = ink;
-            _inkSoft = soft;
-            _cells.Clear();
+            _iconSlots.Clear();
+            _viewButtons.Clear();
+            _openCategory = null;
+            AppCatalog.IconLoaded -= OnIconLoaded;
+            AppCatalog.IconLoaded += OnIconLoaded;
 
-            var dock = new DockPanel { Margin = new Thickness(26, 22, 26, 18) };
+            var root = new Grid();
+            var dock = new DockPanel { Margin = new Thickness(26, 22, 26, 16) };
 
             // Recherche
             var searchBox = new Border
             {
-                Height = 44, CornerRadius = new CornerRadius(22), Margin = new Thickness(0, 0, 0, 14),
-                Background = new SolidColorBrush(light ? Color.FromArgb(120, 255, 255, 255) : Color.FromArgb(34, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(light ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(50, 255, 255, 255)),
-                BorderThickness = new Thickness(1)
+                Height = 44, CornerRadius = new CornerRadius(22), Margin = new Thickness(0, 0, 0, 10),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)), BorderThickness = new Thickness(1)
             };
             var sg = new Grid();
             sg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             sg.ColumnDefinitions.Add(new ColumnDefinition());
-            sg.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = soft, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 10, 0) });
+            sg.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 10, 0) });
             _search = new TextBox
             {
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = ink, CaretBrush = ink,
-                FontSize = 15, VerticalAlignment = VerticalAlignment.Center, FontFamily = Ui, Margin = new Thickness(0, 0, 16, 0)
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0), FontSize = 15, VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = Ui, Margin = new Thickness(0, 0, 16, 0)
             };
-            _placeholder = new TextBlock { Text = "Rechercher une appli", Foreground = soft, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 0) };
-            _search.TextChanged += (a, b) => { _placeholder.Visibility = _search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; Filter(); };
+            _search.SetBinding(TextBox.ForegroundProperty, new System.Windows.Data.Binding { Path = new PropertyPath(TextElement.ForegroundProperty), Source = _content });
+            _search.SetBinding(TextBox.CaretBrushProperty, new System.Windows.Data.Binding { Path = new PropertyPath(TextElement.ForegroundProperty), Source = _content });
+            _placeholder = new TextBlock { Text = "Rechercher des applis", Opacity = 0.7, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 0) };
+            _search.TextChanged += (a, b) => { _placeholder.Visibility = _search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; Search(); };
             Grid.SetColumn(_search, 1);
             Grid.SetColumn(_placeholder, 1);
             sg.Children.Add(_search);
@@ -321,150 +328,477 @@ namespace WaveIsland
             DockPanel.SetDock(searchBox, Dock.Top);
             dock.Children.Add(searchBox);
 
-            // Barre du bas : reglages, fichiers, verrouiller, veille, redemarrer, eteindre
-            var bottom = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
-            var user = new TextBlock { Text = Environment.UserName, Foreground = ink, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            actions.Children.Add(RoundButton("", "Paramètres", () => { Close2(); Shortcuts.Start("ms-settings:"); }));
-            actions.Children.Add(RoundButton("", "Fichiers", () => { Close2(); Shortcuts.Start("explorer.exe"); }));
-            actions.Children.Add(RoundButton("", "Verrouiller", () => { Close2(); Native.LockWorkStation(); }));
-            actions.Children.Add(RoundButton("", "Veille", () => { Close2(); Power("sleep"); }));
-            actions.Children.Add(RoundButton("", "Redémarrer", () => Power("restart"), confirm: true));
-            actions.Children.Add(RoundButton("", "Éteindre", () => Power("shutdown"), confirm: true));
-            DockPanel.SetDock(actions, Dock.Right);
-            bottom.Children.Add(actions);
+            // Barre du bas : compte a gauche ; Fichiers, Parametres et alimentation a droite (comme Windows)
+            var bottom = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var right = new StackPanel { Orientation = Orientation.Horizontal };
+            right.Children.Add(IconButton("", "Explorateur de fichiers", () => { Close2(); Shortcuts.Start("explorer.exe"); }));
+            right.Children.Add(IconButton("", "Paramètres", () => { Close2(); Shortcuts.Start("ms-settings:"); }));
+            FrameworkElement power = null;
+            power = IconButton("", "Marche/Arrêt", () => ShowOverlay(power, new (string, string, Action)[]
+            {
+                ("", "Mettre en veille", () => { Close2(); Power("sleep"); }),
+                ("", "Arrêter", () => Power("shutdown")),
+                ("", "Redémarrer", () => Power("restart")),
+            }, alignRight: true));
+            right.Children.Add(power);
+            DockPanel.SetDock(right, Dock.Right);
+            bottom.Children.Add(right);
+            FrameworkElement user = null;
+            user = UserButton(() => ShowOverlay(user, new (string, string, Action)[]
+            {
+                ("", "Modifier les paramètres du compte", () => { Close2(); Shortcuts.Start("ms-settings:yourinfo"); }),
+                ("", "Verrouiller", () => { Close2(); Native.LockWorkStation(); }),
+                ("", "Se déconnecter", () => Power("logoff")),
+            }, alignRight: false));
             bottom.Children.Add(user);
             DockPanel.SetDock(bottom, Dock.Bottom);
             dock.Children.Add(bottom);
 
-            // Applis
-            var list = new StackPanel();
-            _favBlock = new StackPanel();
-            _favBlock.Children.Add(SectionTitle("Les plus utilisées"));
-            _favRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
-            _favBlock.Children.Add(_favRow);
-            list.Children.Add(_favBlock);
-            list.Children.Add(SectionTitle("Toutes les applis"));
-            _grid = new WrapPanel();
-            list.Children.Add(_grid);
-            _empty = new TextBlock { Text = "Chargement des applis…", Foreground = soft, FontSize = 14, Margin = new Thickness(6, 10, 0, 0) };
-            list.Children.Add(_empty);
-            _scroll = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, CanContentScroll = false };
+            // Corps : Epinglees, Recommandations, Toutes les applis (categories / grille / liste)
+            var body = new StackPanel();
+            _sections = new StackPanel();
+            _results = new StackPanel { Visibility = Visibility.Collapsed };
+            _resultsGrid = new WrapPanel();
+            _results.Children.Add(Header("Meilleures correspondances", null));
+            _results.Children.Add(_resultsGrid);
+            body.Children.Add(_sections);
+            body.Children.Add(_results);
+            _scroll = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, CanContentScroll = false };
             _scroll.PreviewMouseWheel += SmoothWheel;
             dock.Children.Add(_scroll);
-            _content.Child = dock;
-            FillApps();
+
+            root.Children.Add(dock);
+            _overlayLayer = new Canvas();
+            root.Children.Add(_overlayLayer);
+            root.PreviewMouseLeftButtonDown += (a, b) =>
+            {
+                if (_overlay != null && !_overlay.IsMouseOver) HideOverlay();
+            };
+            _content.Child = root;
+            FillSections();
         }
 
-        private TextBlock SectionTitle(string s) => new TextBlock
+        /// <summary>Texte clair ou fonce selon le fond (le menu est en verre transparent, comme l'ilot).</summary>
+        private void ApplyInk()
         {
-            Text = s, Foreground = _inkSoft, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 4, 0, 8)
-        };
-
-        private void FillApps()
-        {
-            _grid.Children.Clear();
-            _cells.Clear();
-            foreach (var a in AppCatalog.Apps)
+            bool dark = Settings.Current.Theme == "light" || (Settings.Current.Theme == "clear" && _cap.Luma > 0.6);
+            _darkInk = dark;
+            var ink = dark ? new SolidColorBrush(Color.FromRgb(18, 20, 24)) : Brushes.White;
+            TextElement.SetForeground(_content, ink);
+            ((FrameworkElement)_content.Child).Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                var c = Cell(a);
-                _cells[a] = c;
-                _grid.Children.Add(c);
-            }
-            _favRow.Children.Clear();
-            foreach (var a in AppCatalog.Favorites(7)) _favRow.Children.Add(Cell(a));
-            _empty.Visibility = AppCatalog.Apps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            Filter();
+                ShadowDepth = 0, BlurRadius = 8, Opacity = 0.7, Color = dark ? Colors.White : Colors.Black,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
         }
 
-        private void Filter()
+        private void FillSections()
         {
-            if (_grid == null) return;
-            string q = _search?.Text ?? "";
-            int shown = 0;
-            foreach (var kv in _cells)
+            if (_sections == null) return;
+            _sections.Children.Clear();
+            _iconSlots.Clear();
+            _popQueue.Clear();
+
+            // Epinglees
+            var pinned = AppCatalog.Pinned();
+            if (pinned.Count > 0)
             {
-                bool ok = AppCatalog.Matches(kv.Key, q);
-                kv.Value.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
-                if (ok) shown++;
+                _sections.Children.Add(Header("Épinglé", null));
+                var pg = new WrapPanel();
+                foreach (var a in pinned) pg.Children.Add(Track(Cell(a)));
+                _sections.Children.Add(pg);
             }
-            _favBlock.Visibility = string.IsNullOrWhiteSpace(q) && _favRow.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (AppCatalog.Apps.Count > 0)
+
+            // Recommandations : fichiers ouverts recemment
+            var recent = RecentFiles(6);
+            if (recent.Count > 0)
             {
-                _empty.Text = "Aucune appli trouvée";
-                _empty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
+                _sections.Children.Add(Header("Recommandé", null));
+                var rg = new UniformGrid { Columns = 2 };
+                foreach (var f in recent) rg.Children.Add(Track(RecentRow(f)));
+                _sections.Children.Add(rg);
+            }
+
+            // Toutes les applis + choix de l'affichage
+            var views = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var (key, label) in new[] { ("categories", "Catégorie"), ("grid", "Grille"), ("list", "Liste") })
+            {
+                var b = Chip(label, () => { Settings.Current.StartView = key; Settings.Current.Save(); _openCategory = null; FillAll(true); });
+                b.Tag = key;
+                _viewButtons.Add(b);
+                views.Children.Add(b);
+            }
+            _sections.Children.Add(Header("Toutes", views));
+            _allHost = new StackPanel();
+            _sections.Children.Add(_allHost);
+            FillAll(false);
+            if (AppCatalog.Apps.Count == 0)
+                _sections.Children.Add(new TextBlock { Text = "Chargement des applis…", Opacity = 0.7, FontSize = 14, Margin = new Thickness(6, 10, 0, 0) });
+        }
+
+        private void FillAll(bool pop)
+        {
+            if (_allHost == null) return;
+            _allHost.Children.Clear();
+            string view = Settings.Current.StartView;
+            foreach (var b in _viewButtons)
+                b.Background = (string)b.Tag == view ? new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)) : new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
+            var made = new List<FrameworkElement>();
+
+            if (view == "categories" && _openCategory == null)
+            {
+                var wrap = new WrapPanel();
+                foreach (var cat in AppCatalog.Categories)
+                {
+                    var apps = AppCatalog.Apps.Where(a => a.Category == cat).ToList();
+                    if (apps.Count == 0) continue;
+                    var tile = CategoryTile(cat, apps);
+                    wrap.Children.Add(tile);
+                    made.Add(tile);
+                }
+                _allHost.Children.Add(wrap);
+            }
+            else if (view == "categories")
+            {
+                var back = Chip("‹  " + _openCategory, () => { _openCategory = null; FillAll(true); });
+                back.HorizontalAlignment = HorizontalAlignment.Left;
+                back.Margin = new Thickness(4, 0, 0, 8);
+                _allHost.Children.Add(back);
+                var wrap = new WrapPanel();
+                foreach (var a in AppCatalog.Apps.Where(x => x.Category == _openCategory)) { var c = Cell(a); wrap.Children.Add(c); made.Add(c); }
+                _allHost.Children.Add(wrap);
+            }
+            else if (view == "grid")
+            {
+                var wrap = new WrapPanel();
+                foreach (var a in AppCatalog.Apps) { var c = Cell(a); wrap.Children.Add(c); made.Add(c); }
+                _allHost.Children.Add(wrap);
+            }
+            else
+            {
+                char letter = '\0';
+                foreach (var a in AppCatalog.Apps)
+                {
+                    char l = char.ToUpperInvariant(RemoveAccent(a.Name[0]));
+                    if (!char.IsLetter(l)) l = '#';
+                    if (l != letter)
+                    {
+                        letter = l;
+                        _allHost.Children.Add(new TextBlock { Text = l.ToString(), FontSize = 13, FontWeight = FontWeights.SemiBold, Opacity = 0.8, Margin = new Thickness(10, 10, 0, 4) });
+                    }
+                    var r = ListRow(a);
+                    _allHost.Children.Add(r);
+                    made.Add(r);
+                }
+            }
+            if (pop) PopIn(made, 0);
+            else _popQueue.AddRange(made);
+        }
+
+        private static char RemoveAccent(char c)
+        {
+            string d = c.ToString().Normalize(System.Text.NormalizationForm.FormD);
+            return d.Length > 0 ? d[0] : c;
+        }
+
+        private FrameworkElement Track(FrameworkElement e) { _popQueue.Add(e); return e; }
+
+        /// <summary>Chaque icone apparait avec un petit rebond, les unes apres les autres.</summary>
+        private void PopIn(List<FrameworkElement> items, int delayMs)
+        {
+            var sp = new Spring(0.5, 0.44);
+            int i = 0;
+            foreach (var e in items)
+            {
+                var st = e.RenderTransform as ScaleTransform;
+                if (st == null) continue;
+                if (i > 42) { st.ScaleX = st.ScaleY = 1; e.Opacity = 1; continue; } // hors de l'ecran : pas d'animation
+                var begin = TimeSpan.FromMilliseconds(delayMs + i * 16);
+                st.ScaleX = st.ScaleY = 0.3;
+                e.Opacity = 0;
+                var grow = new System.Windows.Media.Animation.DoubleAnimation(0.3, 1, TimeSpan.FromSeconds(sp.Seconds))
+                {
+                    BeginTime = begin, EasingFunction = new SpringEase(), FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+                };
+                grow.Completed += (a, b) => { st.ScaleX = st.ScaleY = 1; };
+                var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150))
+                {
+                    BeginTime = begin, FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+                };
+                fade.Completed += (a, b) => e.Opacity = 1;
+                st.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+                st.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+                e.BeginAnimation(OpacityProperty, fade);
+                i++;
             }
         }
 
-        private FrameworkElement Cell(AppEntry a)
+        private void OnIconLoaded(AppEntry a)
         {
-            var img = new Image { Width = 40, Height = 40, Source = a.Icon, HorizontalAlignment = HorizontalAlignment.Center };
+            foreach (var (app, img, letter) in _iconSlots)
+                if (app == a) { img.Source = a.Icon; letter.Visibility = Visibility.Collapsed; }
+        }
+
+        private FrameworkElement Header(string title, FrameworkElement right)
+        {
+            var g = new DockPanel { Margin = new Thickness(6, 8, 4, 6), LastChildFill = true };
+            if (right != null) { DockPanel.SetDock(right, Dock.Right); g.Children.Add(right); }
+            g.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            return g;
+        }
+
+        private Border Chip(string label, Action click)
+        {
+            var b = new Border
+            {
+                CornerRadius = new CornerRadius(13), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 0, 0, 0), Cursor = Cursors.Hand,
+                Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
+                Child = new TextBlock { Text = label, FontSize = 12.5 }
+            };
+            b.MouseLeftButtonUp += (x, y) => { y.Handled = true; click(); };
+            return b;
+        }
+
+        private (Image img, TextBlock letter) IconOf(AppEntry a, double size)
+        {
+            var img = new Image { Width = size, Height = size, Source = a.Icon, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             var letter = new TextBlock
             {
-                Text = a.Name.Substring(0, 1).ToUpper(), Foreground = _ink, FontSize = 18, FontWeight = FontWeights.SemiBold,
+                Text = a.Name.Substring(0, 1).ToUpper(), FontSize = size * 0.45, FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 Visibility = a.Icon == null ? Visibility.Visible : Visibility.Collapsed
             };
+            _iconSlots.Add((a, img, letter));
+            return (img, letter);
+        }
+
+        /// <summary>Une appli : icone + nom. Clic : ouvrir. Clic droit : epingler / desepingler.</summary>
+        private FrameworkElement Cell(AppEntry a)
+        {
+            var (img, letter) = IconOf(a, 40);
             var iconHost = new Grid { Width = 48, Height = 48 };
             iconHost.Children.Add(letter);
             iconHost.Children.Add(img);
-            a.IconReady += () => { img.Source = a.Icon; letter.Visibility = Visibility.Collapsed; };
             var label = new TextBlock
             {
-                Text = a.Name, Foreground = _ink, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = a.Name, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxWidth = 84, Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Center
             };
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(iconHost);
             sp.Children.Add(label);
-            var hover = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
-            var cell = new Border
-            {
-                Width = 92, Height = 90, CornerRadius = new CornerRadius(16), Child = sp, Background = Brushes.Transparent,
-                Cursor = Cursors.Hand, ToolTip = a.Name, Margin = new Thickness(1)
-            };
-            var scale = new ScaleTransform(1, 1, 46, 45);
-            cell.RenderTransform = scale;
-            cell.MouseEnter += (x, y) => cell.Background = hover;
-            cell.MouseLeave += (x, y) => { cell.Background = Brushes.Transparent; scale.ScaleX = scale.ScaleY = 1; };
-            cell.MouseLeftButtonDown += (x, y) => { scale.ScaleX = scale.ScaleY = 0.92; y.Handled = true; };
-            cell.MouseLeftButtonUp += (x, y) =>
-            {
-                y.Handled = true;
-                scale.ScaleX = scale.ScaleY = 1;
-                Close2();
-                AppCatalog.Launch(a);
-            };
+            return Clickable(sp, 92, 88, a.Name, () => { Close2(); AppCatalog.Launch(a); }, a);
+        }
+
+        private FrameworkElement ListRow(AppEntry a)
+        {
+            var (img, letter) = IconOf(a, 26);
+            var g = new Grid { Width = 32, Height = 32, Margin = new Thickness(10, 0, 12, 0) };
+            g.Children.Add(letter);
+            g.Children.Add(img);
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            sp.Children.Add(g);
+            sp.Children.Add(new TextBlock { Text = a.Name, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+            var cell = Clickable(sp, double.NaN, 42, a.Name, () => { Close2(); AppCatalog.Launch(a); }, a);
+            ((Border)cell).HorizontalAlignment = HorizontalAlignment.Stretch;
             return cell;
         }
 
-        private FrameworkElement RoundButton(string glyph, string tip, Action act, bool confirm = false)
+        /// <summary>Tuile de categorie : 4 icones et le nom, comme dans Windows 11. Clic : les applis de la categorie.</summary>
+        private FrameworkElement CategoryTile(string cat, List<AppEntry> apps)
         {
-            var g = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 15, Foreground = _ink, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            var normal = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
-            var b = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(20), Background = normal, Child = g, Cursor = Cursors.Hand, ToolTip = tip, Margin = new Thickness(6, 0, 0, 0) };
-            bool armed = false;
-            b.MouseEnter += (x, y) => { if (!armed) b.Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)); };
-            b.MouseLeave += (x, y) => { if (!armed) b.Background = normal; };
-            b.MouseLeftButtonUp += (x, y) =>
+            var icons = new UniformGrid { Columns = 2, Rows = 2, Width = 92, Height = 92, Margin = new Thickness(0, 4, 0, 0) };
+            foreach (var a in apps.OrderByDescending(x => Settings.Current.LaunchCounts.TryGetValue(x.Id, out int n) ? n : 0).Take(4))
             {
-                y.Handled = true;
-                if (confirm && !armed)
-                {
-                    // Deuxieme clic pour confirmer (pas d'extinction par erreur)
-                    armed = true;
-                    b.Background = new SolidColorBrush(Color.FromRgb(230, 80, 70));
-                    b.ToolTip = tip + " : clique encore pour confirmer";
-                    var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                    t.Tick += (p, q) => { t.Stop(); armed = false; b.Background = normal; b.ToolTip = tip; };
-                    t.Start();
-                    return;
-                }
-                act();
+                var (img, letter) = IconOf(a, 34);
+                var gg = new Grid();
+                gg.Children.Add(letter);
+                gg.Children.Add(img);
+                icons.Children.Add(gg);
+            }
+            var sp = new StackPanel();
+            var box = new Border
+            {
+                CornerRadius = new CornerRadius(20), Width = 116, Height = 116, HorizontalAlignment = HorizontalAlignment.Center,
+                Background = new SolidColorBrush(Color.FromArgb(26, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), BorderThickness = new Thickness(1),
+                Child = icons, Padding = new Thickness(8)
             };
+            sp.Children.Add(box);
+            sp.Children.Add(new TextBlock { Text = cat, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 150 });
+            return Clickable(sp, 160, 156, cat + $" ({apps.Count})", () => { _openCategory = cat; FillAll(true); _scroll.ScrollToVerticalOffset(Math.Max(0, _allHost.TranslatePoint(new Point(0, 0), (UIElement)_scroll.Content).Y - 40)); }, null);
+        }
+
+        private class RecentFile { public string Path, Name; public DateTime When; }
+
+        private static List<RecentFile> RecentFiles(int n)
+        {
+            try
+            {
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.Recent);
+                return new DirectoryInfo(dir).EnumerateFiles("*.lnk").OrderByDescending(f => f.LastWriteTime)
+                    .Where(f => !f.Name.StartsWith("ms-"))
+                    .Take(n).Select(f => new RecentFile { Path = f.FullName, Name = System.IO.Path.GetFileNameWithoutExtension(f.Name), When = f.LastWriteTime }).ToList();
+            }
+            catch { return new List<RecentFile>(); }
+        }
+
+        private static string Ago(DateTime t)
+        {
+            var d = DateTime.Now - t;
+            if (d.TotalMinutes < 1) return "À l'instant";
+            if (d.TotalMinutes < 60) return $"Il y a {(int)d.TotalMinutes} min";
+            if (d.TotalHours < 24) return $"Il y a {(int)d.TotalHours} h";
+            if (d.TotalDays < 2) return "Hier";
+            return t.ToString("d MMMM", new System.Globalization.CultureInfo("fr-FR"));
+        }
+
+        private FrameworkElement RecentRow(RecentFile f)
+        {
+            var img = new Image { Width = 30, Height = 30, Margin = new Thickness(10, 0, 12, 0) };
+            Task.Run(() => AppCatalog.LoadShellIcon(f.Path, 32)).ContinueWith(t => { if (t.Result != null) img.Source = t.Result; }, TaskScheduler.FromCurrentSynchronizationContext());
+            var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            texts.Children.Add(new TextBlock { Text = f.Name, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 230 });
+            texts.Children.Add(new TextBlock { Text = Ago(f.When), FontSize = 11, Opacity = 0.7 });
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(img);
+            sp.Children.Add(texts);
+            return Clickable(sp, double.NaN, 50, f.Name, () =>
+            {
+                Close2();
+                try { Process.Start(new ProcessStartInfo(f.Path) { UseShellExecute = true }); } catch { }
+            }, null);
+        }
+
+        /// <summary>Zone cliquable avec survol, petit enfoncement au clic et rebond d'apparition.</summary>
+        private FrameworkElement Clickable(FrameworkElement child, double w, double h, string tip, Action click, AppEntry app)
+        {
+            var press = new ScaleTransform(1, 1);
+            child.RenderTransformOrigin = new Point(0.5, 0.5);
+            child.RenderTransform = press;
+            var hover = new SolidColorBrush(Color.FromArgb(36, 255, 255, 255));
+            var cell = new Border
+            {
+                Width = w, Height = h, CornerRadius = new CornerRadius(14), Child = child, Background = Brushes.Transparent,
+                Cursor = Cursors.Hand, ToolTip = tip, Margin = new Thickness(1),
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1)
+            };
+            cell.MouseEnter += (x, y) => cell.Background = hover;
+            cell.MouseLeave += (x, y) => { cell.Background = Brushes.Transparent; press.ScaleX = press.ScaleY = 1; };
+            cell.MouseLeftButtonDown += (x, y) => { press.ScaleX = press.ScaleY = 0.9; y.Handled = true; };
+            cell.MouseLeftButtonUp += (x, y) => { y.Handled = true; press.ScaleX = press.ScaleY = 1; click(); };
+            if (app != null)
+            {
+                cell.MouseRightButtonUp += (x, y) =>
+                {
+                    y.Handled = true;
+                    bool pinned = Settings.Current.Pinned.Contains(app.Id);
+                    ShowOverlay(cell, new (string, string, Action)[]
+                    {
+                        ("", "Ouvrir", () => { Close2(); AppCatalog.Launch(app); }),
+                        (pinned ? "" : "", pinned ? "Désépingler" : "Épingler", () => { AppCatalog.TogglePin(app); FillSections(); PopIn(new List<FrameworkElement>(_popQueue), 0); _popQueue.Clear(); }),
+                    }, alignRight: false, atMouse: true);
+                };
+            }
+            return cell;
+        }
+
+        private FrameworkElement IconButton(string glyph, string tip, Action click)
+        {
+            var g = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var b = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(20), Background = Brushes.Transparent, Child = g, Cursor = Cursors.Hand, ToolTip = tip, Margin = new Thickness(4, 0, 0, 0) };
+            b.MouseEnter += (x, y) => b.Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+            b.MouseLeave += (x, y) => b.Background = Brushes.Transparent;
+            b.MouseLeftButtonUp += (x, y) => { y.Handled = true; click(); };
             return b;
         }
+
+        private FrameworkElement UserButton(Action click)
+        {
+            string name = Environment.UserName;
+            var avatar = new Border
+            {
+                Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Color.FromRgb(79, 93, 240)),
+                Child = new TextBlock { Text = name.Substring(0, 1).ToUpper(), Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(avatar);
+            sp.Children.Add(new TextBlock { Text = name, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0) });
+            var b = new Border { CornerRadius = new CornerRadius(20), Padding = new Thickness(6, 4, 12, 4), Child = sp, Cursor = Cursors.Hand, Background = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Left };
+            b.MouseEnter += (x, y) => b.Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+            b.MouseLeave += (x, y) => b.Background = Brushes.Transparent;
+            b.MouseLeftButtonUp += (x, y) => { y.Handled = true; click(); };
+            return b;
+        }
+
+        /// <summary>Petit menu en verre (alimentation, compte, epingler).</summary>
+        private void ShowOverlay(FrameworkElement anchor, (string glyph, string label, Action act)[] items, bool alignRight, bool atMouse = false)
+        {
+            HideOverlay();
+            var col = new StackPanel { Margin = new Thickness(6) };
+            foreach (var (glyph, label, act) in items)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Width = 26, VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock { Text = label, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+                var b = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 8, 18, 8), Child = row, Cursor = Cursors.Hand, Background = Brushes.Transparent };
+                b.MouseEnter += (x, y) => b.Background = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255));
+                b.MouseLeave += (x, y) => b.Background = Brushes.Transparent;
+                b.MouseLeftButtonUp += (x, y) => { y.Handled = true; HideOverlay(); act(); };
+                col.Children.Add(b);
+            }
+            bool dark = _darkInk;
+            _overlay = new Border
+            {
+                CornerRadius = new CornerRadius(16), Child = col,
+                Background = new SolidColorBrush(dark ? Color.FromArgb(235, 248, 249, 252) : Color.FromArgb(235, 28, 31, 36)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), BorderThickness = new Thickness(1),
+                RenderTransformOrigin = new Point(0.5, 1), RenderTransform = new ScaleTransform(0.85, 0.85), Opacity = 0
+            };
+            _overlayLayer.Children.Add(_overlay);
+            _overlay.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var sz = _overlay.DesiredSize;
+            Point p = atMouse ? Mouse.GetPosition(_overlayLayer) : anchor.TranslatePoint(new Point(alignRight ? anchor.ActualWidth : 0, 0), _overlayLayer);
+            double x = alignRight ? p.X - sz.Width : p.X;
+            double y = atMouse ? p.Y : p.Y - sz.Height - 6;
+            Canvas.SetLeft(_overlay, Math.Max(4, Math.Min(PW - sz.Width - 4, x)));
+            Canvas.SetTop(_overlay, Math.Max(4, Math.Min(_ph - sz.Height - 4, y)));
+            var sp = new Spring(0.6, 0.32);
+            var grow = new System.Windows.Media.Animation.DoubleAnimation(0.85, 1, TimeSpan.FromSeconds(sp.Seconds)) { EasingFunction = new SpringEase() };
+            _overlay.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+            _overlay.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+            _overlay.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120)));
+        }
+
+        private void HideOverlay()
+        {
+            if (_overlay == null) return;
+            _overlayLayer.Children.Remove(_overlay);
+            _overlay = null;
+        }
+
+        /// <summary>Recherche : les meilleures correspondances (debut du nom d'abord).</summary>
+        private void Search()
+        {
+            if (_sections == null) return;
+            string q = _search.Text.Trim();
+            bool searching = q.Length > 0;
+            _sections.Visibility = searching ? Visibility.Collapsed : Visibility.Visible;
+            _results.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
+            if (!searching) return;
+            _resultsGrid.Children.Clear();
+            var ci = System.Globalization.CultureInfo.CurrentCulture.CompareInfo;
+            var opts = System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace;
+            var found = AppCatalog.Apps.Where(a => AppCatalog.Matches(a, q))
+                .OrderBy(a => ci.IsPrefix(a.Name, q, opts) ? 0 : 1).ThenBy(a => a.Name).Take(28).ToList();
+            _firstResult = found.FirstOrDefault();
+            foreach (var a in found) _resultsGrid.Children.Add(Cell(a));
+            if (found.Count == 0)
+                _resultsGrid.Children.Add(new TextBlock { Text = "Aucune appli trouvée", Opacity = 0.7, FontSize = 14, Margin = new Thickness(6, 6, 0, 0) });
+        }
+
+        private AppEntry _firstResult;
 
         [DllImport("powrprof.dll")] private static extern bool SetSuspendState(bool hibernate, bool force, bool wakeup);
 
@@ -474,21 +808,33 @@ namespace WaveIsland
             {
                 Log.I("Alimentation : " + what);
                 if (what == "sleep") SetSuspendState(false, false, false);
-                else Process.Start(new ProcessStartInfo("shutdown.exe", what == "restart" ? "/r /t 0" : "/s /t 0") { CreateNoWindow = true, UseShellExecute = false });
+                else
+                {
+                    string args = what == "restart" ? "/r /t 0" : what == "logoff" ? "/l" : "/s /t 0";
+                    Process.Start(new ProcessStartInfo("shutdown.exe", args) { CreateNoWindow = true, UseShellExecute = false });
+                }
             }
             catch (Exception e) { Log.I("Alimentation impossible : " + e.Message); }
         }
 
         private void OnKey(object s, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape) { e.Handled = true; Close2(); }
-            else if (e.Key == Key.Enter)
+            if (e.Key == Key.Escape)
             {
-                var first = _cells.Where(kv => kv.Value.Visibility == Visibility.Visible).Select(kv => kv.Key).FirstOrDefault();
-                if (first != null) { e.Handled = true; Close2(); AppCatalog.Launch(first); }
+                e.Handled = true;
+                if (_overlay != null) HideOverlay();
+                else if (_search.Text.Length > 0) _search.Text = "";
+                else Close2();
+            }
+            else if (e.Key == Key.Enter && _search.Text.Trim().Length > 0 && _firstResult != null)
+            {
+                e.Handled = true;
+                Close2();
+                AppCatalog.Launch(_firstResult);
             }
             else if (!_search.IsKeyboardFocused) _search.Focus();
         }
+
 
         // Defilement doux
         private double _scrollTarget;

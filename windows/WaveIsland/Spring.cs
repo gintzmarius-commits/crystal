@@ -73,3 +73,18 @@ namespace WaveIsland
         }
     }
 }
+
+namespace WaveIsland
+{
+    /// <summary>Courbe de ressort pour les animations WPF (rebond facon Apple).</summary>
+    public class SpringEase : System.Windows.Media.Animation.EasingFunctionBase
+    {
+        private static readonly Spring S = new Spring(0.5, 0.44);
+
+        public SpringEase() { EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn; }
+
+        protected override double EaseInCore(double t) => S.At(t * S.Seconds);
+
+        protected override System.Windows.Freezable CreateInstanceCore() => new SpringEase();
+    }
+}

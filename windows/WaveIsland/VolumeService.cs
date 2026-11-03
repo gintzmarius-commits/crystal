@@ -137,6 +137,21 @@ namespace WaveIsland
             catch (Exception e) { Log.I("Volume : " + e.Message); }
         }
 
+        /// <summary>Regle le volume directement (glisser sur l'ilot), 0..1.</summary>
+        public void SetLevel(float f)
+        {
+            var ep = Endpoint();
+            if (ep == null) return;
+            try
+            {
+                _lastOwnChange = DateTime.Now;
+                if (f > 0.001f && ep.Mute) ep.Mute = false;
+                ep.MasterVolumeLevelScalar = Math.Max(0f, Math.Min(1f, f));
+                Changed?.Invoke(ep.MasterVolumeLevelScalar, ep.Mute);
+            }
+            catch (Exception e) { Log.I("Volume : " + e.Message); }
+        }
+
         /// <summary>Molette sur l'ilot : +1 cran vers le haut, -1 vers le bas.</summary>
         public void Wheel(int delta) => Step(delta > 0 ? Native.VK_VOLUME_UP : Native.VK_VOLUME_DOWN);
 

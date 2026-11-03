@@ -15,10 +15,9 @@ namespace WaveIsland
     /// <summary>Une appli installee (la meme liste que le menu Demarrer de Windows).</summary>
     public class AppEntry
     {
-        public string Name, Id;
+        public string Name, Id, Category;
         public ImageSource Icon;
-        public event Action IconReady;
-        internal void SetIcon(ImageSource i) { Icon = i; IconReady?.Invoke(); }
+        internal void SetIcon(ImageSource i) { Icon = i; AppCatalog.RaiseIcon(this); }
     }
 
     /// <summary>
@@ -29,6 +28,63 @@ namespace WaveIsland
     {
         public static List<AppEntry> Apps { get; private set; } = new List<AppEntry>();
         public static event Action Loaded;
+        /// <summary>L'icone d'une appli vient d'etre chargee.</summary>
+        public static event Action<AppEntry> IconLoaded;
+        internal static void RaiseIcon(AppEntry a) => IconLoaded?.Invoke(a);
+
+        /// <summary>Categories, comme le menu Demarrer de Windows 11.</summary>
+        public static readonly string[] Categories =
+            { "Productivité", "Créativité", "Réseaux sociaux", "Divertissement", "Jeux", "Utilitaires et outils", "Autres" };
+
+        private static readonly (string cat, string[] words)[] Rules =
+        {
+            ("Jeux", new[] { "steam", "epic games", "game", "jeu", "xbox", "minecraft", "roblox", "battle.net", "riot", "valorant", "league of", "ubisoft", "ea app", "gog", "fortnite", "solitaire", "itch", "playnite", "rockstar", "mojang", "curseforge", "lunar client", "modrinth", "nvidia app", "geforce" }),
+            ("Réseaux sociaux", new[] { "discord", "whatsapp", "telegram", "teams", "messenger", "instagram", "facebook", "tiktok", "twitter", "skype", "zoom", "slack", "signal", "snapchat", "linkedin", "mail", "outlook", "courrier", "thunderbird", "phone link", "lien avec" }),
+            ("Créativité", new[] { "photoshop", "illustrator", "premiere", "after effects", "lightroom", "blender", "gimp", "krita", "paint", "clipchamp", "davinci", "obs studio", "audacity", "fl studio", "capcut", "canva", "figma", "unity", "unreal", "godot", "mcreator", "inkscape", "affinity", "photos", "camera", "caméra", "sound recorder", "magnétophone", "designer" }),
+            ("Divertissement", new[] { "spotify", "netflix", "prime video", "disney", "vlc", "media player", "lecteur multim", "deezer", "youtube", "twitch", "music", "musique", "films", "movies", "tv", "plex", "apple tv", "crunchyroll" }),
+            ("Productivité", new[] { "word", "excel", "powerpoint", "onenote", "office", "notion", "onedrive", "calendar", "calendrier", "to do", "notepad", "bloc-notes", "acrobat", "pdf", "libreoffice", "obsidian", "edge", "chrome", "firefox", "opera", "brave", "vivaldi", "navigateur", "copilot", "chatgpt", "claude", "google drive", "dropbox", "visual studio", "code", "android studio", "intellij", "pycharm", "eclipse" }),
+            ("Utilitaires et outils", new[] { "settings", "paramètres", "calculat", "explor", "snipping", "capture", "control panel", "panneau de config", "task manager", "gestionnaire", "7-zip", "winrar", "store", "defender", "sécurité", "security", "clock", "horloge", "météo", "weather", "maps", "cartes", "terminal", "powershell", "command prompt", "invite de commandes", "cmd", "python", "git", "node", "docker", "anaconda", "cmake", "java", "wsl", "ubuntu", "registry", "registre", "disk", "disque", "device manager", "périphériques", "remote desktop", "bureau à distance", "magnifier", "loupe", "narrator", "narrateur", "keyboard", "clavier", "character map", "table des caract", "services", "event viewer", "observateur", "performance", "system", "système", "backup", "sauvegarde", "update", "help", "aide", "tips", "astuces", "feedback", "commentaires", "get started", "prise en main", "windows tools", "outils windows", "sticky", "pense-bêtes", "recorder", "voice", "voix", "quick assist", "assistance rapide", "nvidia", "amd", "intel", "realtek", "lenovo", "msi", "asus", "dell", "hp ", "logitech", "razer", "corsair", "wave island" }),
+        };
+
+        public static string CategoryOf(AppEntry a)
+        {
+            string n = (a.Name + " " + a.Id).ToLowerInvariant();
+            foreach (var (cat, words) in Rules)
+                foreach (var w in words)
+                    if (n.Contains(w)) return cat;
+            return "Autres";
+        }
+
+        /// <summary>Applis epinglees (choisies par l'utilisateur, sinon quelques applis courantes).</summary>
+        public static List<AppEntry> Pinned()
+        {
+            var s = Settings.Current;
+            if (!s.PinnedInit && Apps.Count > 0)
+            {
+                string[] defaults =
+                {
+                    "Microsoft Edge", "Google Chrome", "Firefox", "Explorateur de fichiers", "File Explorer", "Paramètres", "Settings",
+                    "Microsoft Store", "Calculatrice", "Calculator", "Photos", "Spotify", "Discord", "WhatsApp", "Steam", "Word", "Excel",
+                    "Bloc-notes", "Notepad", "Outil Capture", "Snipping Tool", "Terminal", "Visual Studio Code", "Paint", "Horloge", "Clock"
+                };
+                foreach (var d in defaults)
+                {
+                    var a = Apps.FirstOrDefault(x => string.Equals(x.Name, d, StringComparison.OrdinalIgnoreCase));
+                    if (a != null && !s.Pinned.Contains(a.Id) && s.Pinned.Count < 14) s.Pinned.Add(a.Id);
+                }
+                s.PinnedInit = true;
+                s.Save();
+            }
+            var byId = Apps.ToDictionary(a => a.Id, a => a, StringComparer.OrdinalIgnoreCase);
+            return s.Pinned.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+        }
+
+        public static void TogglePin(AppEntry a)
+        {
+            var p = Settings.Current.Pinned;
+            if (p.Contains(a.Id)) p.Remove(a.Id); else p.Add(a.Id);
+            Settings.Current.Save();
+        }
         private static DateTime _loadedAt = DateTime.MinValue;
         private static bool _loading;
         private static Dispatcher _ui;
@@ -61,7 +117,9 @@ namespace WaveIsland
                     if (low.Contains("uninstall") || low.Contains("désinstall") || low.Contains("desinstall")) continue;
                     if (id.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
                     if (!seen.Add(name)) continue;
-                    list.Add(new AppEntry { Name = name, Id = id });
+                    var e = new AppEntry { Name = name, Id = id };
+                    e.Category = CategoryOf(e);
+                    list.Add(e);
                 }
                 Marshal.FinalReleaseComObject(folder);
                 Marshal.FinalReleaseComObject(shell);
@@ -140,13 +198,16 @@ namespace WaveIsland
 
         [DllImport("gdi32.dll")] private static extern int GetObject(IntPtr h, int size, out BITMAP bmp);
 
-        public static ImageSource LoadIcon(string id, int size)
+        public static ImageSource LoadIcon(string id, int size) => LoadShellIcon("shell:AppsFolder\\" + id, size);
+
+        /// <summary>Icone de n'importe quel element (fichier, raccourci, appli), comme dans l'Explorateur.</summary>
+        public static ImageSource LoadShellIcon(string parsingName, int size)
         {
             IShellItemImageFactory f = null;
             IntPtr hbm = IntPtr.Zero;
             try
             {
-                if (SHCreateItemFromParsingName("shell:AppsFolder\\" + id, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out f) != 0 || f == null) return null;
+                if (SHCreateItemFromParsingName(parsingName, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out f) != 0 || f == null) return null;
                 // 0x4 = icone seule (pas de miniature), 0x1 = un peu plus grand accepte
                 if (f.GetImage(new SIZE { cx = size, cy = size }, 0x4 | 0x1, out hbm) != 0 || hbm == IntPtr.Zero) return null;
                 GetObject(hbm, Marshal.SizeOf<BITMAP>(), out var bm);

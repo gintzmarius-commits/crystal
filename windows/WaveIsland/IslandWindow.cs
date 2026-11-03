@@ -225,11 +225,30 @@ namespace WaveIsland
                 if (_mode == Mode.Collapsed) Resize();
                 else RestartHide(_mode == Mode.Menu || _mode == Mode.Live ? 0.5 : 2.5);
             };
+            // Son : on glisse la souris sur l'ilot pour regler le volume
+            PreviewMouseLeftButtonDown += (a, b) =>
+            {
+                if (_mode != Mode.Volume) return;
+                _dragging = true;
+                _hideTimer.Stop();
+                CaptureMouse();
+                DragVolume(b);
+                b.Handled = true;
+            };
+            PreviewMouseMove += (a, b) => { if (_dragging) DragVolume(b); };
+            PreviewMouseLeftButtonUp += (a, b) =>
+            {
+                if (!_dragging) return;
+                _dragging = false;
+                ReleaseMouseCapture();
+                RestartHide(1.6);
+                b.Handled = true;
+            };
             MouseLeftButtonUp += (a, b) =>
             {
                 _hoverTimer.Stop();
                 if (_mode == Mode.Note) OpenNote();
-                else if (_mode != Mode.Menu) ShowMenu();
+                else if (_mode == Mode.Collapsed || _mode == Mode.Live) ShowMenu();
             };
             MouseRightButtonUp += (a, b) =>
             {
@@ -341,15 +360,27 @@ namespace WaveIsland
         // ================== Etats ==================
 
         /// <summary>Niveau du son (0..1) affiche dans l'ilot.</summary>
+        private bool _dragging;
+
+        /// <summary>Volume d'apres la position de la souris sur la barre.</summary>
+        private void DragVolume(MouseEventArgs e)
+        {
+            double tw = Math.Max(1, _volTrack.ActualWidth);
+            double f = Math.Max(0, Math.Min(1, e.GetPosition(_volTrack).X / tw));
+            _level.Set(f);
+            _volume?.SetLevel((float)f);
+            Render();
+        }
+
         public void ShowVolume(float level, bool muted)
         {
             if (_hidden) return;
             _volIcon.Text = muted || level < 0.005 ? "" : level < 0.34 ? "" : level < 0.67 ? "" : "";
             _volPct.Text = muted ? "0" : Math.Round(level * 100).ToString();
             double target = muted ? 0 : level;
-            if (_mode != Mode.Volume) _level.Set(target); else _level.AnimateTo(target, Spring.Soft);
+            if (_mode != Mode.Volume || _dragging) _level.Set(target); else _level.AnimateTo(target, Spring.Soft);
             Switch(Mode.Volume, _volPanel);
-            RestartHide(1.6);
+            if (!_dragging) RestartHide(1.6); else _hideTimer.Stop();
         }
 
         public void ShowNote(IslandNote n)
@@ -926,7 +957,14 @@ namespace WaveIsland
             _clip.Rect = new Rect(0, 0, w, h);
             _clip.RadiusX = _clip.RadiusY = radius;
             foreach (var p in new[] { _volPanel, _notePanel, (FrameworkElement)_menuPanel, _compact, _livePanel })
-                p.Opacity = p == _panel ? Math.Max(0, Math.Min(1, _alpha.Value)) : 0;
+            {
+                bool on = p == _panel;
+                p.Opacity = on ? Math.Max(0, Math.Min(1, _alpha.Value)) : 0;
+                // Un panneau invisible ne doit jamais recevoir les clics (avant : on cliquait sur les raccourcis caches)
+                var vis = on ? Visibility.Visible : Visibility.Hidden;
+                if (p.Visibility != vis) p.Visibility = vis;
+                p.IsHitTestVisible = on && _mode != Mode.Collapsed;
+            }
             if (_panel == _volPanel)
             {
                 double tw = Math.Max(0, _volTrack.ActualWidth);
