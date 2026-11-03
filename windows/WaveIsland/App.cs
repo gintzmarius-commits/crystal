@@ -14,7 +14,7 @@ namespace WaveIsland
         public static DownloadWatcher Downloads { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
-        private static SettingsWindow _settings;
+        private static AppWindow _settings;
         private static bool _closeHintShown;
 
         protected override void OnStartup(StartupEventArgs e)
@@ -70,11 +70,26 @@ namespace WaveIsland
                     OnClick = () => { CopyReport(); }
                 });
             }
-            if (firstRun)
-            {
-                Settings.Current.Save();
+            if (firstRun) Settings.Current.Save();
+            if (Installer.IsInstalledCopy) Installer.Register(); // version a jour dans « Applications installees »
+
+            // Ouverte depuis le menu Demarrer / le bureau : la fenetre de l'appli s'affiche
+            if (!Program.Tray && !Program.Updated)
                 Dispatcher.BeginInvoke(new Action(OpenSettings), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-            }
+            if (Program.Updated)
+                Island.ShowNote(new IslandNote { App = "Wave Island", Title = "Mise à jour installée", Text = "Version " + Updater.CurrentVersion, OnClick = OpenSettings });
+
+            // Relancer Wave Island alors qu'elle tourne deja : on ouvre sa fenetre
+            var open = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, "WaveIsland.Open");
+            new System.Threading.Thread(() =>
+            {
+                while (true)
+                {
+                    open.WaitOne();
+                    Dispatcher.BeginInvoke(new Action(OpenSettings));
+                }
+            }) { IsBackground = true, Name = "ouvrir" }.Start();
+
             Updater.Start(Island);
         }
 
@@ -90,8 +105,8 @@ namespace WaveIsland
                     Visible = true
                 };
                 var menu = new System.Windows.Forms.ContextMenuStrip();
-                menu.Items.Add("Réglages", null, (a, b) => OpenSettings());
-                menu.Items.Add("Rechercher une mise à jour", null, (a, b) => Updater.CheckNow(Island, true));
+                menu.Items.Add("Ouvrir Wave Island", null, (a, b) => OpenSettings());
+                menu.Items.Add("Mettre à jour", null, (a, b) => Updater.CheckNow(Island, true, install: true));
                 menu.Items.Add("Copier le rapport de bug", null, (a, b) => CopyReport());
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 menu.Items.Add("Quitter Wave Island", null, (a, b) => Quit());
@@ -105,7 +120,7 @@ namespace WaveIsland
         {
             if (_settings == null)
             {
-                _settings = new SettingsWindow();
+                _settings = new AppWindow();
                 _settings.Closed += (a, b) =>
                 {
                     _settings = null;
@@ -114,17 +129,18 @@ namespace WaveIsland
                         _closeHintShown = true;
                         Island?.ShowNote(new IslandNote
                         {
-                            App = "Wave Island", Title = "Réglages fermés, l'îlot reste actif",
+                            App = "Wave Island", Title = "Fenêtre fermée, l'îlot reste actif",
                             Text = "Pour quitter : icône Wave Island près de l'horloge", OnClick = () => { }
                         });
                     }
                 };
                 _settings.Show();
             }
+            if (_settings.WindowState == WindowState.Minimized) _settings.WindowState = WindowState.Normal;
             _settings.Activate();
         }
 
-        public static SettingsWindow SettingsWin => _settings;
+        public static AppWindow SettingsWin => _settings;
 
         /// <summary>Copie le journal (et le dernier plantage) pour l'envoyer facilement.</summary>
         public static void CopyReport()
@@ -157,7 +173,7 @@ namespace WaveIsland
             try
             {
                 using var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-                if (Settings.Current.StartWithWindows) k.SetValue("WaveIsland", $"\"{Environment.ProcessPath}\"");
+                if (Settings.Current.StartWithWindows) k.SetValue("WaveIsland", $"\"{Environment.ProcessPath}\" --tray");
                 else k.DeleteValue("WaveIsland", false);
             }
             catch (Exception e) { Log.I("Demarrage avec Windows : " + e.Message); }

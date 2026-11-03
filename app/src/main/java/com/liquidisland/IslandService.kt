@@ -52,7 +52,9 @@ data class IslandNote(
     val intent: PendingIntent?,
     val pkg: String = "",
     val key: String? = null,
-    val autoCancel: Boolean = false
+    val autoCancel: Boolean = false,
+    /** Action au toucher (sinon : ouvre l'appli de la notification) */
+    val action: (() -> Unit)? = null
 )
 
 /** Gestes reconnus sur l'ilot. */
@@ -375,6 +377,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (LiveCapture.pendingResult != null) startLiveCapture()
         updateNotif()
         mediaWatcher = MediaWatcher(this, main) { onMediaChanged() }.also { it.start() }
+        main.postDelayed(updateCheck, 15_000)
         NotifListener.replayTasks()
     }
 
@@ -1314,6 +1317,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     private fun launchNote(n: IslandNote, floating: Boolean) {
+        n.action?.let { it(); return }
         val v = view
         // L'appli s'ouvre en grandissant depuis la forme actuelle de l'ilot
         val opts = if (v != null && v.isAttachedToWindow) {
@@ -1577,6 +1581,57 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         super.onDestroy()
     }
 
+    // ---------- Mises a jour depuis l'ilot ----------
+
+    private var updateOffered = 0
+    private val updateCheck = object : Runnable {
+        override fun run() {
+            Updater.peek(this@IslandService) { v -> if (v != null) offerUpdate(v) }
+            main.postDelayed(this, 6 * 3600_000L)
+        }
+    }
+
+    /** Nouvelle version : l'ilot la propose, un toucher la telecharge et l'installe. */
+    fun offerUpdate(version: Int) {
+        if (version == updateOffered && mode == Mode.NOTIF) return
+        updateOffered = version
+        show(IslandNote(
+            "Mise à jour disponible",
+            "Wave Island 1.0.${version - 100} — touche pour l'installer",
+            applicationInfo.loadIcon(packageManager), null, packageName,
+            action = { updateFromIsland() }
+        ))
+    }
+
+    private fun updateFromIsland() {
+        val icon = applicationInfo.loadIcon(packageManager)
+        Log.i(TAG, "Mise a jour lancee depuis l'ilot")
+        Updater.check(this) { s ->
+            when (s) {
+                is Updater.State.Available -> task(ProgressNow("wave-update", packageName, "Mise à jour Wave Island", "Préparation…", 0, 100, true, icon, null), force = true)
+                is Updater.State.Downloading -> task(ProgressNow("wave-update", packageName, "Mise à jour Wave Island", "Téléchargement…", s.percent, 100, false, icon, null), force = true)
+                is Updater.State.Installing -> {
+                    taskGone("wave-update")
+                    show(IslandNote("Installation…", "Wave Island redémarre toute seule", icon, null, packageName, action = {}))
+                }
+                is Updater.State.NeedsPermission -> {
+                    taskGone("wave-update")
+                    show(IslandNote("Une autorisation est nécessaire", "Touche : autorise Wave Island à installer ses mises à jour", icon, null, packageName, action = {
+                        try {
+                            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (e: Exception) { }
+                    }))
+                }
+                is Updater.State.Error -> {
+                    taskGone("wave-update")
+                    show(IslandNote("Mise à jour impossible", s.message, icon, null, packageName, action = {}))
+                }
+                is Updater.State.UpToDate -> taskGone("wave-update")
+            }
+        }
+    }
+
     // ---------- Activites en arriere-plan ----------
 
     /** L'acces aux notifications vient d'etre donne : on suit aussi la musique. */
@@ -1588,8 +1643,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     /** Une tache avec une barre de progression a change (depuis l'acces aux notifications). */
-    fun task(p: ProgressNow) = main.post {
-        if (!Prefs.liveDownloads(this)) { if (tasks.isNotEmpty()) { tasks.clear(); liveChanged() }; return@post }
+    fun task(p: ProgressNow, force: Boolean = false) = main.post {
+        if (!force && !Prefs.liveDownloads(this)) { if (tasks.isNotEmpty()) { tasks.clear(); liveChanged() }; return@post }
         val isNew = !tasks.containsKey(p.key)
         tasks[p.key] = p
         if (isNew) Log.i(TAG, "Tache en cours : ${p.title} (${p.pkg})")

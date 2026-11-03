@@ -85,6 +85,23 @@ jobs:
           if (Test-Path $crash) { Copy-Item $crash shots\plantage.txt; Write-Host "::error::Plantage"; Get-Content $crash }
           if (-not (Select-String -Path $log -Pattern 'DEMO OK' -Quiet)) { Write-Host "::error::Demo incomplete"; exit 1 }
 
+      - name: Test (installation + desinstallation)
+        id: install
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $dir = "$env:LOCALAPPDATA\Programs\Wave Island"
+          $p = Start-Process out\WaveIsland.exe -ArgumentList '--install-test' -PassThru -Wait
+          $ok = (Test-Path "$dir\WaveIsland.exe") -and (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Wave Island.lnk") -and (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WaveIsland')
+          Write-Host "Installee : $ok"
+          Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WaveIsland' -ErrorAction SilentlyContinue | Select-Object DisplayName, DisplayVersion, UninstallString | Format-List
+          if (-not $ok) { Write-Host "::error::Installation incomplete"; exit 1 }
+          Start-Process "$dir\WaveIsland.exe" -ArgumentList '--uninstall','--quiet' -Wait
+          Start-Sleep -Seconds 6
+          $gone = -not (Test-Path "$dir\WaveIsland.exe") -and -not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WaveIsland')
+          Write-Host "Desinstallee : $gone"
+          if (-not $gone) { Write-Host "::error::Desinstallation incomplete"; exit 1 }
+
       - name: Publish screenshots
         if: always()
         shell: pwsh
@@ -97,7 +114,7 @@ jobs:
           gh release create windows-tests $files --prerelease --latest=false --title "Windows tests ${{ github.run_number }}" --notes "Captures du test automatique"
 
       - name: Publish WaveIsland.exe
-        if: steps.demo.outcome == 'success'
+        if: steps.demo.outcome == 'success' && steps.install.outcome == 'success'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

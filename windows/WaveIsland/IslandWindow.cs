@@ -500,11 +500,37 @@ namespace WaveIsland
             LiveChanged(had);
         }
 
+        private List<DownloadInfo> _watched = new List<DownloadInfo>();
+        private DownloadInfo _update;
+
         public void SetDownloads(IReadOnlyList<DownloadInfo> list)
         {
             bool had = HasLive;
-            _downloads = list.ToList();
+            _watched = list.ToList();
+            MergeDownloads();
             LiveChanged(had);
+        }
+
+        /// <summary>Telechargement de la mise a jour de Wave Island (null = termine).</summary>
+        public void SetUpdate(DownloadInfo d)
+        {
+            bool had = HasLive;
+            _update = d;
+            MergeDownloads();
+            LiveChanged(had);
+        }
+
+        private void MergeDownloads()
+        {
+            _downloads = (_update != null ? new[] { _update } : Array.Empty<DownloadInfo>()).Concat(_watched).ToList();
+        }
+
+        /// <summary>Reconstruit le menu (ex. : bouton « Mettre a jour » quand une version est disponible).</summary>
+        public void RefreshMenu()
+        {
+            BuildMenu();
+            Restyle();
+            if (_mode == Mode.Menu) Resize();
         }
 
         private void LiveChanged(bool had)
@@ -773,7 +799,9 @@ namespace WaveIsland
         private void BuildMenu()
         {
             _menuRow.Children.Clear();
-            var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(6).ToList();
+            var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(Updater.Available ? 5 : 6).ToList();
+            // Nouvelle version : bouton de mise a jour en premier
+            if (Updater.Available) _menuRow.Children.Add(MenuItem("\uE777", null, "Mettre à jour", () => Updater.Install(this)));
             foreach (var it in items) _menuRow.Children.Add(MenuItem(it.Glyph, it.Icon, it.Label, () => Shortcuts.Run(it.Id, _volume)));
             _menuRow.Children.Add(MenuItem("", null, "Réglages", App.OpenSettings));
         }

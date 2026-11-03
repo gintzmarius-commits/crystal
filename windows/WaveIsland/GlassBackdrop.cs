@@ -32,6 +32,7 @@ namespace WaveIsland
             Image.Effect = _fx;
             w.SourceInitialized += (a, b) => Setup();
             w.SizeChanged += (a, b) => Update();
+            Image.SizeChanged += (a, b) => Update();
             w.Closed += (a, b) => { _timer?.Stop(); _cap.Dispose(); };
         }
 
@@ -55,10 +56,13 @@ namespace WaveIsland
         private void Grab()
         {
             if (!_excluded || !Settings.Current.Refraction || _w.WindowState == WindowState.Minimized) return;
-            if (!Native.GetWindowRect(_hwnd, out var r)) return;
+            // Zone interieure de la fenetre (sans la barre de titre ni les bords)
+            if (!Native.GetClientRect(_hwnd, out var c)) return;
+            var o = new Native.POINT();
+            if (!Native.ClientToScreen(_hwnd, ref o)) return;
             try
             {
-                if (_cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) && Image.Source != _cap.Bitmap)
+                if (_cap.Grab(o.X, o.Y, c.Right - c.Left, c.Bottom - c.Top) && Image.Source != _cap.Bitmap)
                     Image.Source = _cap.Bitmap;
             }
             catch { }
@@ -67,7 +71,7 @@ namespace WaveIsland
         private void Update()
         {
             double k = VisualTreeHelper.GetDpi(_w).DpiScaleX;
-            double W = _w.ActualWidth * k, H = _w.ActualHeight * k;
+            double W = Image.ActualWidth * k, H = Image.ActualHeight * k;
             if (W < 2 || H < 2) return;
             double rad = _radius * k, mag = 0.985, strength = 20 * k;
             _fx.Geo = new Point4D(W / 2, H / 2, W / 2 - rad, H / 2 - rad);

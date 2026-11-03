@@ -145,9 +145,19 @@ namespace WaveIsland
                 await Wait(1.0);
                 island.Snap("16-fin", Folder);
 
+                // Mise a jour telechargee depuis l'ilot (barre de progression)
+                var upd = new DownloadInfo { Path = "wave-update", Name = "Mise à jour Wave Island 1.0.99", Total = 78_000_000, Bytes = 47_000_000, Speed = 9_400_000 };
+                island.SetUpdate(upd);
+                island.ShowLive();
+                await Wait(1.2);
+                island.Snap("17-mise-a-jour", Folder);
+                island.SetUpdate(null);
+                island.Collapse();
+                await Wait(0.8);
+
                 App.OpenSettings();
                 await Wait(1.5);
-                SnapWindow(App.SettingsWin, "10-reglages");
+                SnapWindow(App.SettingsWin, "10-appli");
                 App.SettingsWin?.Close();
 
                 Log.I("DEMO OK");

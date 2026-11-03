@@ -29,6 +29,28 @@ object Updater {
 
     @Volatile private var busy = false
 
+    /** Derniere version vue en ligne (0 = inconnue). */
+    @Volatile var latest = 0
+        private set
+
+    fun apkFile(ctx: Context) = File(ctx.applicationContext.cacheDir, "update.apk")
+
+    /** Regarde seulement s'il existe une version plus recente (sans telecharger). */
+    fun peek(ctx: Context, onResult: (Int?) -> Unit) {
+        val ui = Handler(Looper.getMainLooper())
+        Thread {
+            val r = try {
+                val remote = open(BASE + "version.txt?t=" + System.currentTimeMillis()).inputStream.bufferedReader().readText().trim().toInt()
+                latest = remote
+                if (remote > BuildConfig.VERSION_CODE) remote else null
+            } catch (e: Exception) {
+                Log.w(TAG, "Verification de mise a jour impossible : $e")
+                null
+            }
+            ui.post { onResult(r) }
+        }.start()
+    }
+
     private fun open(url: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000
@@ -47,6 +69,7 @@ object Updater {
         Thread {
             try {
                 val remote = open(BASE + "version.txt?t=" + System.currentTimeMillis()).inputStream.bufferedReader().readText().trim().toInt()
+                latest = remote
                 Log.i(TAG, "Version installee ${BuildConfig.VERSION_CODE}, en ligne $remote")
                 if (remote <= BuildConfig.VERSION_CODE) {
                     post(State.UpToDate); return@Thread
@@ -55,7 +78,7 @@ object Updater {
                 if (!app.packageManager.canRequestPackageInstalls()) {
                     post(State.NeedsPermission); return@Thread
                 }
-                val file = File(app.cacheDir, "update.apk")
+                val file = apkFile(app)
                 val c = open(BASE + "WaveIsland.apk")
                 val total = c.contentLengthLong
                 c.inputStream.use { input ->
@@ -82,6 +105,28 @@ object Updater {
                 busy = false
             }
         }.start()
+    }
+
+    /**
+     * Installation par l'installateur d'Android (ecran « Installer ? ») : marche aussi quand
+     * HyperOS / One UI refusent l'installation directe.
+     */
+    fun installWithSystem(ctx: Context) {
+        val f = apkFile(ctx)
+        if (!f.exists()) return
+        val uri = android.net.Uri.parse("content://com.liquidisland.apk/update.apk")
+        @Suppress("DEPRECATION")
+        val i = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+        }
+        try {
+            ctx.startActivity(i)
+            Log.i(TAG, "Installation par l'installateur d'Android")
+        } catch (e: Exception) {
+            Log.w(TAG, "Installateur d'Android indisponible", e)
+        }
     }
 
     private fun install(ctx: Context, apk: File) {
@@ -115,7 +160,30 @@ class InstallReceiver : BroadcastReceiver() {
                 try { context.startActivity(confirm) } catch (e: Exception) { Log.w("LiquidIsland", "Confirmation impossible", e) }
             }
             PackageInstaller.STATUS_SUCCESS -> Log.i("LiquidIsland", "Mise a jour installee")
-            else -> Log.w("LiquidIsland", "Installation : " + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
+            else -> {
+                // Installation directe refusee (certains Xiaomi / Samsung) : on passe par l'installateur d'Android
+                Log.w("LiquidIsland", "Installation : " + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
+                Updater.installWithSystem(context)
+            }
         }
     }
+}
+
+/** Fournit update.apk a l'installateur d'Android (lecture seule, aucun autre fichier). */
+class ApkProvider : android.content.ContentProvider() {
+    override fun onCreate() = true
+    override fun getType(uri: android.net.Uri) = "application/vnd.android.package-archive"
+    override fun openFile(uri: android.net.Uri, mode: String): android.os.ParcelFileDescriptor? {
+        val f = Updater.apkFile(context ?: return null)
+        return android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+    override fun query(uri: android.net.Uri, p: Array<String>?, s: String?, a: Array<String>?, o: String?): android.database.Cursor? {
+        val f = Updater.apkFile(context ?: return null)
+        val c = android.database.MatrixCursor(arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE))
+        c.addRow(arrayOf<Any>("WaveIsland.apk", f.length()))
+        return c
+    }
+    override fun insert(uri: android.net.Uri, v: android.content.ContentValues?): android.net.Uri? = null
+    override fun delete(uri: android.net.Uri, s: String?, a: Array<String>?) = 0
+    override fun update(uri: android.net.Uri, v: android.content.ContentValues?, s: String?, a: Array<String>?) = 0
 }

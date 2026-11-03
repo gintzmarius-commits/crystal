@@ -88,5 +88,12 @@
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />
+
+        <!-- Donne le fichier de mise a jour a l'installateur d'Android (si l'installation directe est refusee) -->
+        <provider
+            android:name=".ApkProvider"
+            android:authorities="com.liquidisland.apk"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

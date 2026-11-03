@@ -10,8 +10,8 @@ using System.Windows.Shapes;
 
 namespace WaveIsland
 {
-    /// <summary>Reglages, dans le meme style que l'appli Android (sombre, verre, accent menthe).</summary>
-    public sealed class SettingsWindow : Window
+    /// <summary>L'appli Wave Island : une vraie fenetre (barre de titre, barre des taches, redimensionnable) en verre liquide, avec un menu a gauche.</summary>
+    public sealed class AppWindow : Window
     {
         private static readonly Color Accent = Color.FromRgb(176, 240, 210);
         private static readonly Brush AccentBrush = new SolidColorBrush(Accent);
@@ -22,7 +22,28 @@ namespace WaveIsland
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
-        private readonly StackPanel _col = new StackPanel { Margin = new Thickness(22, 0, 22, 22) };
+        private readonly StackPanel _col = new StackPanel { Margin = new Thickness(28, 6, 28, 40), MaxWidth = 680 };
+        private readonly System.Collections.Generic.List<(string title, FrameworkElement anchor, Border nav)> _nav =
+            new System.Collections.Generic.List<(string, FrameworkElement, Border)>();
+        private StackPanel _navPanel;
+        private TextBlock _updateStatus;
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        /// <summary>Barre de titre sombre (Windows 10/11) pour aller avec le verre.</summary>
+        public static void DarkTitleBar(Window w)
+        {
+            try
+            {
+                var h = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+                int on = 1;
+                if (DwmSetWindowAttribute(h, 20, ref on, 4) != 0) DwmSetWindowAttribute(h, 19, ref on, 4);
+                int round = 2; // coins arrondis (Windows 11)
+                DwmSetWindowAttribute(h, 33, ref round, 4);
+            }
+            catch { }
+        }
         private StackPanel _shortcutList;
         private WrapPanel _shortcutAdd;
 
@@ -54,73 +75,120 @@ namespace WaveIsland
             _scroll.ScrollToVerticalOffset(next);
         }
 
-        public SettingsWindow()
+        public AppWindow()
         {
-            Title = "Wave Island — Réglages";
-            Width = 460;
-            Height = 720;
-            WindowStyle = WindowStyle.None;
-            AllowsTransparency = true;
-            Background = Brushes.Transparent;
-            ResizeMode = ResizeMode.NoResize;
+            Title = "Wave Island";
+            Width = 980;
+            Height = 700;
+            MinWidth = 720;
+            MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = new SolidColorBrush(Color.FromRgb(14, 17, 19));
             FontFamily = Ui;
             try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/WaveIsland;component/wave.ico")); } catch { }
+            SourceInitialized += (a, b) => DarkTitleBar(this);
 
             // Fond en verre liquide : le bureau est vu a travers la fenetre (pas de flou),
-            // avec un voile sombre juste assez marque pour lire les reglages
-            var glass = new GlassBackdrop(this, 26, 0.7);
-            var frame = new Border
+            // avec un voile sombre pour bien lire
+            var glass = new GlassBackdrop(this, 8, 0.74);
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.Children.Add(glass.Image);
+            Grid.SetColumnSpan(glass.Image, 2);
+
+            // Menu de gauche
+            var side = new Border
             {
-                CornerRadius = new CornerRadius(26),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
-                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 0, 1, 0)
             };
-            var dock = new DockPanel();
-            dock.Children.Add(Header());
-            DockPanel.SetDock(dock.Children[0], Dock.Top);
-            _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = _col, CanContentScroll = false };
+            var sideDock = new DockPanel { Margin = new Thickness(14, 18, 14, 16) };
+            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 0, 22) };
+            var logo = new Image { Width = 38, Height = 38, Margin = new Thickness(0, 0, 10, 0) };
+            try { logo.Source = new BitmapImage(new Uri("pack://application:,,,/WaveIsland;component/wave.png")); } catch { }
+            brand.Children.Add(logo);
+            brand.Children.Add(T("Wave Island", 19, FontWeights.SemiBold, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center));
+            DockPanel.SetDock(brand, Dock.Top);
+            sideDock.Children.Add(brand);
+            var ver = T("Version " + Updater.CurrentVersion, 12, FontWeights.Normal, InkSoft);
+            ver.Margin = new Thickness(10, 10, 0, 0);
+            DockPanel.SetDock(ver, Dock.Bottom);
+            sideDock.Children.Add(ver);
+            _navPanel = new StackPanel();
+            sideDock.Children.Add(_navPanel);
+            side.Child = sideDock;
+            grid.Children.Add(side);
+
+            _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _col, CanContentScroll = false };
             _scroll.PreviewMouseWheel += SmoothWheel;
-            dock.Children.Add(_scroll);
-            frame.Child = dock;
-            var root = new Grid();
-            root.Children.Add(glass.Image);
-            root.Children.Add(frame);
-            root.Clip = new RectangleGeometry(new Rect(0, 0, Width, Height), 26, 26);
-            Content = root;
+            _scroll.ScrollChanged += (a, b) => HighlightNav();
+            Grid.SetColumn(_scroll, 1);
+            grid.Children.Add(_scroll);
+            Content = grid;
 
             Build();
             KeyDown += (a, b) => { if (b.Key == Key.Escape) Close(); };
         }
 
-        // ================== Structure ==================
-
-        private FrameworkElement Header()
+        private static readonly (string section, string label, string glyph)[] NavItems =
         {
-            var g = new Grid { Margin = new Thickness(22, 18, 14, 10), Background = Brushes.Transparent };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition());
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var logo = new Image { Width = 40, Height = 40, Margin = new Thickness(0, 0, 12, 0) };
-            try { logo.Source = new BitmapImage(new Uri("pack://application:,,,/WaveIsland;component/wave.png")); } catch { }
-            var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            titles.Children.Add(T("Wave Island", 21, FontWeights.SemiBold, Ink));
-            titles.Children.Add(T("Version " + Updater.CurrentVersion + " pour Windows", 12, FontWeights.Normal, InkSoft));
-            var close = new Border
+            ("Position de l'îlot", "Îlot", "\uE7F4"),
+            ("Apparence", "Apparence", "\uE790"),
+            ("Fonctions", "Fonctions", "\uE9E9"),
+            ("Raccourcis (clic sur l'îlot)", "Raccourcis", "\uE8A9"),
+            ("Mises à jour", "Mises à jour", "\uE777"),
+            ("Tester", "Tester", "\uE768"),
+            ("Aide", "Aide", "\uE897"),
+        };
+
+        private void AddNav(string section, FrameworkElement anchor)
+        {
+            foreach (var n in NavItems)
             {
-                Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = Card, Cursor = Cursors.Hand,
-                Child = Center(G("", 12))
-            };
-            close.MouseLeftButtonDown += (a, b) => b.Handled = true; // sinon la fenetre se deplace et le clic est perdu
-            close.MouseLeftButtonUp += (a, b) => { b.Handled = true; Close(); };
-            Grid.SetColumn(titles, 1);
-            Grid.SetColumn(close, 2);
-            g.Children.Add(logo);
-            g.Children.Add(titles);
-            g.Children.Add(close);
-            g.MouseLeftButtonDown += (a, b) => { if (b.ButtonState == MouseButtonState.Pressed) try { DragMove(); } catch { } };
-            return g;
+                if (n.section != section) continue;
+                var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                sp.Children.Add(G(n.glyph, 15).With(g => { g.Margin = new Thickness(0, 0, 12, 0); g.VerticalAlignment = VerticalAlignment.Center; }));
+                sp.Children.Add(T(n.label, 14, FontWeights.Normal, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center));
+                var b = new Border { Height = 40, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 0, 12, 0), Child = sp, Cursor = Cursors.Hand, Background = Brushes.Transparent, Margin = new Thickness(0, 2, 0, 2) };
+                b.MouseLeftButtonUp += (x, y) => ScrollTo(anchor);
+                _navPanel.Children.Add(b);
+                _nav.Add((section, anchor, b));
+            }
         }
+
+        private void ScrollTo(FrameworkElement anchor)
+        {
+            try
+            {
+                double y = anchor.TransformToAncestor(_col).Transform(new Point(0, 0)).Y - 4;
+                _scrollTarget = Math.Max(0, Math.Min(_scroll.ScrollableHeight, y));
+                if (!_scrolling) { _scrolling = true; CompositionTarget.Rendering += ScrollFrame; }
+            }
+            catch { }
+        }
+
+        private void HighlightNav()
+        {
+            if (_nav.Count == 0) return;
+            int current = 0;
+            for (int i = 0; i < _nav.Count; i++)
+            {
+                try
+                {
+                    double y = _nav[i].anchor.TransformToAncestor(_col).Transform(new Point(0, 0)).Y;
+                    if (y - 60 <= _scroll.VerticalOffset) current = i;
+                }
+                catch { }
+            }
+            if (_scroll.VerticalOffset >= _scroll.ScrollableHeight - 2) current = _nav.Count - 1;
+            for (int i = 0; i < _nav.Count; i++)
+                _nav[i].nav.Background = i == current ? new SolidColorBrush(Color.FromArgb(40, 176, 240, 210)) : Brushes.Transparent;
+        }
+
+        // ================== Structure ==================
 
         private void Build()
         {
@@ -182,6 +250,20 @@ namespace WaveIsland
             _col.Children.Add(sc.Parent as FrameworkElement);
             RefreshShortcuts();
 
+            // --- Mises a jour ---
+            Section("Mises à jour");
+            var upd = CardPanel();
+            _updateStatus = T(Updater.Latest > Updater.CurrentBuild
+                ? $"La version 1.0.{Updater.Latest} est disponible."
+                : "Wave Island vérifie toute seule les mises à jour (au démarrage puis toutes les 6 heures). Quand il y en a une, l'îlot te la propose : clique dessus pour l'installer.",
+                13, FontWeights.Normal, InkSoft);
+            _updateStatus.Margin = new Thickness(2, 0, 2, 8);
+            upd.Children.Add(_updateStatus);
+            upd.Children.Add(Button("Rechercher et installer maintenant", () => Updater.CheckNow(App.Island, true, install: true)));
+            upd.Children.Add(T(Installer.IsInstalledCopy ? "Installée dans " + Installer.Dir : "Pas encore installée (lancée depuis " + System.IO.Path.GetDirectoryName(Environment.ProcessPath) + ")",
+                11.5, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 8, 2, 0)));
+            _col.Children.Add(upd.Parent as FrameworkElement);
+
             // --- Tester ---
             Section("Tester");
             var test = CardPanel();
@@ -199,10 +281,16 @@ namespace WaveIsland
             // --- Aide ---
             Section("Aide");
             var help = CardPanel();
-            help.Children.Add(Button("Rechercher une mise à jour", () => Updater.CheckNow(App.Island, true)));
             help.Children.Add(Button("Copier le rapport de bug", App.CopyReport));
             help.Children.Add(Button("Ouvrir le dossier du journal", App.OpenLogFolder));
             help.Children.Add(Button("Quitter la Wave Island", App.Quit, danger: true));
+            if (Installer.IsInstalledCopy)
+                help.Children.Add(Button("Désinstaller Wave Island", () =>
+                {
+                    if (MessageBox.Show(this, "Désinstaller Wave Island de ce PC ?", "Wave Island", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                    Installer.Uninstall(true);
+                    App.Quit();
+                }, danger: true));
             var hint = T("Survol de l'îlot : musique et téléchargements • clic : raccourcis • molette : volume • clic droit : réglages", 12, FontWeights.Normal, InkSoft);
             hint.Margin = new Thickness(2, 10, 2, 2);
             help.Children.Add(hint);
@@ -276,9 +364,10 @@ namespace WaveIsland
 
         private void Section(string title)
         {
-            var t = T(title.ToUpper(), 11.5, FontWeights.SemiBold, InkSoft);
-            t.Margin = new Thickness(6, 18, 0, 8);
+            var t = T(title, 20, FontWeights.SemiBold, Ink);
+            t.Margin = new Thickness(4, _col.Children.Count == 0 ? 18 : 30, 0, 10);
             _col.Children.Add(t);
+            AddNav(title, t);
         }
 
         private StackPanel CardPanel()

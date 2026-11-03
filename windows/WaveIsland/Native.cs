@@ -69,6 +69,8 @@ namespace WaveIsland
         [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+        [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+        [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT p);
 
         // --- Ouvrir / ramener une appli au premier plan ---
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
