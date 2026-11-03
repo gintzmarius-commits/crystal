@@ -250,6 +250,8 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != PICK || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        // Garde l'acces au fichier meme si le panneau se ferme pendant l'envoi
+        try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
         WaveDrop.outgoing = WaveDrop.describe(this, uri)
         Log.i("LiquidIsland", "Wave Drop : fichier choisi ${WaveDrop.outgoing?.name}")
         showTargets()
