@@ -20,6 +20,7 @@
     </queries>
 
     <application
+        android:name=".WaveApp"
         android:allowBackup="true"
         android:label="Wave Island"
         android:icon="@mipmap/ic_launcher"

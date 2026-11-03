@@ -40,6 +40,8 @@ class MainActivity : Activity() {
     private lateinit var heroStatus: TextView
     private lateinit var heroButton: TextView
     private lateinit var accessWarn: LinearLayout
+    private lateinit var accessTitle: TextView
+    private lateinit var accessBody: TextView
     private lateinit var preview: IslandPreview
     private lateinit var segIsland: TextView
     private lateinit var segNotch: TextView
@@ -77,6 +79,14 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(18))
         })
 
+        // Dernier plantage : proposer d'envoyer le rapport
+        crashCard = card(strong = true).apply { visibility = View.GONE }
+        crashCard.addView(text("Wave Island a planté", 15f, Glass.INK, bold = true))
+        crashCard.addView(text("Envoie-moi le rapport (dans la conversation) pour que je corrige la cause.", 13f, Glass.INK_SOFT).apply {
+            setPadding(0, dp(4), 0, 0)
+        })
+        crashCard.addView(glassButton("Envoyer le rapport", primary = true) { shareReport(clearAfter = true) }, buttonLp(top = 10))
+        col.addView(FrameLayout(this).apply { setPadding(0, 0, 0, dp(14)); addView(crashCard) })
         col.addView(buildUpdateCard())
         col.addView(heroCard())
 
@@ -179,6 +189,7 @@ class MainActivity : Activity() {
         checkStatus = text("", 13f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
         upd.addView(checkStatus)
         upd.addView(glassButton("Vérifier les mises à jour", primary = false) { checkUpdate(manual = true) }, buttonLp(top = 12))
+        upd.addView(glassButton("Envoyer un rapport de bug", primary = false) { shareReport(clearAfter = false) }, buttonLp(top = 10))
         col.addView(upd)
 
         val scroll = ScrollView(this).apply {
@@ -214,6 +225,7 @@ class MainActivity : Activity() {
             "island" -> setNotch(false)
             "menu" -> IslandService.instance?.showMenu()
             "live" -> askLive()
+            "stop" -> { Prefs.setEnabled(this, false); stopService(Intent(this, IslandService::class.java)) }
             "fullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
             "exitfullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
             "testbg" -> {
@@ -372,6 +384,28 @@ class MainActivity : Activity() {
 
     private var lastCheck = 0L
 
+    private lateinit var crashCard: LinearLayout
+
+    /** Partage le rapport (appareil, plantage, journal) : a coller dans la conversation. */
+    private fun shareReport(clearAfter: Boolean) {
+        Thread {
+            val text = WaveApp.report(this)
+            ui.post {
+                try {
+                    startActivity(Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_SUBJECT, "Rapport Wave Island")
+                            .putExtra(Intent.EXTRA_TEXT, text),
+                        "Envoyer le rapport"
+                    ))
+                    if (clearAfter) { WaveApp.clearCrash(this); refresh() }
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Partage impossible", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
     private fun askLive() {
         if (Build.VERSION.SDK_INT < 33) {
             Toast.makeText(this, "L'effet en direct demande Android 13 ou plus", Toast.LENGTH_LONG).show()
@@ -458,7 +492,19 @@ class MainActivity : Activity() {
         val running = IslandService.instance != null
         heroStatus.text = if (running) "Affiché en permanence" else "Arrêté"
         heroButton.text = if (running) "Arrêter" else "Démarrer"
-        accessWarn.visibility = if (accessibilityEnabled()) View.GONE else View.VISIBLE
+        // Cochee dans les reglages mais pas connectee = Android l'a arretee (souvent apres un plantage)
+        val stopped = accessibilityEnabled() && IslandAccessibility.instance == null
+        accessWarn.visibility = if (accessibilityEnabled() && !stopped) View.GONE else View.VISIBLE
+        if (stopped) {
+            accessTitle.text = "Android a arrêté l'accessibilité de Wave Island"
+            accessBody.text = "C'est pour ça que l'îlot passe sous la barre d'état et que l'effet verre disparaît. " +
+                "Dans Accessibilité › Wave Island : désactive-la puis réactive-la."
+        } else {
+            accessTitle.text = "Toucher l'îlot ouvre le volet des réglages ?"
+            accessBody.text = "Active « Accessibilité › Wave Island » : l'îlot passe alors au-dessus de la barre d'état et répond à tes doigts. " +
+                "Si c'est grisé, suis l'aide « paramètre restreint » plus bas."
+        }
+        crashCard.visibility = if (WaveApp.crash(this) != null) View.VISIBLE else View.GONE
         if (waitingInstallPermission && packageManager.canRequestPackageInstalls()) {
             waitingInstallPermission = false
             checkUpdate(manual = true)
@@ -798,12 +844,10 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(12), dp(14), dp(12))
             visibility = View.GONE
         }
-        accessWarn.addView(text("Toucher l'îlot ouvre le volet des réglages ?", 15f, Glass.INK, bold = true))
-        accessWarn.addView(text(
-            "Active « Accessibilité › Wave Island » : l'îlot passe alors au-dessus de la barre d'état et répond à tes doigts. " +
-                "Si c'est grisé, suis l'aide « paramètre restreint » plus bas.",
-            13f, Glass.INK_SOFT
-        ).apply { setPadding(0, dp(4), 0, 0) })
+        accessTitle = text("Toucher l'îlot ouvre le volet des réglages ?", 15f, Glass.INK, bold = true)
+        accessWarn.addView(accessTitle)
+        accessBody = text("", 13f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
+        accessWarn.addView(accessBody)
         accessWarn.addView(glassButton("Activer l'accessibilité", primary = true) {
             open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }, buttonLp(top = 10))

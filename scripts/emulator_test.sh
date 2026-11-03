@@ -77,13 +77,23 @@ sleep 1
 shot 11-menu
 sleep 8
 # Boutons de volume : l'indicateur facon iPhone doit remplacer celui du telephone
-adb shell input keyevent KEYCODE_VOLUME_UP
-sleep 0.3
-adb shell input keyevent KEYCODE_VOLUME_UP
-sleep 0.6
+# Vrais appuis materiels (console de l'emulateur), comme les boutons du telephone
+adb emu event send EV_KEY:KEY_VOLUMEUP:1 EV_KEY:KEY_VOLUMEUP:0
+sleep 0.4
+adb emu event send EV_KEY:KEY_VOLUMEUP:1 EV_KEY:KEY_VOLUMEUP:0
+sleep 0.7
 shot 16-volume
-adb shell input keyevent KEYCODE_VOLUME_DOWN
+adb emu event send EV_KEY:KEY_VOLUMEDOWN:1 EV_KEY:KEY_VOLUMEDOWN:0
 sleep 3
+
+# Arreter puis redemarrer l'ilot : il doit revenir au-dessus de la barre d'etat
+adb shell am start -W -n $P/.MainActivity --es ci stop
+sleep 2
+adb shell am start -W -n $P/.MainActivity --es ci start
+sleep 3
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+shot 17-apres-redemarrage
 
 # Defilement : le bord deforme doit suivre en direct
 adb shell am start -W -n $P/.MainActivity
@@ -134,6 +144,8 @@ grep -q "Plein ecran : oui" $OUT/log.txt || echo "::warning::Le plein ecran n'a 
 # Avant le test plein ecran, l'ilot ne doit jamais se croire en plein ecran
 awk '/Plein ecran : oui/{print; exit}' $OUT/log.txt > $OUT/premier-plein.txt
 grep -q "Menu ouvert" $OUT/log.txt && [ "$(grep -n 'Plein ecran : oui' $OUT/log.txt | head -1 | cut -d: -f1)" -lt "$(grep -n 'Menu ouvert' $OUT/log.txt | head -1 | cut -d: -f1)" ] && { echo "::error::L'ilot s'est cru en plein ecran trop tot"; fail=1; }
+[ "$(grep -c "barre d'etat=true" $OUT/log.txt)" -ge 2 ] || { echo "::error::Apres redemarrage l'ilot n'est plus au-dessus de la barre d'etat"; fail=1; }
+grep "filtre des touches" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 grep -q "Volume : " $OUT/log.txt || { echo "::error::Les boutons de volume ne sont pas passes par l'indicateur"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"

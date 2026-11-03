@@ -126,11 +126,30 @@ class LiveCapture(private val ctx: Context, private val main: Handler, private v
         return r
     }
 
+    /** Images remplacees mais peut-etre encore en cours d'affichage (rendues 1 image plus tard). */
+    private var pending = 0
+    private var retryPosted = false
+    private val retry = Runnable { retryPosted = false; reader?.let { onImage(it) } }
+
     private fun onImage(r: ImageReader) {
-        if (r !== reader) return
-        val img = try { r.acquireLatestImage() } catch (e: Exception) { null } ?: return
+        if (r !== reader) {
+            // Ancien lecteur (apres une rotation) : on vide sa file pour ne rien bloquer
+            try { r.acquireLatestImage()?.close() } catch (e: Exception) { }
+            return
+        }
+        val img = try { r.acquireLatestImage() } catch (e: Exception) {
+            // Trop d'images gardees : Android n'enverrait plus rien. On reessaie un peu plus tard.
+            if (!retryPosted) { retryPosted = true; main.postDelayed(retry, 16) }
+            null
+        } ?: return
         received++
         if (paused) { img.close(); return }
+        // Deja 2 images en attente de liberation : on saute celle-ci (la suivante sera prise)
+        if (pending >= 2) {
+            img.close()
+            if (!retryPosted) { retryPosted = true; main.postDelayed(retry, 16) }
+            return
+        }
         // Rien n'a bouge autour de l'ilot : on ignore l'image (pas de redessin inutile)
         if (cpuReadable) {
             val hsh = ringHash(img)
@@ -178,15 +197,16 @@ class LiveCapture(private val ctx: Context, private val main: Handler, private v
         }
     }
 
-    /** L'ancienne image peut encore etre en cours d'affichage : on la rend 2 images plus tard. */
+    /** L'ancienne image peut encore etre en cours d'affichage : on la rend apres l'image suivante. */
     private fun releaseLater(img: Image, hb: HardwareBuffer?, bmp: Bitmap?) {
-        val ch = Choreographer.getInstance()
-        ch.postFrameCallback {
-            ch.postFrameCallback {
+        pending++
+        Choreographer.getInstance().postFrameCallback {
+            main.postDelayed({
+                pending = (pending - 1).coerceAtLeast(0)
                 try { bmp?.recycle() } catch (e: Exception) { }
                 try { hb?.close() } catch (e: Exception) { }
                 try { img.close() } catch (e: Exception) { }
-            }
+            }, 20)
         }
     }
 
@@ -250,7 +270,7 @@ class LiveCapture(private val ctx: Context, private val main: Handler, private v
         private const val TAG = "LiquidIsland"
         /** Resolution de la copie de l'ecran (0.4 = 40 %) : largement suffisant pour un bord deforme. */
         const val SCALE = 0.4f
-        private const val MAX_IMAGES = 5
+        private const val MAX_IMAGES = 6
 
         /** Resultat de l'autorisation de capture, garde le temps que le service le recupere. */
         @Volatile var pendingResult: Pair<Int, Intent>? = null

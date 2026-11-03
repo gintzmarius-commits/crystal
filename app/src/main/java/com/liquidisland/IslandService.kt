@@ -340,6 +340,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         updateNotif()
     }
 
+    /** Accessibilite cochee dans les reglages mais pas connectee : Android l'a arretee (apres un plantage). */
+    private fun accessibilityStopped(): Boolean =
+        IslandAccessibility.instance == null &&
+            Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                ?.contains(packageName) == true
+
     // ---------- Effet goutte en direct ----------
 
     private fun buildNotif(): Notification {
@@ -347,7 +353,16 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setOngoing(true)
         val needLive = Build.VERSION.SDK_INT >= 33 && Prefs.refraction(this) && !liveActive
-        if (needLive) {
+        if (accessibilityStopped()) {
+            b.setContentTitle("Wave Island : accessibilité arrêtée par Android")
+            b.setContentText("Touche ici, désactive puis réactive Wave Island pour toucher l'îlot")
+            b.setContentIntent(
+                android.app.PendingIntent.getActivity(
+                    this, 8, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        } else if (needLive) {
             b.setContentTitle("Wave Island est actif")
             b.setContentText("Touche ici pour activer l'effet goutte d'eau en direct")
             b.setContentIntent(
@@ -400,6 +415,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     private val liveListener = object : LiveCapture.Listener {
         override fun onLiveFrame(bmp: android.graphics.Bitmap, sx: Float, sy: Float) {
+            try {
+                liveFrame(bmp, sx, sy)
+            } catch (e: Exception) {
+                Log.w(TAG, "Image du fond : $e")
+            }
+        }
+
+        private fun liveFrame(bmp: android.graphics.Bitmap, sx: Float, sy: Float) {
             val v = view ?: return
             val toScreen = viewToScreen(v) ?: return
             toScreen.postScale(sx, sy)
@@ -508,12 +531,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (Build.VERSION.SDK_INT < 30 || probe != null || !Settings.canDrawOverlays(this)) return
         val appWm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val pv = View(this)
-        pv.setOnApplyWindowInsetsListener { view, insets ->
-            val sb = android.view.WindowInsets.Type.statusBars()
-            // Plein ecran = la barre d'etat existe mais est cachee
-            val exists = insets.getInsetsIgnoringVisibility(sb).top > 0
-            onStatusBar(!exists || insets.isVisible(sb))
-            view.onApplyWindowInsets(insets)
+        // La fenetre temoin commence sous la barre d'etat ; si elle remonte tout en haut, la barre est cachee
+        pv.viewTreeObserver.addOnGlobalLayoutListener {
+            val loc = IntArray(2)
+            pv.getLocationOnScreen(loc)
+            val sbH = statusBarHeight()
+            if (sbH > 0) onStatusBar(loc[1] >= sbH / 2)
         }
         val plp = WindowManager.LayoutParams(
             1, WindowManager.LayoutParams.MATCH_PARENT,
@@ -996,6 +1019,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     /** Recree la fenetre (quand l'accessibilite s'active ou se coupe). */
     fun rehost() {
         main.post {
+            updateNotif()
             stopAnims()
             main.removeCallbacks(collapseRunnable)
             rootView?.let { try { wm.removeView(it) } catch (e: Exception) { } }
