@@ -30,6 +30,8 @@ jobs:
           $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter fxc.exe |
                  Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
           Write-Host "fxc: $($fxc.FullName)"
+          & $fxc.FullName /nologo /T ps_3_0 /E main /O3 /D FULL=1 /Fo "windows\WaveIsland\LiquidDrop3.ps" "windows\WaveIsland\LiquidDrop.hlsl"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::LiquidDrop3 non compile"; exit 1 }
           foreach ($name in 'Glass', 'LiquidDrop') {
             & $fxc.FullName /nologo /T ps_2_0 /E main /O3 /Fo "windows\WaveIsland\$name.ps" "windows\WaveIsland\$name.hlsl"
             if ($LASTEXITCODE -ne 0) {

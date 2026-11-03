@@ -9,9 +9,12 @@ namespace WaveIsland
     /// <summary>Effet « goutte qui se detache » (LiquidDrop.hlsl compile en LiquidDrop.ps).</summary>
     public class DropEffect : ShaderEffect
     {
+        /// <summary>Carte graphique : version complete (ps_3_0) identique au verre de l'ilot ; sinon version simple (ps_2_0).</summary>
+        public static readonly bool Full = RenderCapability.IsPixelShaderVersionSupported(3, 0) && RenderCapability.Tier >> 16 >= 2;
+
         private static readonly PixelShader Shader = new PixelShader
         {
-            UriSource = new Uri("pack://application:,,,/WaveIsland;component/LiquidDrop.ps", UriKind.Absolute)
+            UriSource = new Uri("pack://application:,,,/WaveIsland;component/" + (Full ? "LiquidDrop3.ps" : "LiquidDrop.ps"), UriKind.Absolute)
         };
 
         public DropEffect()
@@ -26,6 +29,8 @@ namespace WaveIsland
             UpdateShaderValue(LightProperty);
             UpdateShaderValue(InvProperty);
             UpdateShaderValue(BlendProperty);
+            UpdateShaderValue(MagcProperty);
+            UpdateShaderValue(DispProperty);
         }
 
         public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(DropEffect), 0);
@@ -43,6 +48,10 @@ namespace WaveIsland
         public static readonly DependencyProperty InvProperty = Reg("Inv", 6, new Point4D(1, 1, 1, 1));
         public static readonly DependencyProperty BlendProperty = Reg("Blend", 7, new Point4D(0.02, 30, 0, 0));
         public Point4D Blend { get => (Point4D)GetValue(BlendProperty); set => SetValue(BlendProperty, value); }
+        public static readonly DependencyProperty MagcProperty = Reg("Magc", 8, new Point4D(1, 0, 0, 0));
+        public static readonly DependencyProperty DispProperty = Reg("Disp", 9, new Point4D(1, 1, 0, 0));
+        public Point4D Magc { get => (Point4D)GetValue(MagcProperty); set => SetValue(MagcProperty, value); }
+        public Point4D Disp { get => (Point4D)GetValue(DispProperty); set => SetValue(DispProperty, value); }
         public Point4D Inv { get => (Point4D)GetValue(InvProperty); set => SetValue(InvProperty, value); }
 
         public Point4D A { get => (Point4D)GetValue(AProperty); set => SetValue(AProperty, value); }

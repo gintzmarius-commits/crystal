@@ -34,6 +34,10 @@ namespace WaveIsland
         public bool PinnedInit { get; set; }
         /// <summary>Affichage de « Toutes les applis » : "categories", "grid" ou "list"</summary>
         public string StartView { get; set; } = "categories";
+        /// <summary>Images par seconde des animations et du verre (30 a 120)</summary>
+        public int Fps { get; set; } = 60;
+        /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
+        public bool ShowInCaptures { get; set; }
         public List<string> Shortcuts { get; set; } = new List<string>
         {
             "action:explorer", "action:settings", "action:calc", "action:snip", "action:playpause"

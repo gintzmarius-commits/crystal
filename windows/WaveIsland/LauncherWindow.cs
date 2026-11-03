@@ -43,6 +43,9 @@ namespace WaveIsland
         private double _acx, _top, _w0, _h0, _ph, _scale = 1;
         private IntPtr _hwnd;
         private bool _animating, _closing, _open, _excluded;
+        /// <summary>true : c'est la vraie Wave Island qui s'affiche (et se clique) au-dessus du menu.</summary>
+        private bool _islandLive;
+        private readonly FrameGate _gate = new FrameGate();
         private int _gen;
 
         // Contenu
@@ -75,7 +78,7 @@ namespace WaveIsland
             _root.Children.Add(_content);
             Content = _root;
 
-            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(30) };
+            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
             _captureTimer.Tick += (a, b) => Capture();
 
             SourceInitialized += (a, b) =>
@@ -83,7 +86,7 @@ namespace WaveIsland
                 _hwnd = new WindowInteropHelper(this).Handle;
                 int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
                 Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW);
-                _excluded = Native.SetWindowDisplayAffinity(_hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
+                _excluded = Native.ApplyCaptureMode(_hwnd);
             };
             Deactivated += (a, b) => { if (_open && !_closing && !Program.Demo) Close2(); };
             PreviewKeyDown += OnKey;
@@ -108,6 +111,8 @@ namespace WaveIsland
             Log.I("Menu des applis : ouverture");
 
             var (cx, top, w0, h0) = _island.RestShape();
+            var now = _island.CurrentShape();
+            _islandLive = false;
             _scale = VisualTreeHelper.GetDpi(_island).DpiScaleX;
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             double sl = sb.Left / _scale, st = sb.Top / _scale, sw = sb.Width / _scale, sh = sb.Height / _scale;
@@ -124,13 +129,15 @@ namespace WaveIsland
             BuildContent();
             _content.Opacity = 0;
 
-            // Depart : la goutte du menu est cachee dans l'ilot
-            _aw.Set(w0); _ah.Set(h0);
+            // Depart : la goutte du menu est cachee dans l'ilot (exactement la ou il est affiche)
+            _aw.Set(now.w); _ah.Set(now.h);
             _bx.Set(_acx); _by.Set(top + h0 / 2); _bw.Set(w0 * 0.8); _bh.Set(h0 * 0.7);
             _alpha.Set(0);
             Render();
-            _island.HideForLauncher(true);
+            if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
+            _captureTimer.Interval = Frames.Interval;
             Show();
+            _island.HideForLauncher(true);
             ForceForeground();
             _captureTimer.Start();
             Capture();
@@ -166,6 +173,26 @@ namespace WaveIsland
             _popQueue.Clear();
             _search.Focus();
             Keyboard.Focus(_search);
+
+            // Une fois l'ilot immobile, la vraie Wave Island reprend sa place au-dessus du menu :
+            // on peut cliquer dessus (raccourcis, son...) pendant que le menu est ouvert.
+            await Settled(gen, a: true);
+            if (gen != _gen || !_open || _closing) return;
+            _island.HideForLauncher(false);
+            _island.BringToTop();
+            _islandLive = true;
+            Render();
+        }
+
+        /// <summary>Attend que les ressorts aient fini de bouger (sans couper un rebond).</summary>
+        private async Task Settled(int gen, bool a)
+        {
+            for (int i = 0; i < 120 && gen == _gen; i++)
+            {
+                bool moving = _aw.Moving || _ah.Moving || (!a && (_bx.Moving || _by.Moving || _bw.Moving || _bh.Moving));
+                if (!moving) return;
+                await Task.Delay(16);
+            }
         }
 
         /// <summary>Le menu remonte et se fond dans l'ilot.</summary>
@@ -175,6 +202,17 @@ namespace WaveIsland
             _closing = true;
             int gen = ++_gen;
             Log.I("Menu des applis : fermeture");
+            if (_islandLive)
+            {
+                var cur = _island.CurrentShape();
+                _island.HideForLauncher(true);
+                var rest = _island.CurrentShape();
+                _aw.Set(cur.w); _ah.Set(cur.h);
+                _aw.AnimateTo(rest.w, Spring.Soft); _ah.AnimateTo(rest.h, Spring.Soft);
+                _w0 = rest.w; _h0 = rest.h;
+                _islandLive = false;
+                Render();
+            }
             _alpha.AnimateTo(0, new Spring(0.95, 0.16));
             Kick();
             await Task.Delay(70);
@@ -196,7 +234,8 @@ namespace WaveIsland
             _ah.AnimateTo(_h0, Spring.Pop);
             _aw.AnimateTo(_w0, Spring.Pop);
             Kick();
-            await Task.Delay(420);
+            // On attend la fin du rebond (avant : on coupait au milieu, d'ou le petit saut a la fin)
+            await Settled(gen, a: false);
             if (gen != _gen) return;
             _captureTimer.Stop();
             Hide();
@@ -216,6 +255,7 @@ namespace WaveIsland
 
         private void OnFrame(object s, EventArgs e)
         {
+            if (!_gate.Ready()) return;
             _aw.Tick(); _ah.Tick(); _bx.Tick(); _by.Tick(); _bw.Tick(); _bh.Tick(); _alpha.Tick();
             Render();
             if (!_aw.Moving && !_ah.Moving && !_bx.Moving && !_by.Moving && !_bw.Moving && !_bh.Moving && !_alpha.Moving)
@@ -232,17 +272,25 @@ namespace WaveIsland
             if (double.IsNaN(H) || H < 2) return;
             double aw = Math.Max(4, _aw.Value), ah = Math.Max(4, _ah.Value), bw = Math.Max(4, _bw.Value), bh = Math.Max(4, _bh.Value);
             double ra = Math.Min(ah / 2, 30), rb = Math.Min(bh / 2, 30);
-            _fx.A = new Point4D(_acx * k, (_top + ah / 2) * k, (aw / 2 - ra) * k, (ah / 2 - ra) * k);
+            _fx.A = _islandLive
+                ? new Point4D(-5000, -5000, 0, 0) // la vraie Wave Island est affichee : le menu ne la dessine plus
+                : new Point4D(_acx * k, (_top + ah / 2) * k, (aw / 2 - ra) * k, (ah / 2 - ra) * k);
             _fx.B = new Point4D(_bx.Value * k, _by.Value * k, Math.Max(0, bw / 2 - rb) * k, Math.Max(0, bh / 2 - rb) * k);
+            // Memes reglages que le verre de l'ilot (courbure, lentille, loupe, couleurs, lumiere)
             _fx.Rad = new Point4D(ra * k, rb * k, Blend * k, 1.0 / (Math.Min(18, Math.Min(ah, bh) * 0.42) * k));
-            double strength = 14 * k;
+            double strength = Math.Min(ah * 0.4, 14) * k;
+            const double mag = 0.95;
+            _fx.Magc = new Point4D(mag, _acx * k / W * (1 - mag), (_top + ah / 2) * k / H * (1 - mag), 0);
+            _fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             _fx.Sz = new Point4D(W, H, strength / W, strength / H);
             string theme = Settings.Current.Theme;
             bool light = theme == "light";
             double tintA = theme == "dark" ? 0.8 : light ? 0.7 : 0.0;
             double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.0; // transparent comme l'ilot
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
-            _fx.Light = new Point4D(-0.5, -0.866, 1, tintB);
+            var ld = _island.LightDir;
+            if (Math.Abs(ld.X) + Math.Abs(ld.Y) < 0.01) ld = new Point(-0.5, -0.866);
+            _fx.Light = new Point4D(ld.X, ld.Y, 1, tintB);
             _fx.Blend = new Point4D(0.5 / (Blend * k), Blend * k, 0, 0);
             _fx.Inv = new Point4D(1.0 / (aw / 2 * k), 1.0 / (ah / 2 * k), 1.0 / (bw / 2 * k), 1.0 / (bh / 2 * k));
 

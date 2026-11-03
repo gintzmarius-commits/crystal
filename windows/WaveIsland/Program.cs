@@ -52,6 +52,7 @@ namespace WaveIsland
                 return;
             }
 
+            Frames.Init();
             var app = new App();
             app.DispatcherUnhandledException += (s, e) =>
             {

@@ -14,6 +14,12 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.0.0</Version>
     <Product>Wave Island</Product>
+    <Company>Wave Island</Company>
+    <Authors>Wave Island</Authors>
+    <Description>Wave Island : îlot dynamique en verre liquide pour Windows</Description>
+    <Copyright>Wave Island 2026</Copyright>
+    <AssemblyTitle>Wave Island</AssemblyTitle>
+    <NeutralLanguage>fr-FR</NeutralLanguage>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <!-- Un seul fichier .exe, sans rien a installer -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -33,6 +39,7 @@
     <Resource Include="wave.png" />
     <Resource Include="Glass.ps" />
     <Resource Include="LiquidDrop.ps" />
+    <Resource Include="LiquidDrop3.ps" />
   </ItemGroup>
 
 </Project>

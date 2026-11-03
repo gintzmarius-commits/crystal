@@ -13,6 +13,17 @@ namespace WaveIsland
         public const uint WDA_NONE = 0x0;
         public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
 
+        /// <summary>
+        /// Exclut la fenetre des captures (pour que le verre filme ce qu'il y a derriere elle),
+        /// sauf si on veut la voir dans les enregistrements d'ecran. Renvoie true si elle est exclue.
+        /// </summary>
+        public static bool ApplyCaptureMode(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            if (Settings.Current.ShowInCaptures) { SetWindowDisplayAffinity(hwnd, WDA_NONE); return false; }
+            return SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
+
         [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
         [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
         [DllImport("user32.dll")] public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);

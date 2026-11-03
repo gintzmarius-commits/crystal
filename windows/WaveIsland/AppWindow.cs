@@ -63,8 +63,11 @@ namespace WaveIsland
             CompositionTarget.Rendering += ScrollFrame;
         }
 
+        private readonly FrameGate _gate = new FrameGate();
+
         private void ScrollFrame(object sender, EventArgs e)
         {
+            if (!_gate.Ready()) return;
             double cur = _scroll.VerticalOffset, next = cur + (_scrollTarget - cur) * 0.2;
             if (Math.Abs(_scrollTarget - next) < 0.5)
             {
@@ -212,6 +215,18 @@ namespace WaveIsland
             var look = CardPanel();
             look.Children.Add(Segmented(new[] { "Transparent", "Sombre", "Clair" }, new[] { "clear", "dark", "light" },
                 () => S.Theme, v => { S.Theme = v; S.Save(); }));
+            look.Children.Add(T("Images par seconde (animations et verre)", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            look.Children.Add(Segmented(new[] { "30", "60", "90", "120" }, new[] { "30", "60", "90", "120" },
+                () => S.Fps.ToString(), v =>
+                {
+                    S.Fps = int.Parse(v);
+                    S.Save();
+                    App.Restart(); // la cadence de WPF ne se change qu'au demarrage
+                }));
+            int hz = Frames.ScreenHz();
+            look.Children.Add(T((hz > 0 ? $"Ton écran affiche {hz} images par seconde au maximum. " : "") +
+                "Plus d'images = plus fluide, mais un peu plus de travail pour le PC. L'appli redémarre pour l'appliquer.",
+                11.5, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 6, 2, 8)));
             look.Children.Add(Toggle("Effet goutte d'eau", "Le fond est vu à travers le verre, déformé sur les bords",
                 () => S.Refraction, v => { S.Refraction = v; S.Save(); }));
             _col.Children.Add(look.Parent as FrameworkElement);
@@ -284,6 +299,8 @@ namespace WaveIsland
             // --- Aide ---
             Section("Aide");
             var help = CardPanel();
+            help.Children.Add(Toggle("Visible dans les enregistrements d'écran", "Pour filmer l'îlot (le verre ne déforme plus le fond tant que c'est activé)",
+                () => S.ShowInCaptures, v => { S.ShowInCaptures = v; S.Save(); }));
             help.Children.Add(Button("Copier le rapport de bug", App.CopyReport));
             help.Children.Add(Button("Ouvrir le dossier du journal", App.OpenLogFolder));
             help.Children.Add(Button("Quitter la Wave Island", App.Quit, danger: true));

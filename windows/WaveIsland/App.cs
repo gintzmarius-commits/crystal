@@ -185,6 +185,18 @@ namespace WaveIsland
             catch (Exception e) { Log.I("Demarrage avec Windows : " + e.Message); }
         }
 
+        /// <summary>Redemarre la Wave Island (nouveau nombre d'images par seconde...).</summary>
+        public static void Restart()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 3 > nul & start \"\" \"{Environment.ProcessPath}\"")
+                { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
+            }
+            catch { }
+            Quit();
+        }
+
         public static void Quit()
         {
             Log.I("Fermeture demandee");

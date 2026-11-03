@@ -257,7 +257,7 @@ namespace WaveIsland
             };
             MouseWheel += (a, b) => _volume?.Wheel(b.Delta);
 
-            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(30) };
+            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
             _captureTimer.Tick += (a, b) => CaptureFrame();
             _hideTimer = new DispatcherTimer();
             _hideTimer.Tick += (a, b) => { _hideTimer.Stop(); if (!_hover) Collapse(); };
@@ -281,7 +281,7 @@ namespace WaveIsland
             int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
             Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
             // L'ilot n'apparait pas dans les captures : on peut donc filmer ce qu'il y a derriere lui
-            _excluded = Native.SetWindowDisplayAffinity(_hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
+            _excluded = Native.ApplyCaptureMode(_hwnd);
             Log.I(_excluded ? "Verre liquide : capture du fond active" : "Verre liquide : Windows trop ancien, fond fixe");
             _scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
             Place();
@@ -312,6 +312,8 @@ namespace WaveIsland
 
         private void ApplySettings()
         {
+            if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
+            _captureTimer.Interval = Frames.Interval;
             Place();
             _flat = null;
             BuildMenu();
@@ -511,6 +513,23 @@ namespace WaveIsland
         }
 
         /// <summary>Ilot au repos : centre (x ecran, en DIP), haut, largeur, hauteur.</summary>
+        /// <summary>Ilot tel qu'il est affiche en ce moment (pendant une animation aussi).</summary>
+        public (double cx, double top, double w, double h) CurrentShape()
+        {
+            double w = Math.Max(_w.Value, 10);
+            return (Left + IslandCenterX(w), Settings.Current.Top, w, Math.Max(_h.Value, 10));
+        }
+
+        /// <summary>Direction de la lumiere des reflets (le menu Windows utilise la meme).</summary>
+        public Point LightDir => new Point(_fx.Light.X, _fx.Light.Y);
+
+        /// <summary>L'ilot passe au-dessus du menu Windows (pour pouvoir cliquer dessus pendant qu'il est ouvert).</summary>
+        public void BringToTop()
+        {
+            if (_hwnd != IntPtr.Zero)
+                Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        }
+
         public (double cx, double top, double w, double h) RestShape()
         {
             var s = Settings.Current;
@@ -524,7 +543,17 @@ namespace WaveIsland
         /// <summary>Pendant le menu des applis, c'est sa fenetre qui dessine l'ilot (pour la goutte qui se detache).</summary>
         public void HideForLauncher(bool hide)
         {
-            if (hide) { _hoverTimer.Stop(); Collapse(); _w.Set(_w.Target); _h.Set(_h.Target); _alpha.Set(_alpha.Target); Render(); }
+            if (hide)
+            {
+                _hoverTimer.Stop();
+                _hideTimer.Stop();
+                _dragging = false;
+                if (_mode != Mode.Collapsed) { _mode = Mode.Collapsed; SettleCollapsed(); }
+                _hover = false;
+                Resize();
+                _w.Set(_w.Target); _h.Set(_h.Target); _alpha.Set(_alpha.Target); _tint.Set(_tint.Target);
+                Render();
+            }
             _root.Opacity = hide ? 0 : 1;
             _root.IsHitTestVisible = !hide;
         }
@@ -906,8 +935,11 @@ namespace WaveIsland
             CompositionTarget.Rendering += OnFrame;
         }
 
+        private readonly FrameGate _gate = new FrameGate();
+
         private void OnFrame(object sender, EventArgs e)
         {
+            if (!_gate.Ready()) return;
             _w.Tick(); _h.Tick(); _alpha.Tick(); _tint.Tick(); _level.Tick();
             Render();
             if (!_w.Moving && !_h.Moving && !_alpha.Moving && !_tint.Moving && !_level.Moving)

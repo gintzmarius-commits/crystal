@@ -39,7 +39,7 @@ namespace WaveIsland
         private void Setup()
         {
             _hwnd = new WindowInteropHelper(_w).Handle;
-            _excluded = Native.SetWindowDisplayAffinity(_hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
+            _excluded = Native.ApplyCaptureMode(_hwnd);
             if (!_excluded || !Settings.Current.Refraction)
             {
                 var px = new byte[] { 24, 20, 18, 255 };
@@ -47,7 +47,7 @@ namespace WaveIsland
                 flat.Freeze();
                 Image.Source = flat;
             }
-            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
+            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
             _timer.Tick += (a, b) => Grab();
             _timer.Start();
             Update();
