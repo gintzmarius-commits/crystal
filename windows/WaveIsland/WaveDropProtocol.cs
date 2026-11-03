@@ -134,13 +134,19 @@ namespace WaveIsland.Drop
 
             public Session(Stream s, bool connector) { _s = s; _connector = connector; }
 
-            public async Task HandshakeAsync(IDictionary<string, string> mine, CancellationToken ct)
+            public Task HandshakeAsync(IDictionary<string, string> mine, CancellationToken ct) => HandshakeAsync(_ => mine, ct);
+
+            /// <summary>mine(peer) : la presentation peut dependre de l'autre (cote qui attend, il parle en second).</summary>
+            public async Task HandshakeAsync(Func<Dictionary<string, string>, IDictionary<string, string>> mine, CancellationToken ct)
             {
                 using var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-                var hello = new Dictionary<string, string>(mine) { ["v"] = "1", ["pub"] = Convert.ToBase64String(ecdh.ExportSubjectPublicKeyInfo()) };
-                var frame = Concat(Magic, EncodeMap(hello));
-                if (_connector) { await WriteFrame(frame, ct); Peer = await ReadHello(ct); }
-                else { Peer = await ReadHello(ct); await WriteFrame(frame, ct); }
+                byte[] Frame(Dictionary<string, string> peer)
+                {
+                    var hello = new Dictionary<string, string>(mine(peer)) { ["v"] = "1", ["pub"] = Convert.ToBase64String(ecdh.ExportSubjectPublicKeyInfo()) };
+                    return Concat(Magic, EncodeMap(hello));
+                }
+                if (_connector) { await WriteFrame(Frame(null), ct); Peer = await ReadHello(ct); }
+                else { Peer = await ReadHello(ct); await WriteFrame(Frame(Peer), ct); }
                 if (!Peer.TryGetValue("pub", out var pub)) throw new IOException("cle absente");
                 using var other = ECDiffieHellman.Create();
                 other.ImportSubjectPublicKeyInfo(Convert.FromBase64String(pub), out _);

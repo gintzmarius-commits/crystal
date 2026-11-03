@@ -268,6 +268,23 @@ namespace WaveIsland
             _animTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(90) };
             _animTimer.Tick += (a, b) => AnimateLive();
 
+            // Glisser un fichier sur l'ilot : Wave Drop
+            AllowDrop = true;
+            DragEnter += (a, b) =>
+            {
+                b.Effects = b.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+                _hover = true;
+                if (_mode == Mode.Collapsed) Resize();
+            };
+            DragOver += (a, b) => { b.Effects = b.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; b.Handled = true; };
+            DragLeave += (a, b) => { _hover = false; if (_mode == Mode.Collapsed) Resize(); };
+            Drop += (a, b) =>
+            {
+                _hover = false;
+                if (b.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0 && File.Exists(files[0]))
+                    App.Launcher.OpenDrop(files[0]);
+            };
+
             SourceInitialized += (a, b) => Setup();
             DpiChanged += (a, b) => { _scale = b.NewDpi.DpiScaleX; Place(); };
             Settings.Changed += () => Dispatcher.BeginInvoke(new Action(ApplySettings));
@@ -599,9 +616,23 @@ namespace WaveIsland
             LiveChanged(had);
         }
 
+        private DownloadInfo _transfer;
+
+        /// <summary>Transfert Wave Drop en cours (null = termine).</summary>
+        public void SetTransfer(DownloadInfo d)
+        {
+            bool had = HasLive;
+            _transfer = d;
+            MergeDownloads();
+            LiveChanged(had);
+        }
+
         private void MergeDownloads()
         {
-            _downloads = (_update != null ? new[] { _update } : Array.Empty<DownloadInfo>()).Concat(_watched).ToList();
+            var first = new List<DownloadInfo>();
+            if (_transfer != null) first.Add(_transfer);
+            if (_update != null) first.Add(_update);
+            _downloads = first.Concat(_watched).ToList();
         }
 
         /// <summary>Reconstruit le menu (ex. : bouton « Mettre a jour » quand une version est disponible).</summary>
@@ -878,7 +909,10 @@ namespace WaveIsland
         private void BuildMenu()
         {
             _menuRow.Children.Clear();
-            var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(Updater.Available ? 5 : 6).ToList();
+            int room = 6 - (Updater.Available ? 1 : 0) - (Settings.Current.DropEnabled ? 1 : 0);
+            var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(room).ToList();
+            // Wave Drop : envoyer un fichier a un appareil proche
+            if (Settings.Current.DropEnabled) _menuRow.Children.Add(MenuItem("\uE72D", null, "Wave Drop", () => App.Launcher.OpenDrop(null)));
             // Nouvelle version : bouton de mise a jour en premier
             if (Updater.Available) _menuRow.Children.Add(MenuItem("\uE777", null, "Mettre à jour", () => Updater.Install(this)));
             foreach (var it in items) _menuRow.Children.Add(MenuItem(it.Glyph, it.Icon, it.Label, () => Shortcuts.Run(it.Id, _volume)));

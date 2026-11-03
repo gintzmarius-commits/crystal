@@ -38,6 +38,10 @@ namespace WaveIsland
         public int Fps { get; set; } = 60;
         /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
         public bool ShowInCaptures { get; set; }
+        /// <summary>Wave Drop : visible des appareils proches, envoi / reception de fichiers</summary>
+        public bool DropEnabled { get; set; }
+        public string DropName { get; set; } = "";
+        public int DropId { get; set; }
         public List<string> Shortcuts { get; set; } = new List<string>
         {
             "action:explorer", "action:settings", "action:calc", "action:snip", "action:playpause"

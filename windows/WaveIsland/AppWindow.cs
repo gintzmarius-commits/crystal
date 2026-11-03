@@ -142,6 +142,7 @@ namespace WaveIsland
             ("Apparence", "Apparence", "\uE790"),
             ("Fonctions", "Fonctions", "\uE9E9"),
             ("Raccourcis (clic sur l'îlot)", "Raccourcis", "\uE8A9"),
+            ("Wave Drop", "Wave Drop", "\uE72D"),
             ("Mises à jour", "Mises à jour", "\uE777"),
             ("Tester", "Tester", "\uE768"),
             ("Aide", "Aide", "\uE897"),
@@ -266,6 +267,32 @@ namespace WaveIsland
             sc.Children.Add(_shortcutAdd);
             _col.Children.Add(sc.Parent as FrameworkElement);
             RefreshShortcuts();
+
+            // --- Wave Drop ---
+            Section("Wave Drop");
+            var wd = CardPanel();
+            wd.Children.Add(T("Envoie n'importe quel fichier à un appareil proche (téléphone ou PC avec Wave Island), comme AirDrop.", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
+            wd.Children.Add(Toggle("Activer Wave Drop", "Ton PC devient visible des appareils Wave Drop tout proches",
+                () => S.DropEnabled, v => { S.DropEnabled = v; S.Save(); if (v) App.Drop.Start(); else App.Drop.Stop(); }));
+            wd.Children.Add(T("Nom de ce PC", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 8, 0, 4)));
+            var nameBox = new TextBox
+            {
+                Text = WaveDropService.MyName, FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(10, 7, 10, 7),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)), BorderBrush = CardLine, BorderThickness = new Thickness(1)
+            };
+            nameBox.TextChanged += (a, b) => { if (!string.IsNullOrWhiteSpace(nameBox.Text)) { S.DropName = nameBox.Text.Trim(); S.Save(); } };
+            wd.Children.Add(nameBox);
+            wd.Children.Add(Button("Envoyer un fichier", () => App.Launcher.OpenDrop(null)));
+            wd.Children.Add(Button("Ouvrir les fichiers reçus", () =>
+            {
+                System.IO.Directory.CreateDirectory(WaveDropService.DownloadFolder);
+                Shortcuts.Start(WaveDropService.DownloadFolder);
+            }));
+            wd.Children.Add(T("Pour envoyer : glisse un fichier sur l'îlot, ou clique sur l'îlot › Wave Drop, puis rapproche l'appareil et clique « Envoyer ». " +
+                              "L'autre doit accepter. Même Wi-Fi : rapide ; sinon Bluetooth, automatiquement. Tout est chiffré. " +
+                              "La première fois, Windows peut demander d'autoriser Wave Island dans le pare-feu : accepte pour les réseaux privés.",
+                12, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 10, 2, 2)));
+            _col.Children.Add(wd.Parent as FrameworkElement);
 
             // --- Mises a jour ---
             Section("Mises à jour");

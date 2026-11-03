@@ -23,7 +23,7 @@ namespace WaveIsland
     /// L'ilot s'etire vers le bas, la goutte se detache en deux : l'ilot reprend sa taille avec un petit rebond,
     /// l'autre partie descend et s'ouvre en grand avec toutes les applis.
     /// </summary>
-    public sealed class LauncherWindow : Window
+    public sealed partial class LauncherWindow : Window
     {
         private const double LW = 780;      // largeur de la fenetre
         private const double PW = 700;      // largeur du menu
@@ -58,6 +58,28 @@ namespace WaveIsland
 
         public bool IsOpen => _open;
 
+        // Wave Drop : le meme panneau qui coule depuis l'ilot, avec un autre contenu
+        private bool _drop, _dialog;
+        private WaveDropService.Request _dropRequest;
+
+        /// <summary>Ouvre Wave Drop (avec un fichier deja choisi, ou une demande recue a accepter).</summary>
+        public void OpenDrop(string file, WaveDropService.Request request = null)
+        {
+            if (file != null && App.Drop != null) App.Drop.Pending = WaveDropService.Describe(file);
+            _dropRequest = request;
+            if (_open && !_closing)
+            {
+                _drop = true;
+                BuildDropContent();
+                ApplyInk();
+                PopIn(new List<FrameworkElement>(_popQueue), 0);
+                _popQueue.Clear();
+                return;
+            }
+            _drop = true;
+            Open();
+        }
+
         public LauncherWindow(IslandWindow island)
         {
             _island = island;
@@ -88,7 +110,7 @@ namespace WaveIsland
                 Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW);
                 _excluded = Native.ApplyCaptureMode(_hwnd);
             };
-            Deactivated += (a, b) => { if (_open && !_closing && !Program.Demo) Close2(); };
+            Deactivated += (a, b) => { if (_open && !_closing && !_dialog && !Program.Demo) Close2(); };
             PreviewKeyDown += OnKey;
             AppCatalog.Loaded += () => { if (_sections != null) { FillSections(); if (_open) { PopIn(new List<FrameworkElement>(_popQueue), 0); _popQueue.Clear(); } } };
         }
@@ -117,7 +139,7 @@ namespace WaveIsland
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             double sl = sb.Left / _scale, st = sb.Top / _scale, sw = sb.Width / _scale, sh = sb.Height / _scale;
             _top = top; _w0 = w0; _h0 = h0;
-            _ph = Math.Max(320, Math.Min(600, sh - top - h0 - 70));
+            _ph = _drop ? Math.Min(460, sh - top - h0 - 70) : Math.Max(320, Math.Min(600, sh - top - h0 - 70));
             Width = LW;
             Height = top + h0 + 18 + _ph + 30;
             Left = Math.Max(sl, Math.Min(sl + sw - LW, cx - LW / 2));
@@ -126,7 +148,7 @@ namespace WaveIsland
             _glass.Width = LW;
             _glass.Height = Height;
 
-            BuildContent();
+            if (_drop) BuildDropContent(); else BuildContent();
             _content.Opacity = 0;
 
             // Depart : la goutte du menu est cachee dans l'ilot (exactement la ou il est affiche)
@@ -171,8 +193,7 @@ namespace WaveIsland
             // Les icones arrivent une par une avec un rebond
             PopIn(new List<FrameworkElement>(_popQueue), 0);
             _popQueue.Clear();
-            _search.Focus();
-            Keyboard.Focus(_search);
+            if (!_drop) { _search.Focus(); Keyboard.Focus(_search); }
 
             // Une fois l'ilot immobile, la vraie Wave Island reprend sa place au-dessus du menu :
             // on peut cliquer dessus (raccourcis, son...) pendant que le menu est ouvert.
@@ -238,6 +259,8 @@ namespace WaveIsland
             await Settled(gen, a: false);
             if (gen != _gen) return;
             _captureTimer.Stop();
+            _drop = false;
+            _dropRequest = null;
             Hide();
             _island.HideForLauncher(false);
             _open = false;
@@ -908,6 +931,11 @@ namespace WaveIsland
 
         private void OnKey(object s, KeyEventArgs e)
         {
+            if (_drop || _search == null)
+            {
+                if (e.Key == Key.Escape) { e.Handled = true; if (_overlay != null) HideOverlay(); else Close2(); }
+                return;
+            }
             if (e.Key == Key.Escape)
             {
                 e.Handled = true;

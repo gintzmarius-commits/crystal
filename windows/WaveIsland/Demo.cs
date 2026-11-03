@@ -175,6 +175,29 @@ namespace WaveIsland
                 }
                 await Wait(0.5);
 
+                // Wave Drop : panneau, fichier choisi, demande recue
+                Settings.Current.DropEnabled = true;
+                string sample = Path.Combine(Folder, "photo-vacances.jpg");
+                File.WriteAllBytes(sample, new byte[2_400_000]);
+                App.Launcher.OpenDrop(null);
+                await Wait(1.4);
+                App.Launcher.Snap("20-wavedrop-choix", Folder);
+                App.Launcher.OpenDrop(sample);
+                await Wait(1.0);
+                App.Launcher.Snap("21-wavedrop-fichier", Folder);
+                App.Launcher.OpenDrop(null, new WaveDropService.Request { From = "Xiaomi de Marius", Offer = new Drop.WdProtocol.Offer { Name = "video-plage.mp4", Size = 48_000_000, Mime = "video/mp4" } });
+                await Wait(1.0);
+                App.Launcher.Snap("22-wavedrop-demande", Folder);
+                App.Launcher.Close2();
+                await Wait(1.5);
+                island.SetTransfer(new DownloadInfo { Path = "wave-drop", Name = "Envoi à Xiaomi de Marius", Bytes = 31_000_000, Total = 48_000_000, Speed = 6_200_000, LastGrowth = DateTime.Now });
+                island.ShowLive();
+                await Wait(1.0);
+                island.Snap("23-wavedrop-ilot", Folder);
+                island.SetTransfer(null);
+                island.Collapse();
+                await Wait(0.8);
+
                 App.OpenSettings();
                 await Wait(1.5);
                 SnapWindow(App.SettingsWin, "10-appli");

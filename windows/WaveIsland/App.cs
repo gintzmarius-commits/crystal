@@ -13,6 +13,7 @@ namespace WaveIsland
         public static MediaService Media { get; private set; }
         public static DownloadWatcher Downloads { get; private set; }
         public static LauncherWindow Launcher { get; private set; }
+        public static WaveDropService Drop { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
         private static AppWindow _settings;
@@ -54,6 +55,35 @@ namespace WaveIsland
                 OnClick = () => { try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); } catch { } }
             });
             Downloads.Start();
+
+            // Wave Drop : envoi / reception de fichiers avec les appareils proches
+            Drop = new WaveDropService(Dispatcher);
+            var clock = Stopwatch.StartNew();
+            long lastBytes = 0; double lastT = 0, speed = 0;
+            Drop.RequestReceived += r => Island.ShowNote(new IslandNote
+            {
+                App = "Wave Drop", Title = r.From + " veut t'envoyer un fichier",
+                Text = r.Offer.Name + " · " + LauncherWindow.SizeText(r.Offer.Size) + " — clique pour répondre",
+                OnClick = () => Launcher.OpenDrop(null, r)
+            });
+            Drop.Progress += (title, text, done, total) =>
+            {
+                double t = clock.Elapsed.TotalSeconds;
+                if (done < lastBytes) { lastBytes = 0; speed = 0; }
+                if (t - lastT > 0.3) { speed = (done - lastBytes) / Math.Max(0.001, t - lastT); lastBytes = done; lastT = t; }
+                Island.SetTransfer(new DownloadInfo { Path = "wave-drop", Name = title, Bytes = done, Total = total, Speed = speed, LastGrowth = DateTime.Now });
+            };
+            Drop.Finished += (title, text, ok, path) =>
+            {
+                Island.SetTransfer(null);
+                lastBytes = 0;
+                Island.ShowNote(new IslandNote
+                {
+                    App = "Wave Drop", Title = title, Text = text + (path != null ? " — clique pour l'afficher" : ""),
+                    OnClick = () => { if (path != null) try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); } catch { } }
+                });
+            };
+            if (!Program.Demo) Drop.Start();
 
             CreateTray();
 
@@ -209,6 +239,7 @@ namespace WaveIsland
             try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
             try { Volume?.Dispose(); } catch { }
             try { _notes?.Dispose(); } catch { }
+            try { Drop?.Stop(); } catch { }
         }
 
         protected override void OnExit(ExitEventArgs e)

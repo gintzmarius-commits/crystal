@@ -109,7 +109,7 @@ class WaveDropProtocolTest {
     fun pcSendsToPhone() {
         assumeTrue(interop() != null)
         val data = randomBytes(1_000_000)
-        val f = File.createTempFile("wd", ".bin").also { it.writeBytes(data) }
+        val f = File.createTempFile("wdrop", ".bin").also { it.writeBytes(data) }
         val server = ServerSocket(0)
         val proc = dotnet("send", "127.0.0.1", server.localPort.toString(), f.absolutePath)
         server.soTimeout = 30_000
