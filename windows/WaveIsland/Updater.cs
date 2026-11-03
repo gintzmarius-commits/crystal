@@ -32,7 +32,14 @@ namespace WaveIsland
             }
         }
 
-        public static string CurrentVersion => "1.0." + CurrentBuild;
+        public static string CurrentVersion
+        {
+            get
+            {
+                var v = Assembly.GetExecutingAssembly().GetName().Version;
+                return v == null ? "2.0" : $"{v.Major}.{v.Minor}.{v.Build}";
+            }
+        }
 
         static Updater()
         {
@@ -67,7 +74,7 @@ namespace WaveIsland
                     {
                         App = "Wave Island",
                         Title = "Mise à jour disponible",
-                        Text = $"Version 1.0.{Latest} — clique pour l'installer",
+                        Text = $"Nouvelle version (n° {Latest}) — clique pour l'installer",
                         OnClick = () => Install(island)
                     });
                 }
@@ -86,7 +93,7 @@ namespace WaveIsland
         {
             if (_busy) return;
             _busy = true;
-            var dl = new DownloadInfo { Path = "wave-update", Name = $"Mise à jour Wave Island 1.0.{Latest}" };
+            var dl = new DownloadInfo { Path = "wave-update", Name = "Mise à jour de Wave Island" };
             try
             {
                 // L'appli installee (ou le fichier lance s'il n'est pas installe)

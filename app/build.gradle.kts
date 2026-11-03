@@ -14,7 +14,7 @@ android {
         // Numero de build GitHub : chaque version publiee est plus grande que la precedente
         val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
         versionCode = 100 + run
-        versionName = "1.0.$run"
+        versionName = "2.0.$run"
     }
 
     // Cle fixe : chaque nouvel APK s'installe par-dessus le precedent
