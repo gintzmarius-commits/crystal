@@ -65,6 +65,8 @@ interface IslandGestures {
     fun drag(dy: Float)
     fun release(dy: Float)
     fun outside()
+    /** Android a vole le geste (glissement depuis le haut de l'ecran) avant qu'on voie le mouvement. */
+    fun stolen(heldMs: Long) {}
 }
 
 /** Reconnait toucher, appui long et glissement vertical, pour l'ilot et pour la zone tactile. */
@@ -76,6 +78,7 @@ class GestureTracker(
     var longPressMs = 700L
     private val slop = ViewConfiguration.get(host.context).scaledTouchSlop
     private var downY = 0f
+    private var downAt = 0L
     private var lastDy = 0f
     var tracking = false
         private set
@@ -99,6 +102,7 @@ class GestureTracker(
                 tracking = true
                 moved = false
                 longFired = false
+                downAt = android.os.SystemClock.uptimeMillis()
                 downY = e.y
                 lastDy = 0f
                 g?.press(true)
@@ -127,6 +131,7 @@ class GestureTracker(
                 } else {
                     g?.press(false)
                     if (allowTap && e.actionMasked == MotionEvent.ACTION_UP && inside(e.x, e.y)) g?.tap()
+                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) g?.stolen(android.os.SystemClock.uptimeMillis() - downAt)
                 }
             }
         }
@@ -1565,6 +1570,18 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 main.postDelayed(collapseRunnable, 4000)
             }
         }
+    }
+
+    /**
+     * Glissement vers le bas sur l'ilot replie que le volet d'Android a intercepte des le depart :
+     * on referme le volet et on ouvre quand meme Wave Drop.
+     */
+    override fun stolen(heldMs: Long) {
+        Log.i(TAG, "Geste intercepte par Android apres ${heldMs} ms (mode=$mode)")
+        if (mode != Mode.COLLAPSED || opening || heldMs > 1500 || !com.liquidisland.drop.WaveDrop.enabled(this)) return
+        if (Build.VERSION.SDK_INT >= 31) IslandAccessibility.instance?.performGlobalAction(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+        openWaveDrop()
     }
 
     override fun outside() {
