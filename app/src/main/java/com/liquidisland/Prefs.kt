@@ -36,6 +36,18 @@ object Prefs {
     fun isDark(c: Context): Boolean = theme(c) != "light"
     fun isClear(c: Context): Boolean = theme(c) == "clear"
 
+    /** Indicateur de volume facon iPhone (remplace celui du telephone) */
+    fun volumeHud(c: Context) = sp(c).getBoolean("volumeHud", true)
+    fun setVolumeHud(c: Context, v: Boolean) = sp(c).edit().putBoolean("volumeHud", v).apply()
+
+    /** Cote des boutons de volume : "right" (Xiaomi, Samsung...) ou "left" */
+    fun volumeSide(c: Context) = sp(c).getString("volumeSide", "right") ?: "right"
+    fun setVolumeSide(c: Context, v: String) = sp(c).edit().putString("volumeSide", v).apply()
+
+    /** Hauteur de l'indicateur, en % de la hauteur de l'ecran (la ou sont les boutons) */
+    fun volumePos(c: Context) = sp(c).getInt("volumePos", 30)
+    fun setVolumePos(c: Context, v: Int) = sp(c).edit().putInt("volumePos", v).apply()
+
     // Tailles en dp
     const val W_MIN = 60; const val W_MAX = 260
     const val H_MIN = 20; const val H_MAX = 60

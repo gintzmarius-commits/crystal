@@ -84,6 +84,10 @@ class MainActivity : Activity() {
         col.addView(section("Apparence"))
         col.addView(appearanceCard())
 
+        // Indicateur de volume
+        col.addView(section("Volume"))
+        col.addView(volumeCard())
+
         // Raccourcis du mini menu
         col.addView(section("Menu de l'îlot"))
         col.addView(shortcutsCard())
@@ -218,6 +222,62 @@ class MainActivity : Activity() {
                 ui.postDelayed({ moveTaskToBack(true) }, 150)
             }
         }
+    }
+
+    // ---------- Volume ----------
+
+    private fun volumeCard(): View {
+        val c = card()
+        c.addView(switchRow(
+            "Indicateur de volume façon iPhone",
+            text("Une capsule en verre à côté des boutons, à la place de celle du téléphone. Touche-la pour régler au doigt.", 13f, Glass.INK_SOFT),
+            Prefs.volumeHud(this)
+        ) {
+            Prefs.setVolumeHud(this, it)
+            if (it) IslandService.instance?.previewVolume()
+        })
+        c.addView(text("Côté des boutons de volume", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
+        val seg = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Glass.chip(Glass.INK, dpf(20))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val sides = listOf("left" to "Gauche", "right" to "Droite")
+        val views = mutableListOf<TextView>()
+        fun paint() {
+            val cur = Prefs.volumeSide(this)
+            sides.forEachIndexed { i, (key, _) ->
+                val on = key == cur
+                views[i].background = if (on) Glass.tinted(d, dpf(18)) else null
+                views[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+            }
+        }
+        sides.forEach { (key, label) ->
+            val t = text(label, 14f, Glass.INK).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isClickable = true
+                setOnClickListener {
+                    Prefs.setVolumeSide(this@MainActivity, key)
+                    paint()
+                    IslandService.instance?.previewVolume()
+                }
+            }
+            views.add(t)
+            seg.addView(t, LinearLayout.LayoutParams(0, dp(36), 1f))
+        }
+        c.addView(seg)
+        paint()
+        val pos = slider("Hauteur (à hauteur des boutons)", 10, 75, Prefs.volumePos(this)) {
+            Prefs.setVolumePos(this, it)
+            IslandService.instance?.previewVolume()
+        }
+        // Le curseur affiche des « dp » : ici ce sont des % de l'ecran
+        c.addView(pos)
+        c.addView(text("Appuie sur un bouton de volume pour voir l'indicateur. Il demande l'accessibilité.", 12f, Glass.INK_SOFT).apply {
+            setPadding(dp(4), dp(8), 0, 0)
+        })
+        return c
     }
 
     // ---------- Raccourcis ----------
@@ -627,7 +687,10 @@ class MainActivity : Activity() {
     }
 
     /** Curseur : la valeur s'applique a l'ilot en direct (quand on relache). */
-    private fun slider(label: String, min: Int, max: Int, value: Int, onChange: (Int) -> Unit): View {
+    private fun slider(label: String, min: Int, max: Int, value: Int, onChange: (Int) -> Unit): View =
+        slider(label, min, max, value, if (label.startsWith("Hauteur (")) "%" else "dp", onChange)
+
+    private fun slider(label: String, min: Int, max: Int, value: Int, unit: String, onChange: (Int) -> Unit): View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, 0)
@@ -636,7 +699,7 @@ class MainActivity : Activity() {
         head.addView(text(label, 15f, Glass.INK).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val valueText = text("$value dp", 14f, Glass.ACCENT)
+        val valueText = text("$value $unit", 14f, Glass.ACCENT)
         head.addView(valueText)
         box.addView(head)
         val bar = SeekBar(this).apply {
@@ -647,7 +710,7 @@ class MainActivity : Activity() {
             progressBackgroundTintList = ColorStateList.valueOf(Color.argb(50, 255, 255, 255))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
-                    valueText.text = "${p + min} dp"
+                    valueText.text = "${p + min} $unit"
                     onChange(p + min)
                 }
                 override fun onStartTrackingTouch(s: SeekBar) {}

@@ -39,6 +39,10 @@ class IslandAccessibility : AccessibilityService() {
     }
     override fun onInterrupt() {}
 
+    /** Boutons de volume : l'indicateur facon iPhone remplace celui du telephone. */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean =
+        IslandService.instance?.onVolumeKey(event) ?: false
+
     companion object {
         @Volatile
         var instance: IslandAccessibility? = null

@@ -76,6 +76,15 @@ adb shell input swipe 540 66 540 66 1200
 sleep 1
 shot 11-menu
 sleep 8
+# Boutons de volume : l'indicateur facon iPhone doit remplacer celui du telephone
+adb shell input keyevent KEYCODE_VOLUME_UP
+sleep 0.3
+adb shell input keyevent KEYCODE_VOLUME_UP
+sleep 0.6
+shot 16-volume
+adb shell input keyevent KEYCODE_VOLUME_DOWN
+sleep 3
+
 # Defilement : le bord deforme doit suivre en direct
 adb shell am start -W -n $P/.MainActivity
 sleep 2
@@ -125,6 +134,7 @@ grep -q "Plein ecran : oui" $OUT/log.txt || echo "::warning::Le plein ecran n'a 
 # Avant le test plein ecran, l'ilot ne doit jamais se croire en plein ecran
 awk '/Plein ecran : oui/{print; exit}' $OUT/log.txt > $OUT/premier-plein.txt
 grep -q "Menu ouvert" $OUT/log.txt && [ "$(grep -n 'Plein ecran : oui' $OUT/log.txt | head -1 | cut -d: -f1)" -lt "$(grep -n 'Menu ouvert' $OUT/log.txt | head -1 | cut -d: -f1)" ] && { echo "::error::L'ilot s'est cru en plein ecran trop tot"; fail=1; }
+grep -q "Volume : " $OUT/log.txt || { echo "::error::Les boutons de volume ne sont pas passes par l'indicateur"; fail=1; }
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done

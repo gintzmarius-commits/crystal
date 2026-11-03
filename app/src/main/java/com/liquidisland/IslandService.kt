@@ -223,6 +223,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
     private var pad: TouchPad? = null
+    /** Indicateur de volume facon iPhone */
+    private var hud: VolumeHud? = null
     private var rootView: View? = null
     private var rootPad: View? = null
     private var rotation = 0
@@ -408,9 +410,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             v.glass.backdrop = shader
             if (v.glass.fade < 1f) { fadeAnim?.cancel(); v.glass.fade = 1f }
             v.invalidate()
+            hud?.setBackdrop(bmp, sx, sy)
         }
 
         override fun ringPoints(): FloatArray? {
+            // Indicateur de volume affiche : on prend toutes les images (il bouge et se dessine aussi)
+            if (hud?.visible == true) return null
             val v = view ?: return null
             val r = v.glass.rect
             if (r.isEmpty) return null
@@ -693,6 +698,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val rp = wrap(p, cw + 2 * dp(6), ch + dp(8))
         rootPad = rp
         wm.addView(rp, lpPad)
+        // L'indicateur de volume a besoin de l'accessibilite (boutons + affichage au-dessus de tout)
+        if (acc != null) {
+            val h = hud ?: VolumeHud(this, main).also { hud = it }
+            h.dark = dark
+            h.clear = clearGlass
+            h.attach(acc, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, rotation)
+        } else {
+            hud?.detach()
+        }
         addProbe()
         Log.i(TAG, "Ilot affiche (forme=${if (notch) "encoche" else "ile"}, au-dessus de la barre d'etat=$aboveStatusBar)")
     }
@@ -932,6 +946,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         backdropBuffer = hb
         v.glass.backdrop = shader
         v.invalidate()
+        hud?.setBackdrop(bmp, 1f, 1f)
         // Nouvelle image du fond : le bord deforme reapparait en douceur
         if (waitingFresh || v.glass.fade < 1f) {
             waitingFresh = false
@@ -987,6 +1002,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             rootView = null
             rootPad = null
+            hud?.detach()
             removeBlur()
             view = null
             pad = null
@@ -997,6 +1013,22 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             }
             createIsland()
         }
+    }
+
+    /** Bouton de volume (depuis l'accessibilite). */
+    fun onVolumeKey(e: android.view.KeyEvent): Boolean {
+        val h = hud ?: return false
+        if (!screenOn) return false
+        val handled = h.onKey(e)
+        // Indicateur visible : on prend toutes les images du fond pour son effet goutte
+        if (handled) live?.force = true
+        return handled
+    }
+
+    /** Apercu de l'indicateur de volume depuis les reglages. */
+    fun previewVolume() {
+        hud?.refresh()
+        hud?.preview()
     }
 
     /** Applique les nouveaux reglages (taille, forme, position, raccourcis) sans redemarrer. */
@@ -1016,6 +1048,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         v.glass.dark = dark
         v.glass.clear = clearGlass
         v.glass.tint = 0f
+        hud?.dark = dark
+        hud?.clear = clearGlass
+        hud?.refresh()
         titleView.setTextColor(ink())
         textView.setTextColor(inkSoft())
         styleText(titleView)
@@ -1424,6 +1459,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
         rootView = null
         rootPad = null
+        hud?.detach()
+        hud = null
         removeBlur()
         view = null
         pad = null
