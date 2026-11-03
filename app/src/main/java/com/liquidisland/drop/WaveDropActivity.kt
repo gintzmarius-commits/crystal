@@ -57,7 +57,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WaveDrop.init(this)
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAW_SYSTEM_BAR_BACKGROUNDS)
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         // Le contenu commence tout en haut de l'ecran : le panneau se place juste sous l'ilot
