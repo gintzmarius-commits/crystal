@@ -245,6 +245,7 @@ namespace WaveIsland
             double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.5;
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
             _fx.Light = new Point4D(-0.5, -0.866, 1, tintB);
+            _fx.Blend = new Point4D(0.5 / (Blend * k), Blend * k, 0, 0);
             _fx.Inv = new Point4D(1.0 / (aw / 2 * k), 1.0 / (ah / 2 * k), 1.0 / (bw / 2 * k), 1.0 / (bh / 2 * k));
 
             // Le contenu suit la goutte du menu (meme forme), a taille fixe pour ne pas se reorganiser
