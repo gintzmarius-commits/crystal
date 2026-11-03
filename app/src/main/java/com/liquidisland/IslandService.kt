@@ -1578,7 +1578,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
      */
     override fun stolen(heldMs: Long) {
         Log.i(TAG, "Geste intercepte par Android apres ${heldMs} ms (mode=$mode)")
-        if (mode != Mode.COLLAPSED || opening || heldMs > 1500 || !com.liquidisland.drop.WaveDrop.enabled(this)) return
+        if (opening || heldMs > 1500) return
+        if (mode == Mode.NOTIF) {
+            // Meme chose pour une notification : glisser vers le bas l'ouvre en fenetre
+            if (Build.VERSION.SDK_INT >= 31) IslandAccessibility.instance?.performGlobalAction(
+                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+            openNote(floating = true)
+            return
+        }
+        if (mode != Mode.COLLAPSED || !com.liquidisland.drop.WaveDrop.enabled(this)) return
         if (Build.VERSION.SDK_INT >= 31) IslandAccessibility.instance?.performGlobalAction(
             android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         openWaveDrop()
