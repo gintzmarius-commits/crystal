@@ -245,6 +245,7 @@ namespace WaveIsland
             double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.5;
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
             _fx.Light = new Point4D(-0.5, -0.866, 1, tintB);
+            _fx.Inv = new Point4D(1.0 / (aw / 2 * k), 1.0 / (ah / 2 * k), 1.0 / (bw / 2 * k), 1.0 / (bh / 2 * k));
 
             // Le contenu suit la goutte du menu (meme forme), a taille fixe pour ne pas se reorganiser
             _content.Width = PW;
@@ -338,11 +339,11 @@ namespace WaveIsland
             // Applis
             var list = new StackPanel();
             _favBlock = new StackPanel();
-            _favBlock.Children.Add(Title("Les plus utilisées"));
+            _favBlock.Children.Add(SectionTitle("Les plus utilisées"));
             _favRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
             _favBlock.Children.Add(_favRow);
             list.Children.Add(_favBlock);
-            list.Children.Add(Title("Toutes les applis"));
+            list.Children.Add(SectionTitle("Toutes les applis"));
             _grid = new WrapPanel();
             list.Children.Add(_grid);
             _empty = new TextBlock { Text = "Chargement des applis…", Foreground = soft, FontSize = 14, Margin = new Thickness(6, 10, 0, 0) };
@@ -354,7 +355,7 @@ namespace WaveIsland
             FillApps();
         }
 
-        private TextBlock Title(string s) => new TextBlock
+        private TextBlock SectionTitle(string s) => new TextBlock
         {
             Text = s, Foreground = _inkSoft, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 4, 0, 8)
         };

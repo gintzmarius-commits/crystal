@@ -24,6 +24,7 @@ namespace WaveIsland
             UpdateShaderValue(SzProperty);
             UpdateShaderValue(TintProperty);
             UpdateShaderValue(LightProperty);
+            UpdateShaderValue(InvProperty);
         }
 
         public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(DropEffect), 0);
@@ -38,6 +39,8 @@ namespace WaveIsland
         public static readonly DependencyProperty SzProperty = Reg("Sz", 3, new Point4D(1, 1, 0, 0));
         public static readonly DependencyProperty TintProperty = Reg("Tint", 4, new Point4D(0, 0, 0, 0));
         public static readonly DependencyProperty LightProperty = Reg("Light", 5, new Point4D(-0.5, -0.866, 1, 0));
+        public static readonly DependencyProperty InvProperty = Reg("Inv", 6, new Point4D(1, 1, 1, 1));
+        public Point4D Inv { get => (Point4D)GetValue(InvProperty); set => SetValue(InvProperty, value); }
 
         public Point4D A { get => (Point4D)GetValue(AProperty); set => SetValue(AProperty, value); }
         public Point4D B { get => (Point4D)GetValue(BProperty); set => SetValue(BProperty, value); }
