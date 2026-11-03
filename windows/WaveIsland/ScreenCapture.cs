@@ -18,6 +18,8 @@ namespace WaveIsland
         public WriteableBitmap Bitmap { get; private set; }
         private ulong _lastHash;
         private Int32Rect _lastSub;
+        /// <summary>Luminosite moyenne de la derniere capture (0 = noir, 1 = blanc).</summary>
+        public double Luma { get; private set; } = 0.3;
 
         /// <summary>Capture le rectangle (pixels physiques). Renvoie true si l'image a change.</summary>
         public bool Grab(int x, int y, int w, int h) => Grab(x, y, w, h, new Int32Rect(0, 0, w, h));
@@ -46,6 +48,20 @@ namespace WaveIsland
             if (hash == _lastHash && sub.Equals(_lastSub)) return false;
             _lastHash = hash;
             _lastSub = sub;
+
+            // Luminosite moyenne (pour choisir un texte clair ou fonce, comme sur iPhone)
+            double sum = 0; int count = 0;
+            for (int row = sy; row < sy + sh; row += 4)
+            {
+                uint* line = p + row * w;
+                for (int i = sx; i < sx + sw; i += 9)
+                {
+                    uint c = line[i];
+                    sum += 0.114 * (c & 0xFF) + 0.587 * ((c >> 8) & 0xFF) + 0.299 * ((c >> 16) & 0xFF);
+                    count++;
+                }
+            }
+            if (count > 0) Luma = sum / count / 255.0;
 
             // Les pixels captures sont opaques : on force l'alpha a 255
             for (int row = sy; row < sy + sh; row++)

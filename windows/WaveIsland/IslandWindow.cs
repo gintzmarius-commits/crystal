@@ -304,19 +304,22 @@ namespace WaveIsland
         }
 
         private bool LightTheme => Settings.Current.Theme == "light";
-        private Brush Ink => LightTheme ? new SolidColorBrush(Color.FromRgb(20, 22, 26)) : Brushes.White;
+        /// <summary>Verre transparent sur un fond clair : le texte passe en fonce (comme sur iPhone).</summary>
+        private bool _bright;
+        private bool DarkInk => LightTheme || (Settings.Current.Theme == "clear" && _bright);
+        private Brush Ink => DarkInk ? new SolidColorBrush(Color.FromRgb(20, 22, 26)) : Brushes.White;
 
         /// <summary>Couleurs du texte selon le theme ; en verre transparent, une ombre douce rend le texte lisible sans assombrir l'ilot.</summary>
         private void Restyle()
         {
             var ink = Ink;
-            bool light = LightTheme;
-            var soft = new SolidColorBrush(light ? Color.FromArgb(50, 0, 0, 0) : Color.FromArgb(80, 255, 255, 255));
+            bool light = DarkInk;
+            var soft = new SolidColorBrush(light ? Color.FromArgb(55, 0, 0, 0) : Color.FromArgb(80, 255, 255, 255));
             foreach (var panel in new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel })
             {
                 foreach (var t in Texts(panel)) if (t != _noteLetter) t.Foreground = ink;
                 panel.Effect = Settings.Current.Theme == "clear"
-                    ? new DropShadowEffect { ShadowDepth = 0, BlurRadius = 7, Opacity = 0.75, Color = Colors.Black, RenderingBias = RenderingBias.Performance }
+                    ? new DropShadowEffect { ShadowDepth = 0, BlurRadius = 7, Opacity = light ? 0.8 : 0.75, Color = light ? Colors.White : Colors.Black, RenderingBias = RenderingBias.Performance }
                     : null;
             }
             _volFill.Background = ink;
@@ -753,6 +756,7 @@ namespace WaveIsland
                 info.Text = (d.Total > 0 ? FormatSize(d.Bytes) + " sur " + FormatSize(d.Total) : FormatSize(d.Bytes)) + " • " + speed;
                 pct.Text = p >= 0 ? Math.Round(p * 100) + " %" : "";
                 double tw = Math.Max(0, track.ActualWidth);
+                if (tw < 8) { fill.Width = 4; continue; }
                 if (p >= 0) { fill.Margin = new Thickness(0); fill.Width = Math.Max(4, tw * p); }
                 else
                 {
@@ -926,8 +930,12 @@ namespace WaveIsland
                 double bw = Math.Max(w, _w.Value) + 2 * Pad, bh = h + Settings.Current.Top + Pad;
                 int sx = (int)Math.Floor((cx - bw / 2) * k) & ~15, sw = (int)Math.Ceiling(bw * k / 16 + 2) * 16;
                 var sub = new Int32Rect(Math.Max(0, sx), 0, Math.Min(ww - Math.Max(0, sx), sw), Math.Min(wh, (int)Math.Ceiling(bh * k / 16 + 1) * 16));
-                if (_cap.Grab(r.Left, r.Top, ww, wh, sub) && _glass.Source != _cap.Bitmap)
-                    _glass.Source = _cap.Bitmap;
+                if (_cap.Grab(r.Left, r.Top, ww, wh, sub))
+                {
+                    if (_glass.Source != _cap.Bitmap) _glass.Source = _cap.Bitmap;
+                    bool bright = _bright ? _cap.Luma > 0.5 : _cap.Luma > 0.64;
+                    if (bright != _bright) { _bright = bright; Restyle(); }
+                }
             }
             catch (Exception e) { Log.I("Capture : " + e.Message); }
         }

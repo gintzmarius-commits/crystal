@@ -69,7 +69,7 @@ namespace WaveIsland
 
             // Fond en verre liquide : le bureau est vu a travers la fenetre (pas de flou),
             // avec un voile sombre juste assez marque pour lire les reglages
-            var glass = new GlassBackdrop(this, 26, 0.58);
+            var glass = new GlassBackdrop(this, 26, 0.7);
             var frame = new Border
             {
                 CornerRadius = new CornerRadius(26),
