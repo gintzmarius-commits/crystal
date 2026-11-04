@@ -272,17 +272,33 @@ namespace WaveIsland
             _col.Children.Add(sc.Parent as FrameworkElement);
             RefreshShortcuts();
 
+            // --- Dock de la barre des taches (Wave Theme) : autant d'applis qu'on veut ---
+            Section("Applis du dock (barre des tâches)");
+            var dk = CardPanel();
+            dk.Children.Add(T("Toutes les applis épinglées dans la barre / le dock. Tu peux aussi faire un clic droit (ou un appui long) sur une icône du dock, " +
+                "ou sur une appli dans le menu Windows.", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
+            _pinList = new StackPanel();
+            dk.Children.Add(_pinList);
+            dk.Children.Add(T("Ajouter une appli", 12, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            _pinSearch = new TextBox { FontSize = 14, Padding = new Thickness(10, 7, 10, 7), Background = Card, Foreground = Ink, BorderBrush = CardLine, BorderThickness = new Thickness(1), CaretBrush = Ink };
+            _pinSearch.TextChanged += (a, b) => RefreshPins();
+            dk.Children.Add(_pinSearch);
+            _pinAdd = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            dk.Children.Add(_pinAdd);
+            _col.Children.Add(dk.Parent as FrameworkElement);
+            RefreshPins();
+
             // --- Mode tablette (4.0) ---
             Section("Mode tablette");
             var tab = CardPanel();
-            tab.Children.Add(T("Quand l'écran est retourné (PC convertible), le PC se comporte comme un iPad : barre d'état en haut, applis en plein écran, " +
+            tab.Children.Add(T("Quand l'écran est retourné (PC convertible), le PC se comporte comme un iPad : applis en plein écran, " +
                 "petite barre en bas. Glisse depuis le bas : 1 fois = le dock, 2 fois = l'appli rentre dans le dock. Garde le doigt en haut : toutes les applis ouvertes.",
                 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
             tab.Children.Add(Segmented(new[] { "Automatique", "Toujours", "Jamais" }, new[] { "auto", "on", "off" },
                 () => S.TabletMode, v => { S.TabletMode = v; S.Save(); TabletShell.Apply(); }));
             tab.Children.Add(T("Animation quand une appli se ferme", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
-            tab.Children.Add(Segmented(new[] { "iPad", "Goutte" }, new[] { "ipad", "drop" },
-                () => S.TabletCloseAnim, v => { S.TabletCloseAnim = v; S.Save(); }));
+            tab.Children.Add(Segmented(new[] { "Goutte", "iPad" }, new[] { "drop", "ipad" },
+                () => S.TabletCloseAnim2, v => { S.TabletCloseAnim2 = v; S.Save(); }));
             tab.Children.Add(Button("Couper les glissements des bords de Windows", () => EdgeSwipes.Set(false)));
             tab.Children.Add(Button("Remettre les glissements des bords de Windows", () => EdgeSwipes.Set(true)));
             _col.Children.Add(tab.Parent as FrameworkElement);
@@ -361,6 +377,46 @@ namespace WaveIsland
             hint.Margin = new Thickness(2, 10, 2, 2);
             help.Children.Add(hint);
             _col.Children.Add(help.Parent as FrameworkElement);
+        }
+
+        private StackPanel _pinList;
+        private TextBox _pinSearch;
+        private WrapPanel _pinAdd;
+
+        /// <summary>Liste des applis du dock (retirer) + recherche pour en ajouter autant qu'on veut.</summary>
+        private void RefreshPins()
+        {
+            if (_pinList == null) return;
+            _pinList.Children.Clear();
+            var tb = App.Taskbar;
+            if (tb == null)
+            {
+                _pinList.Children.Add(T("Active « Wave Theme : barre des tâches en verre liquide » pour avoir le dock.", 13, FontWeights.Normal, InkSoft));
+                _pinAdd.Children.Clear();
+                return;
+            }
+            foreach (var (name, pin) in tb.PinnedList())
+            {
+                var g = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+                g.ColumnDefinitions.Add(new ColumnDefinition());
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var n = T(name, 14, FontWeights.Normal, Ink);
+                n.VerticalAlignment = VerticalAlignment.Center;
+                string p = pin;
+                var del = SmallIcon("\uE711", () => { App.Taskbar?.Unpin(p); RefreshPins(); });
+                Grid.SetColumn(del, 1);
+                g.Children.Add(n); g.Children.Add(del);
+                _pinList.Children.Add(g);
+            }
+            if (_pinList.Children.Count == 0) _pinList.Children.Add(T("Aucune appli épinglée", 13, FontWeights.Normal, InkSoft));
+            _pinAdd.Children.Clear();
+            string q = _pinSearch?.Text?.Trim() ?? "";
+            var apps = AppCatalog.Apps.Where(a => !tb.IsPinned(a) && (q.Length == 0 || AppCatalog.Matches(a, q))).OrderBy(a => a.Name).Take(q.Length == 0 ? 12 : 24);
+            foreach (var a in apps)
+            {
+                var app = a;
+                _pinAdd.Children.Add(Chip("\uE718", a.Name, () => { App.Taskbar?.PinApp(app); RefreshPins(); }));
+            }
         }
 
         private void RefreshShortcuts()

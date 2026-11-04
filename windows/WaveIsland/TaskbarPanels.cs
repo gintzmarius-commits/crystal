@@ -59,6 +59,29 @@ namespace WaveIsland
         public static TaskbarPanel Current { get; private set; }
 
         /// <summary>Ouvre (ou referme s'il est deja ouvert) le panneau « quick » ou « notes » au-dessus de sa bulle.</summary>
+        /// <summary>Petit menu en verre liquide (clic droit / appui long sur une icone du dock).</summary>
+        public static void Menu(Rect anchor, string title, (string glyph, string label, Action act)[] items)
+        {
+            Current?.CloseAnimated();
+            var p = new TaskbarPanel("menu");
+            p._col.Margin = new Thickness(10);
+            p._col.Children.Add(T(title, 13, FontWeights.SemiBold, 0.85).With(t => t.Margin = new Thickness(8, 2, 8, 8)));
+            foreach (var (glyph, label, act) in items)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Width = 26, VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock { Text = label, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+                var b = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 9, 14, 9), Child = row, Cursor = Cursors.Hand, Background = Plate, Margin = new Thickness(0, 0, 0, 6) };
+                b.MouseEnter += (x, y) => b.Background = PlateHover;
+                b.MouseLeave += (x, y) => b.Background = Plate;
+                b.MouseLeftButtonUp += (x, y) => { p.CloseAnimated(); act(); };
+                b.TouchUp += (x, y) => { y.Handled = true; p.CloseAnimated(); act(); };
+                p._col.Children.Add(b);
+            }
+            Current = p;
+            p.Open(anchor);
+        }
+
         public static void Toggle(string kind, Rect bubble)
         {
             if (Current != null && !Current._closing)
@@ -87,7 +110,7 @@ namespace WaveIsland
             FontFamily = Ui;
             Foreground = Brushes.White;
             UseLayoutRounding = true;
-            Width = kind == "quick" ? 380 : 380;
+            Width = kind == "menu" ? 290 : 380;
             SizeToContent = SizeToContent.Height;
 
             var glass = new GlassBackdrop(this, 26, 0.0);   // verre transparent : ni flou ni voile
@@ -117,7 +140,8 @@ namespace WaveIsland
             _outside.Tick += (a, b) => CheckOutside();
             PreviewKeyDown += (a, b) => { if (b.Key == Key.Escape) CloseAnimated(); };
 
-            if (kind == "quick") BuildQuick(); else BuildNotes();
+            if (kind == "quick") BuildQuick();
+            else if (kind == "notes") BuildNotes();
         }
 
         private void Open(Rect bubble)

@@ -61,6 +61,29 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     companion object {
         private const val TAG = "LiquidIsland"
         private const val CELL = 64
+        const val MAX = 4
+
+        /** Applis du dock choisies (sinon : telephone, messages, navigateur, appareil photo), 4 au maximum. */
+        fun apps(c: Context): List<String> {
+            val saved = Prefs.dockApps(c)
+            val list = if (saved.isNotEmpty()) saved else defaults(c)
+            return list.filter { c.packageManager.getLaunchIntentForPackage(it) != null }.distinct().take(MAX)
+        }
+
+        fun defaults(c: Context): List<String> {
+            val pm = c.packageManager
+            fun pkgOf(i: Intent) = try {
+                @Suppress("DEPRECATION")
+                pm.resolveActivity(i, 0)?.activityInfo?.packageName?.takeIf { it != "android" && pm.getLaunchIntentForPackage(it) != null }
+            } catch (e: Exception) { null }
+            return listOfNotNull(
+                pkgOf(Intent(Intent.ACTION_DIAL)),
+                pkgOf(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
+                pkgOf(Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))),
+                pkgOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)),
+            ).distinct()
+        }
+
         private val HOMES = listOf("com.miui.home", "com.mi.android.globallauncher", "com.sec.android.app.launcher",
             "com.google.android.apps.nexuslauncher", "com.android.launcher3", "com.oppo.launcher", "com.huawei.android.launcher")
     }
@@ -187,27 +210,13 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
 
     // ================== Le dock ==================
 
-    private fun favorites(): List<String> {
-        val saved = Prefs.dockApps(ctx)
-        if (saved.isNotEmpty()) return saved.filter { ctx.packageManager.getLaunchIntentForPackage(it) != null }
-        // Par defaut : telephone, messages, navigateur, appareil photo
-        val pm = ctx.packageManager
-        fun pkgOf(i: Intent) = try {
-            @Suppress("DEPRECATION")
-            pm.resolveActivity(i, 0)?.activityInfo?.packageName?.takeIf { it != "android" && pm.getLaunchIntentForPackage(it) != null }
-        } catch (e: Exception) { null }
-        return listOfNotNull(
-            pkgOf(Intent(Intent.ACTION_DIAL)),
-            pkgOf(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
-            pkgOf(Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))),
-            pkgOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)),
-        ).distinct()
-    }
+    /** Les applis du dock : celles choisies dans Wave Island (4 au maximum). */
+    private fun favorites(): List<String> = WaveDock.apps(ctx)
 
     fun show() {
         if (shown) return
         val favs = favorites()
-        val rec = recents.filter { it !in favs }.take(3)
+        val rec = emptyList<String>()   // seulement les applis choisies (pas une barre des taches)
         if (favs.isEmpty() && rec.isEmpty()) return
         shown = true
         Log.i(TAG, "Dock ouvert (${favs.size} favoris, ${rec.size} recentes)")
@@ -311,7 +320,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             setOnLongClickListener {
                 // Appui long : ajoute aux favoris (ou retire)
                 val favs = favorites().toMutableList()
-                if (pkg in favs) favs.remove(pkg) else if (favs.size < 6) favs.add(pkg)
+                if (pkg in favs) favs.remove(pkg) else if (favs.size < MAX) favs.add(pkg)
                 Prefs.setDockApps(ctx, favs)
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 hide()

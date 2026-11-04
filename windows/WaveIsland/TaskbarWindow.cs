@@ -503,30 +503,40 @@ namespace WaveIsland
         private void ShowMenu(AppItem it, FrameworkElement at)
         {
             var live = _items.FirstOrDefault(x => x.Key == it.Key) ?? it;
-            var m = new ContextMenu
-            {
-                Background = new SolidColorBrush(Color.FromArgb(235, 28, 31, 36)), Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), BorderThickness = new Thickness(1),
-                FontFamily = Ui, FontSize = 13, PlacementTarget = at, Placement = System.Windows.Controls.Primitives.PlacementMode.Top
-            };
-            MenuItem Item(string text, Action a)
-            {
-                var mi = new MenuItem { Header = text, Foreground = Brushes.White, Padding = new Thickness(6, 6, 12, 6) };
-                mi.Click += (x, y) => a();
-                return mi;
-            }
-            m.Items.Add(new MenuItem { Header = live.Name, IsEnabled = false, Foreground = new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)) });
-            m.Items.Add(new Separator());
             string pin = live.Pin ?? (live.Aumid != null ? "app|" + live.Aumid : live.Lnk != null ? "lnk|" + live.Lnk : "exe|" + live.Exe);
-            m.Items.Add(Item(live.Pinned ? "Désépingler de la barre des tâches" : "Épingler à la barre des tâches", () => TogglePin(pin)));
-            m.Items.Add(Item("Nouvelle fenêtre", () => Launch(live)));
+            var items = new List<(string, string, Action)>
+            {
+                (live.Pinned ? "\uE77A" : "\uE718", live.Pinned ? "Désépingler du dock" : "Épingler au dock", () => TogglePin(pin)),
+                ("\uE8A7", "Nouvelle fenêtre", () => Launch(live)),
+            };
             if (live.Windows.Count > 0)
-                m.Items.Add(Item(live.Windows.Count > 1 ? "Fermer toutes les fenêtres" : "Fermer la fenêtre", () =>
+                items.Add(("\uE8BB", live.Windows.Count > 1 ? "Fermer toutes les fenêtres" : "Fermer la fenêtre", () =>
                 {
                     foreach (var h in live.Windows) PostMessage(h, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
                 }));
-            m.IsOpen = true;
+            Point p;
+            try { p = at.TranslatePoint(new Point(0, 0), _root); } catch { p = new Point(_apps.X, 0); }
+            TaskbarPanel.Menu(new Rect(Left + p.X - 120, Top + EdgeY, 290, BarH), live.Name, items.ToArray());
         }
+
+        /// <summary>L'appli vient de tomber dans son icone : l'icone rebondit (comme une goutte qui tombe dans l'eau).</summary>
+        public void Splash(IntPtr hwnd)
+        {
+            var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
+            if (it == null || !_buttons.TryGetValue(it.Key, out var b) || !(b is Grid g) || g.Children.Count == 0) return;
+            if (!(g.Children[0] is FrameworkElement icon)) return;
+            if (!(icon.RenderTransform is ScaleTransform st)) { st = new ScaleTransform(1, 1); icon.RenderTransform = st; icon.RenderTransformOrigin = new Point(0.5, 0.5); }
+            var a = new DoubleAnimation(1.35, 1, TimeSpan.FromMilliseconds(520)) { EasingFunction = new SpringEase() };
+            st.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+            st.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.75, 1, TimeSpan.FromMilliseconds(560)) { EasingFunction = new SpringEase() });
+        }
+
+        /// <summary>Applis epinglees au dock (pour les reglages) : nom + valeur interne.</summary>
+        public List<(string name, string pin)> PinnedList() => Pins().Select(p => (FromPin(p)?.Name ?? p, p)).ToList();
+
+        /// <summary>Retire / ajoute une appli du dock (reglages).</summary>
+        public void Unpin(string pin) { if (Pins().Contains(pin)) TogglePin(pin); }
+        public void PinApp(AppEntry app) { if (!IsPinned(app)) TogglePin("app|" + app.Id); }
 
         [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 
@@ -608,6 +618,27 @@ namespace WaveIsland
         }
 
         /// <summary>Fenetres qui apparaitraient dans la barre de Windows.</summary>
+        [ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IVirtualDesktopManager
+        {
+            [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, [MarshalAs(UnmanagedType.Bool)] out bool onCurrent);
+            [PreserveSig] int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
+            [PreserveSig] int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
+        }
+        private static IVirtualDesktopManager _vdm;
+        private static bool _vdmFailed;
+
+        private static bool OnCurrentDesktop(IntPtr h)
+        {
+            if (_vdmFailed) return true;
+            try
+            {
+                _vdm ??= (IVirtualDesktopManager)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")));
+                return _vdm.IsWindowOnCurrentVirtualDesktop(h, out bool on) != 0 || on;
+            }
+            catch { _vdmFailed = true; return true; }
+        }
+
         /// <summary>Fenetres d'applis ouvertes, de la plus recente (au premier plan) a la plus ancienne.</summary>
         internal static List<(IntPtr h, string exe, string aumid, string title)> AppWindows() => OpenWindows();
 
@@ -622,6 +653,8 @@ namespace WaveIsland
                 if ((ex & Native.WS_EX_TOOLWINDOW) != 0 && (ex & 0x40000 /* WS_EX_APPWINDOW */) == 0) return true;
                 if (GetWindowTextLength(h) == 0) return true;
                 if (DwmGetWindowAttribute(h, 14 /* DWMWA_CLOAKED */, out int cloaked, 4) == 0 && cloaked != 0) return true;
+                // Plusieurs bureaux : seulement les fenetres du bureau affiche
+                if (!OnCurrentDesktop(h)) return true;
                 GetWindowThreadProcessId(h, out uint pid);
                 if (pid == me) return true;
                 string exe = ProcessExe(pid);
@@ -729,6 +762,27 @@ namespace WaveIsland
         private void Click(AppItem it)
         {
             var live = _items.FirstOrDefault(x => x.Key == it.Key) ?? it;
+            // Mode tablette : l'appli ressort de son icone en goutte
+            if (TabletShell.Active && AppMotion.Current == null)
+            {
+                var fg0 = GetForegroundWindow();
+                if (live.Windows.Count == 0)
+                {
+                    var r0 = _buttons.TryGetValue(live.Key, out var b0) ? IconRectOf(b0) : IconRect(IntPtr.Zero);
+                    AppMotion.OpenFromDock(IntPtr.Zero, r0, IconOf(live), () => Launch(live));
+                    return;
+                }
+                if (!live.Windows.Contains(fg0))
+                {
+                    var h0 = live.Windows[0];
+                    AppMotion.OpenFromDock(h0, IconRect(h0), IconOf(live), () =>
+                    {
+                        if (Native.IsIconic(h0)) Native.ShowWindow(h0, Native.SW_RESTORE);
+                        Native.SetForegroundWindow(h0);
+                    });
+                    return;
+                }
+            }
             if (live.Windows.Count == 0) { Launch(live); return; }
             var fg = GetForegroundWindow();
             IntPtr h;
@@ -867,6 +921,12 @@ namespace WaveIsland
         {
             _shownUntil = DateTime.MinValue;
             if (!_dropped) Drop();
+        }
+
+        private Rect IconRectOf(FrameworkElement b)
+        {
+            try { var p = b.TranslatePoint(new Point(0, 0), _root); return new Rect(Left + p.X + 8, Top + EdgeY + 6, Cell - 16, Cell - 16); }
+            catch { return IconRect(IntPtr.Zero); }
         }
 
         /// <summary>Position (ecran) de l'icone de l'appli de cette fenetre dans le dock, sinon le centre du dock.</summary>

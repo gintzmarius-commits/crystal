@@ -117,6 +117,11 @@ class MainActivity : Activity() {
             text("Dans une appli : glisse tout en bas de l'écran (sur la petite barre) pour faire monter le dock. Il reste 3 secondes ; pendant ce temps, glisse encore pour fermer l'appli comme d'habitude (c'est Android qui s'en charge). Appui long sur une icône du dock : l'ajouter ou la retirer des favoris.", 13f, Glass.INK_SOFT),
             Prefs.dock(this)
         ) { Prefs.setDock(this, it); IslandService.instance?.updateStrip() })
+        live.addView(text("Applis du dock (${WaveDock.MAX} au maximum)", 14f, Glass.INK).apply { setPadding(dp(4), dp(10), 0, dp(2)) })
+        dockList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        live.addView(dockList)
+        live.addView(glassButton("Ajouter une appli au dock", primary = false) { addDockDialog() }, buttonLp(top = 8))
+        renderDock()
         live.addView(switchRow(
             "Centres de notifications et de contrôle",
             text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Glass.INK_SOFT),
@@ -592,6 +597,45 @@ class MainActivity : Activity() {
             if (i < ids.size - 1) shortcutsList.addView(divider())
         }
         if (ids.isEmpty()) shortcutsList.addView(text("Aucun raccourci pour l'instant.", 14f, Glass.INK_SOFT))
+    }
+
+    private lateinit var dockList: LinearLayout
+
+    /** Les applis du dock (Android), 4 au maximum, dans l'ordre. */
+    private fun renderDock() {
+        dockList.removeAllViews()
+        val ids = WaveDock.apps(this)
+        ids.forEachIndexed { i, pkg ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(2), dp(6), 0, dp(6)) }
+            row.addView(android.widget.ImageView(this).apply {
+                try { setImageDrawable(packageManager.getApplicationIcon(pkg)) } catch (e: Exception) { }
+            }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(14) })
+            val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { pkg }
+            row.addView(text(label, 15f, Glass.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (i > 0) row.addView(smallButton("↑") {
+                val l = ids.toMutableList(); l.removeAt(i); l.add(i - 1, pkg); Prefs.setDockApps(this, l); renderDock()
+            })
+            row.addView(smallButton("✕") {
+                val l = ids.toMutableList(); l.remove(pkg)
+                Prefs.setDockApps(this, if (l.isEmpty()) listOf("-") else l); renderDock()
+            })
+            dockList.addView(row)
+        }
+        if (ids.isEmpty()) dockList.addView(text("Aucune appli : ajoute-en jusqu'à ${WaveDock.MAX}.", 14f, Glass.INK_SOFT))
+    }
+
+    private fun addDockDialog() {
+        val current = WaveDock.apps(this)
+        if (current.size >= WaveDock.MAX) {
+            Toast.makeText(this, "Le dock a déjà ${WaveDock.MAX} applis : retires-en une d'abord", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val choices = Shortcuts.launchableApps(this).map { it.first.removePrefix("app:") to it.second }.filter { it.first !in current }
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Ajouter au dock")
+            .setItems(choices.map { it.second }.toTypedArray()) { _, w -> Prefs.setDockApps(this, current + choices[w].first); renderDock() }
+            .setNegativeButton("Annuler", null)
+            .show()
     }
 
     private fun smallButton(label: String, action: () -> Unit) = text(label, 16f, Glass.INK_SOFT).apply {

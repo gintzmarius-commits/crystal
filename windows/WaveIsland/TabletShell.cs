@@ -30,7 +30,6 @@ namespace WaveIsland
         public static bool Active { get; private set; }
         private static DispatcherTimer _watch;
         private static EdgeWindow _edge;
-        private static TopBarWindow _top;
         private static IntPtr _hook;
         private static WinEventProc _hookProc;
 
@@ -73,8 +72,6 @@ namespace WaveIsland
             Active = true;
             Log.I("Mode tablette : active (facon iPad)");
             App.Taskbar.SetTablet(true);
-            _top ??= new TopBarWindow();
-            _top.Start();
             _edge ??= new EdgeWindow();
             _edge.Start();
             _hookProc ??= OnForeground;
@@ -88,7 +85,6 @@ namespace WaveIsland
             Active = false;
             Log.I("Mode tablette : desactive");
             App.Taskbar?.SetTablet(false);
-            _top?.Stop();
             _edge?.Stop();
             if (_hook != IntPtr.Zero) { UnhookWinEvent(_hook); _hook = IntPtr.Zero; }
         }
@@ -275,126 +271,6 @@ namespace WaveIsland
             _pill.Opacity = app ? 1 : 0;
             if (_hwnd != IntPtr.Zero)
                 Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
-        }
-    }
-
-    /// <summary>Barre d'etat du haut (mode tablette) : heure a gauche, Wi-Fi / son / batterie a droite.</summary>
-    public sealed class TopBarWindow : Window
-    {
-        private const double TH = 30;
-        private readonly TextBlock _time = new TextBlock(), _date = new TextBlock(), _icons = new TextBlock(), _pct = new TextBlock();
-        private DispatcherTimer _t;
-        private IntPtr _hwnd;
-        private bool _appBar;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct APPBARDATA { public int cbSize; public IntPtr hWnd; public int uCallbackMessage, uEdge; public Native.RECT rc; public IntPtr lParam; }
-        [DllImport("shell32.dll")] private static extern IntPtr SHAppBarMessage(int msg, ref APPBARDATA d);
-
-        public TopBarWindow()
-        {
-            WindowStyle = WindowStyle.None;
-            AllowsTransparency = true;
-            Background = Brushes.Transparent;
-            ResizeMode = ResizeMode.NoResize;
-            ShowInTaskbar = false;
-            Topmost = true;
-            ShowActivated = false;
-            FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
-            var shadow = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Opacity = 0.45 };
-            var g = new Grid();
-            var left = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Background = Brushes.Transparent, Cursor = Cursors.Hand, Effect = shadow };
-            _time.FontSize = 14; _time.FontWeight = FontWeights.SemiBold; _time.Foreground = Brushes.White;
-            _date.FontSize = 13; _date.Foreground = Brushes.White; _date.Margin = new Thickness(8, 0, 0, 0);
-            left.Children.Add(_time); left.Children.Add(_date);
-            left.MouseLeftButtonUp += (a, b) => TaskbarPanel.Toggle("notes", new Rect(Left + 10, Top, 120, TH));
-            left.TouchUp += (a, b) => TaskbarPanel.Toggle("notes", new Rect(Left + 10, Top, 120, TH));
-            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand, Effect = shadow };
-            _icons.FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"); _icons.FontSize = 14; _icons.Foreground = Brushes.White;
-            _pct.FontSize = 13; _pct.Foreground = Brushes.White; _pct.Margin = new Thickness(6, 0, 0, 0);
-            right.Children.Add(_icons); right.Children.Add(_pct);
-            right.MouseLeftButtonUp += (a, b) => TaskbarPanel.Toggle("quick", new Rect(Left + Width - 200, Top, 190, TH));
-            right.TouchUp += (a, b) => TaskbarPanel.Toggle("quick", new Rect(Left + Width - 200, Top, 190, TH));
-            g.Children.Add(left);
-            g.Children.Add(right);
-            Content = g;
-            SourceInitialized += (a, b) =>
-            {
-                _hwnd = new WindowInteropHelper(this).Handle;
-                int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
-                Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
-            };
-        }
-
-        public void Start()
-        {
-            var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            Show();
-            double k = VisualTreeHelper.GetDpi(this).DpiScaleX;
-            Width = sb.Width / k; Height = TH; Left = sb.Left / k; Top = sb.Top / k;
-            // On reserve le haut de l'ecran : les applis en plein ecran commencent sous la barre (comme sur iPad)
-            if (!_appBar && _hwnd != IntPtr.Zero)
-            {
-                var d = new APPBARDATA { cbSize = Marshal.SizeOf<APPBARDATA>(), hWnd = _hwnd };
-                SHAppBarMessage(0 /* ABM_NEW */, ref d);
-                int hp = (int)Math.Round(TH * k);
-                d.uEdge = 1; // ABE_TOP
-                d.rc = new Native.RECT { Left = sb.Left, Right = sb.Right, Top = sb.Top, Bottom = sb.Top + hp };
-                SHAppBarMessage(2 /* ABM_QUERYPOS */, ref d);
-                d.rc.Bottom = d.rc.Top + hp;
-                SHAppBarMessage(3 /* ABM_SETPOS */, ref d);
-                _appBar = true;
-            }
-            _t ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            _t.Tick += (a, b) => Tick();
-            _t.Start();
-            Tick();
-            App.Island?.BringToTop();
-        }
-
-        public void Stop()
-        {
-            _t?.Stop();
-            if (_appBar)
-            {
-                var d = new APPBARDATA { cbSize = Marshal.SizeOf<APPBARDATA>(), hWnd = _hwnd };
-                SHAppBarMessage(1 /* ABM_REMOVE */, ref d);
-                _appBar = false;
-            }
-            Hide();
-        }
-
-        private void Tick()
-        {
-            var now = DateTime.Now;
-            _time.Text = now.ToString("HH:mm");
-            _date.Text = now.ToString("ddd d MMM", new System.Globalization.CultureInfo("fr-FR"));
-            bool wifi = false, eth = false;
-            try
-            {
-                foreach (var n in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-                {
-                    if (n.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
-                    if (n.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211) wifi = true;
-                    else if (n.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Ethernet) eth = true;
-                }
-            }
-            catch { }
-            var (lvl, muted) = App.Volume?.Read() ?? (0.5f, false);
-            string net = wifi ? "" : eth ? "" : "";
-            string vol = muted || lvl < 0.01 ? "" : lvl < 0.34 ? "" : lvl < 0.67 ? "" : "";
-            var ps = System.Windows.Forms.SystemInformation.PowerStatus;
-            bool hasBat = (ps.BatteryChargeStatus & System.Windows.Forms.BatteryChargeStatus.NoSystemBattery) == 0 && ps.BatteryLifePercent <= 1.0f;
-            string bat = "";
-            _pct.Text = "";
-            if (hasBat)
-            {
-                int pct = (int)Math.Round(ps.BatteryLifePercent * 100);
-                bool charging = ps.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online;
-                bat = "   " + ((char)((charging ? 0xE85A : 0xE850) + Math.Min(10, pct / 10))).ToString();
-                _pct.Text = pct + " %";
-            }
-            _icons.Text = net + "   " + vol + bat;
         }
     }
 

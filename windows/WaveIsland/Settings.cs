@@ -48,7 +48,7 @@ namespace WaveIsland
         /// <summary>Mode tablette (4.0) : « auto » (ecran retourne), « on » ou « off ».</summary>
         public string TabletMode { get; set; } = "auto";
         /// <summary>Fermeture d'une appli en mode tablette : « ipad » ou « drop » (goutte).</summary>
-        public string TabletCloseAnim { get; set; } = "ipad";
+        public string TabletCloseAnim2 { get; set; } = "drop";
         public bool EdgeSwipeAsked { get; set; }
         /// <summary>Glissements des bords coupes ET Explorateur relance (correctif 4.0).</summary>
         public bool EdgeSwipeDone { get; set; }
