@@ -184,6 +184,15 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         inApp = false
         lastPkg = homePkg
         refresh()
+        // Si finalement l'appli est restee ouverte (geste annule), on le voit et la zone revient
+        main.removeCallbacks(recheck)
+        main.postDelayed(recheck, 900)
+        main.postDelayed(recheck, 2200)
+    }
+
+    private val recheck = Runnable {
+        val pkg = try { IslandAccessibility.instance?.rootInActiveWindow?.packageName?.toString() } catch (e: Exception) { null }
+        if (pkg != null && !inApp && !isHome(pkg)) onForeground(pkg)
     }
 
     /** Laisse le bas de l'ecran a Android pendant [ms] (2e glissement = fermer l'appli, barre des taches...). */
@@ -205,13 +214,13 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                 MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; fired = false }
                 MotionEvent.ACTION_MOVE -> {
                     val dy = downY - e.rawY
-                    if (!fired && dy > slop && dy > abs(e.rawX - downX)) {
+                    if (!fired && dy > dp(6) && dy > abs(e.rawX - downX) * 0.7f) {
                         fired = true
                         Log.i(TAG, "Dock : glissement du bas")
                         show(e.rawX)
                     }
                 }
-                MotionEvent.ACTION_UP -> if (!fired && downY - e.rawY > slop) { fired = true; show(e.rawX) }
+                MotionEvent.ACTION_UP -> if (!fired && downY - e.rawY > dp(4)) { fired = true; show(e.rawX) }
                 MotionEvent.ACTION_CANCEL -> if (!fired) {
                     // Android a pris le geste : l'appli se ferme, on part du principe qu'on revient a l'accueil
                     Log.i(TAG, "Dock : glissement pris par Android")
@@ -227,65 +236,58 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     /** Les applis du dock : celles choisies dans Wave Island (4 au maximum). */
     private fun favorites(): List<String> = WaveDock.apps(ctx)
 
+    private val rowH get() = dp(CELL + 20)
+    /** Fenetre « grande » (toute la largeur, jusqu'en bas) pendant les animations : la goutte a toute la place. */
+    private val fullH get() = gestureHeight() + dp(6) + rowH + dp(60)
+    private var dockLp: WindowManager.LayoutParams? = null
+
     fun show(fingerX: Float = ctx.resources.displayMetrics.widthPixels / 2f) {
         if (shown) return
         val favs = favorites()
-        val rec = emptyList<String>()   // seulement les applis choisies (pas une barre des taches)
-        if (favs.isEmpty() && rec.isEmpty()) return
+        if (favs.isEmpty()) return
         shown = true
-        Log.i(TAG, "Dock ouvert (${favs.size} favoris, ${rec.size} recentes)")
+        Log.i(TAG, "Dock ouvert (${favs.size} favoris)")
 
-        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), 0, dp(10), 0) }
-        var i = 0
-        favs.forEach { row.addView(icon(it, i++)) }
-        if (rec.isNotEmpty()) {
-            row.addView(View(ctx).apply { setBackgroundColor(Color.argb(110, 255, 255, 255)) },
-                LinearLayout.LayoutParams(dp(1), dp(40)).apply { leftMargin = dp(8); rightMargin = dp(8) })
-            rec.forEach { row.addView(icon(it, i++)) }
-        }
-        val dv = DockView(ctx).apply { addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0) }
+        favs.forEachIndexed { i, p -> row.addView(icon(p, i)) }
+        val dv = DockView(ctx, row)
+        dv.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, rowH, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = gestureHeight() + dp(6)
+        })
         dock = dv
         val root = object : FrameLayout(ctx) {
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-                // Toucher ailleurs (ou glisser depuis le bas : Android s'en charge) : le dock redescend
                 if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
                     // Toucher tout en bas pendant que le dock est la : c'est le 2e glissement (Android ferme l'appli)
                     val bottom = ev.rawY <= 0f || ev.rawY > ctx.resources.displayMetrics.heightPixels - gestureHeight() - dp(40)
-                    hide()
-                    if (bottom) leavingApp()
+                    if (bottom) { hide(pauseMs = 2500); leavingApp() } else hide()
                     return true
                 }
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) main.removeCallbacks(autoHide)
                 val r = super.dispatchTouchEvent(ev)
-                // Toucher le dock (pas une icone) : il redescend aussi
                 if (ev.actionMasked == MotionEvent.ACTION_UP) main.postDelayed({ hide() }, 150)
                 return r
             }
         }
         root.clipChildren = false
-        root.addView(dv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(CELL + 20), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-            bottomMargin = dp(2)
-        })
-        // La fenetre du dock s'arrete AU-DESSUS de la petite barre : le bas de l'ecran reste a Android
+        root.addView(dv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val lp = WindowManager.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, dp(CELL + 20) + dp(12), type,
+            ViewGroup.LayoutParams.MATCH_PARENT, fullH, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = gestureHeight() + dp(4)
+            y = 0
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             windowAnimations = 0
         }
-        try { wm.addView(root, lp); dockRoot = root } catch (e: Exception) { shown = false; Log.w(TAG, "Dock impossible : $e"); return }
+        try { wm.addView(root, lp); dockRoot = root; dockLp = lp } catch (e: Exception) { shown = false; Log.w(TAG, "Dock impossible : $e"); return }
         root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-        // Le dock est la : pendant 3 s le bas de l'ecran revient a Android (2e glissement = fermer l'appli)
+        // Le dock est la : pendant ce temps le bas de l'ecran revient a Android (2e glissement = fermer l'appli)
         pause(3300)
-
-        // Goutte : une petite goutte nait sous le doigt, monte en s'etirant, puis s'etale en dock avec un rebond
-        dv.alpha = 0f
         dv.post { dropIn(dv, fingerX) }
         main.removeCallbacks(autoHide)
         main.postDelayed(autoHide, 3000)
@@ -293,34 +295,102 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
 
     private val autoHide = Runnable { hide() }
 
-    private fun dropIn(dv: View, fingerX: Float) {
-        val w = dv.width.toFloat().coerceAtLeast(1f)
-        val h = dv.height.toFloat().coerceAtLeast(1f)
-        val screenW = ctx.resources.displayMetrics.widthPixels
-        // Centre du dock a l'ecran (il est centre) -> decalage pour partir du doigt
-        val startDx = (fingerX - screenW / 2f).coerceIn(-screenW / 2f + h, screenW / 2f - h)
-        val round = h / w                      // largeur d'une goutte ronde
-        dv.pivotX = w / 2f
-        dv.pivotY = h
-        dv.translationX = startDx
-        dv.translationY = dp(26).toFloat()
-        dv.scaleX = round * 0.45f
-        dv.scaleY = 0.45f
-        dv.alpha = 1f
-        // 1) la goutte monte en s'allongeant (plus haute que large)
-        dv.animate().translationY(-dp(6).toFloat()).scaleX(round * 0.8f).scaleY(1.18f)
-            .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).setDuration(150).withEndAction {
-                // 2) elle s'etale en dock, deborde un peu puis rebondit (s'ecrase et revient)
-                val pop = Spring.POP
-                dv.animate().translationX(0f).translationY(0f).scaleX(1f).setInterpolator(pop).setDuration(pop.durationMs).start()
-                dv.animate().scaleY(0.82f).setDuration(110).withEndAction {
-                    val b = Spring.POP
-                    dv.animate().scaleY(1f).setInterpolator(b).setDuration(b.durationMs).start()
-                }.start()
-            }.start()
+    private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
+
+    /** Petite fenetre (juste le dock) une fois pose : le reste de l'ecran reste utilisable. */
+    private fun windowSmall(dv: DockView) {
+        val root = dockRoot ?: return
+        val lp = dockLp ?: return
+        (dv.row.layoutParams as FrameLayout.LayoutParams).bottomMargin = dp(6)
+        dv.row.requestLayout()
+        lp.width = dv.row.width + dp(24)
+        lp.height = rowH + dp(12)
+        lp.y = gestureHeight()
+        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        try { wm.updateViewLayout(root, lp) } catch (e: Exception) { }
     }
 
-    fun hide(animated: Boolean = true) {
+    /** Grande fenetre non touchable pour l'animation de depart. */
+    private fun windowBig(dv: DockView) {
+        val root = dockRoot ?: return
+        val lp = dockLp ?: return
+        (dv.row.layoutParams as FrameLayout.LayoutParams).bottomMargin = gestureHeight() + dp(6)
+        dv.row.requestLayout()
+        lp.width = ViewGroup.LayoutParams.MATCH_PARENT
+        lp.height = fullH
+        lp.y = 0
+        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        try { wm.updateViewLayout(root, lp) } catch (e: Exception) { }
+    }
+
+    /**
+     * Une vraie goutte ronde nait sous le doigt (tout en bas), monte en s'etirant, puis s'etale en dock
+     * avec un rebond de gelee ; les icones sautent ensuite une a une a l'interieur.
+     */
+    private fun dropIn(dv: DockView, fingerX: Float) {
+        val row = dv.row
+        val w = row.width.toFloat().coerceAtLeast(1f)
+        val h = row.height.toFloat().coerceAtLeast(1f)
+        val screenW = ctx.resources.displayMetrics.widthPixels.toFloat()
+        val dia = h * 0.62f
+        val startDx = (fingerX - screenW / 2f).coerceIn(-screenW / 2f + dia, screenW / 2f - dia)
+        val below = (gestureHeight() + dp(6)).toFloat() + dia * 0.5f
+        dv.settled = false
+        dv.offX = startDx; dv.offY = below; dv.sw = 0f; dv.sh = 0f
+        dv.invalidate()
+        // 1) la goutte nait et monte en s'etirant (plus haute que large)
+        val a = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(190)
+        a.interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+        a.addUpdateListener {
+            val t = it.animatedValue as Float
+            dv.sw = dia * lerp(0.35f, 0.88f, t)
+            dv.sh = dia * lerp(0.35f, 1.22f, t)
+            dv.offY = lerp(below, -dp(8).toFloat(), t)
+            dv.invalidate()
+        }
+        a.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(an: android.animation.Animator) {
+                if (dock !== dv || !shown) return
+                // 2) elle s'etale jusqu'au centre en dock, deborde, puis la hauteur rebondit comme de la gelee
+                val sW = Spring(0.52f, 0.5f)
+                val sH = Spring(0.38f, 0.36f)
+                val dur = maxOf(sW.durationMs, sH.durationMs).coerceAtMost(900)
+                val b = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(dur)
+                b.interpolator = android.view.animation.LinearInterpolator()
+                b.addUpdateListener {
+                    val ms = it.currentPlayTime.toFloat()
+                    val kw = sW.getInterpolation(ms / sW.durationMs)
+                    val kh = sH.getInterpolation(ms / sH.durationMs)
+                    dv.sw = lerp(dia * 0.88f, w, kw).coerceAtLeast(dia * 0.5f)
+                    dv.offX = lerp(startDx, 0f, kw)
+                    dv.offY = lerp(-dp(8).toFloat(), 0f, kw)
+                    dv.sh = lerp(dia * 1.22f, h, kh)
+                    dv.invalidate()
+                }
+                b.addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(an: android.animation.Animator) {
+                        if (dock !== dv || !shown) return
+                        dv.settled = true
+                        dv.invalidate()
+                        windowSmall(dv)
+                    }
+                })
+                dv.anim = b
+                b.start()
+                // Les icones sautent dans la goutte une fois qu'elle s'etale, l'une apres l'autre
+                for (i in 0 until row.childCount) {
+                    val ic = row.getChildAt(i)
+                    val pop = Spring(0.42f, 0.4f)
+                    ic.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(110L + i * 60L)
+                        .setInterpolator(pop).setDuration(pop.durationMs).start()
+                }
+            }
+        })
+        dv.anim = a
+        a.start()
+    }
+
+    fun hide(animated: Boolean = true, pauseMs: Long = 350) {
         if (!shown) return
         shown = false
         main.removeCallbacks(autoHide)
@@ -329,22 +399,62 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         dockRoot = null
         dock = null
         val remove = { try { wm.removeView(root) } catch (e: Exception) { } }
-        // La zone du bas revient un peu apres (le glissement d'Android en cours n'est pas gene)
-        // Le bas de l'ecran reste a Android encore 2,5 s : un 2e glissement ferme l'appli au lieu de rouvrir le dock
-        pause(2500)
+        // Apres un 2e glissement (fermer l'appli) le bas reste a Android un moment ; sinon il revient tout de suite
+        pausedUntil = 0L
+        pause(pauseMs)
         if (!animated || dv == null) { remove(); return }
-        // Goutte : le dock se resserre en une goutte ronde (un peu ecrasee), qui s'etire puis tombe sous l'ecran
-        val w = dv.width.toFloat().coerceAtLeast(1f)
-        val h = dv.height.toFloat().coerceAtLeast(1f)
-        dv.pivotX = w / 2f
-        dv.pivotY = h
-        dv.animate().scaleX(h / w * 0.9f).scaleY(0.85f).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
-            .setDuration(170).withEndAction {
-                dv.animate().scaleY(1.3f).scaleX(h / w * 0.7f).setDuration(80).withEndAction {
-                    dv.animate().translationY(dp(120).toFloat()).scaleY(0.9f).alpha(0f)
-                        .setInterpolator(android.view.animation.AccelerateInterpolator(1.6f)).setDuration(190).withEndAction { remove() }.start()
-                }.start()
-            }.start()
+        val row = dv.row
+        val w = row.width.toFloat().coerceAtLeast(1f)
+        val h = row.height.toFloat().coerceAtLeast(1f)
+        val dia = h * 0.62f
+        dockRoot = root; windowBig(dv); dockRoot = null
+        dv.anim?.cancel()
+        if (!dv.settled) { dv.sw = dv.sw.coerceAtLeast(dia); dv.sh = dv.sh.coerceAtLeast(dia) } else { dv.sw = w; dv.sh = h; dv.offX = 0f; dv.offY = 0f }
+        dv.settled = false
+        // 1) les icones rentrent (petit elan puis disparaissent), de la derniere a la premiere
+        val n = row.childCount
+        for (i in 0 until n) {
+            val ic = row.getChildAt(i)
+            ic.animate().cancel()
+            ic.animate().scaleX(0f).scaleY(0f).alpha(0f).setStartDelay((n - 1 - i) * 35L)
+                .setInterpolator(android.view.animation.AnticipateInterpolator(2.2f)).setDuration(170).start()
+        }
+        val sw0 = dv.sw; val sh0 = dv.sh; val ox0 = dv.offX; val oy0 = dv.offY
+        // 2) le dock se resserre en goutte ronde, avec un rebond
+        val sC = Spring(0.5f, 0.42f)
+        val c = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(sC.durationMs.coerceAtMost(520))
+        c.interpolator = android.view.animation.LinearInterpolator()
+        c.startDelay = 110L + n * 25L
+        c.addUpdateListener {
+            val k = sC.getInterpolation(it.currentPlayTime.toFloat() / sC.durationMs)
+            dv.sw = lerp(sw0, dia, k).coerceAtLeast(dia * 0.4f)
+            dv.sh = lerp(sh0, dia, k).coerceAtLeast(dia * 0.4f)
+            dv.offX = lerp(ox0, 0f, k); dv.offY = lerp(oy0, 0f, k)
+            dv.invalidate()
+        }
+        c.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(an: android.animation.Animator) {
+                // 3) la goutte s'etire et tombe sous le bord de l'ecran
+                val below = (gestureHeight() + dp(6)).toFloat() + dia * 1.6f
+                val f = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(260)
+                f.interpolator = android.view.animation.AccelerateInterpolator(1.7f)
+                f.addUpdateListener {
+                    val t = it.animatedValue as Float
+                    dv.sw = dia * lerp(1f, 0.7f, t)
+                    dv.sh = dia * lerp(1f, 1.35f, t)
+                    dv.offY = lerp(0f, below, t)
+                    dv.alpha = 1f - t * t
+                    dv.invalidate()
+                }
+                f.addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(an: android.animation.Animator) { remove() }
+                })
+                dv.anim = f
+                f.start()
+            }
+        })
+        dv.anim = c
+        c.start()
     }
 
     private fun icon(pkg: String, index: Int): View {
@@ -375,30 +485,45 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                 true
             }
         }
-        // Chaque icone arrive avec un petit rebond, l'une apres l'autre
-        // Les icones apparaissent une fois la goutte etalee, avec un petit rebond chacune
-        iv.scaleX = 0.3f; iv.scaleY = 0.3f; iv.alpha = 0f
-        val s = Spring.POP
-        iv.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(230L + index * 45L).setInterpolator(s).setDuration(s.durationMs).start()
+        iv.scaleX = 0f; iv.scaleY = 0f; iv.alpha = 0f   // elles sautent dans la goutte (dropIn)
         return iv.also { it.layoutParams = LinearLayout.LayoutParams(dp(CELL), dp(CELL)) }
     }
 
-    /** Le verre du dock : transparent, reflets et bords bombes comme l'ilot (ni flou ni voile sombre). */
-    private inner class DockView(c: Context) : FrameLayout(c) {
+    /** Le verre du dock : une goutte / pilule de verre liquide transparent, dessinee a la forme voulue. */
+    private inner class DockView(c: Context, val row: LinearLayout) : FrameLayout(c) {
         private val glass = LiquidGlass(d).apply {
             clear = true
             dark = true
             tint = 0f
-            fixedRadius = 42 * d
             lightX = -0.3f
             lightY = -0.6f
         }
+        /** Pose : la forme epouse la rangee d'icones. Sinon : goutte de taille [sw] x [sh], decalee de [offX]/[offY]. */
+        var settled = false
+        var anim: android.animation.Animator? = null
+        var offX = 0f
+        var offY = 0f
+        var sw = 0f
+        var sh = 0f
+        private val clip = Path()
         init { setWillNotDraw(false); clipChildren = false }
         override fun dispatchDraw(canvas: Canvas) {
-            glass.fixedRadius = height / 2f   // bords entierement ronds (pilule)
-            glass.build(0f, 0f, width.toFloat(), height.toFloat())
+            val cx = (row.left + row.right) / 2f + if (settled) 0f else offX
+            val bottom = row.bottom + if (settled) 0f else offY
+            val wNow = if (settled) row.width.toFloat() else sw
+            val hNow = if (settled) row.height.toFloat() else sh
+            if (wNow < 1f || hNow < 1f) return
+            val l = cx - wNow / 2f; val t = bottom - hNow; val r = cx + wNow / 2f
+            glass.fixedRadius = minOf(wNow, hNow) / 2f   // toujours entierement rond
+            glass.build(l, t, r, bottom)
             glass.drawBody(canvas)
+            // Les icones n'apparaissent qu'a l'interieur de la goutte
+            clip.reset()
+            clip.addRoundRect(l, t, r, bottom, glass.fixedRadius, glass.fixedRadius, Path.Direction.CW)
+            canvas.save()
+            canvas.clipPath(clip)
             super.dispatchDraw(canvas)
+            canvas.restore()
             glass.drawEdges(canvas)
         }
     }
