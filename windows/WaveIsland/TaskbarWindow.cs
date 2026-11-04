@@ -103,7 +103,7 @@ namespace WaveIsland
             };
             DragEnter += (a, e) => Pop(_appsPanel, 1.06);
             DragLeave += (a, e) => Pop(_appsPanel, 1);
-            Drop += (a, e) => { Pop(_appsPanel, 1); DropPin(e.Data); e.Handled = true; };
+            base.Drop += (a, e) => { Pop(_appsPanel, 1); DropPin(e.Data); e.Handled = true; };
 
             SourceInitialized += (a, b) =>
             {
