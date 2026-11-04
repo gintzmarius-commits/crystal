@@ -162,6 +162,15 @@ namespace WaveIsland
                     await Wait(2.5);
                     App.Taskbar.Snap("24-barre-des-taches", Folder);
                     Log.I("DEMO : barre des taches Wave Theme " + (App.Taskbar.Active ? "active" : "inactive"));
+                    App.NoteHistory.Insert(0, (new IslandNote { App = "Messages", Title = "Léa", Text = "On se retrouve à 20h devant le ciné ?" }, DateTime.Now.AddMinutes(-3)));
+                    foreach (var (kind, shot) in new[] { ("quick", "25-reglages-rapides"), ("notes", "26-notifications") })
+                    {
+                        App.Taskbar.OpenPanel(kind);
+                        await Wait(1.4);
+                        SnapWindow(TaskbarPanel.Current, shot);
+                        TaskbarPanel.Current?.CloseAnimated();
+                        await Wait(0.6);
+                    }
                 }
 
                 // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)

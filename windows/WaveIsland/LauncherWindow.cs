@@ -831,7 +831,9 @@ namespace WaveIsland
                     {
                         ("", "Ouvrir", () => { Close2(); AppCatalog.Launch(app); }),
                         (pinned ? "" : "", pinned ? "Désépingler" : "Épingler", () => { AppCatalog.TogglePin(app); FillSections(); PopIn(new List<FrameworkElement>(_popQueue), 0); _popQueue.Clear(); }),
-                    }, alignRight: false, atMouse: true);
+                    }.Concat(App.Taskbar != null && App.Taskbar.Active
+                        ? new (string, string, Action)[] { ("\uE718", App.Taskbar.IsPinned(app) ? "Retirer de la barre des tâches" : "Épingler à la barre des tâches", () => App.Taskbar.TogglePin(app)) }
+                        : new (string, string, Action)[0]).ToArray(), alignRight: false, atMouse: true);
                 };
             }
             return cell;

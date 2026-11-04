@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -15,6 +16,8 @@ namespace WaveIsland
         public static LauncherWindow Launcher { get; private set; }
         /// <summary>Wave Theme : la barre des taches en verre liquide (null si desactivee).</summary>
         public static TaskbarWindow Taskbar { get; private set; }
+        /// <summary>Notifications recues (pour le panneau des notifications de la barre).</summary>
+        public static readonly List<(IslandNote note, DateTime when)> NoteHistory = new List<(IslandNote, DateTime)>();
         public static WaveDropService Drop { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
@@ -49,7 +52,13 @@ namespace WaveIsland
             Volume.Start();
 
             _notes = new NotificationWatcher(Dispatcher);
-            _notes.Arrived += n => { Island.ShowNote(n); Demo.NoteArrived(n); };
+            _notes.Arrived += n =>
+            {
+                Island.ShowNote(n);
+                Demo.NoteArrived(n);
+                NoteHistory.Insert(0, (n, DateTime.Now));
+                if (NoteHistory.Count > 40) NoteHistory.RemoveAt(NoteHistory.Count - 1);
+            };
             _notes.Start();
 
             // Activites en arriere-plan : musique et telechargements

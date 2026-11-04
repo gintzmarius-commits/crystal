@@ -40,6 +40,11 @@ namespace WaveIsland
         public bool WaveTaskbar { get; set; } = true;
         /// <summary>Etat d'origine de la barre de Windows (-1 = non modifiee), pour la rendre telle quelle.</summary>
         public int TaskbarPrevState { get; set; } = -1;
+        /// <summary>La barre disparait vers le bas quand une appli est en grand ecran (elle revient en bas de l'ecran).</summary>
+        public bool TaskbarAutoHide { get; set; }
+        /// <summary>Applis epinglees a la barre : « lnk|chemin », « exe|chemin » ou « app|identifiant ».</summary>
+        public List<string> TaskbarPins { get; set; } = new List<string>();
+        public bool TaskbarPinsInit { get; set; }
         /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
         public bool ShowInCaptures { get; set; }
         /// <summary>Wave Drop : visible des appareils proches, envoi / reception de fichiers</summary>

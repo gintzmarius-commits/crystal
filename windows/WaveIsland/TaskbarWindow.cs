@@ -48,6 +48,11 @@ namespace WaveIsland
 
         private readonly Bubble _win = new Bubble(), _apps = new Bubble(), _status = new Bubble(), _clock = new Bubble();
         private readonly SpringValue _appsW = new SpringValue(Cell + 16);
+        /// <summary>Descente de la barre (0 = visible, H + 20 = cachee sous l'ecran) et etirement de la goutte.</summary>
+        private readonly SpringValue _off = new SpringValue(0), _stretch = new SpringValue(1);
+        private bool _dropped;
+        private DateTime _awaySince = DateTime.MaxValue;
+        private DispatcherTimer _mouse;
         private readonly TextBlock _time = new TextBlock(), _date = new TextBlock(), _wifi = new TextBlock(), _vol = new TextBlock(), _bat = new TextBlock();
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -114,6 +119,9 @@ namespace WaveIsland
             Layout();
             _capTimer.Start();
             _tick.Start();
+            _mouse = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
+            _mouse.Tick += (a, b) => AutoHide();
+            _mouse.Start();
             Log.I("Wave Theme : barre des taches active");
         }
 
@@ -124,6 +132,7 @@ namespace WaveIsland
             Active = false;
             _capTimer.Stop();
             _tick.Stop();
+            _mouse?.Stop();
             UnregisterAppBar();
             RestoreSystemTaskbar();
             Hide();
@@ -182,7 +191,10 @@ namespace WaveIsland
             catch (Exception e) { Log.I("Wave Theme : retour de la barre de Windows impossible : " + e.Message); }
         }
 
-        /// <summary>On reserve le bas de l'ecran : les fenetres agrandies s'arretent au-dessus de la barre.</summary>
+        /// <summary>
+        /// Comme sur Mac : on ne reserve PAS de place en bas (pas de grand vide sous les applis agrandies),
+        /// la barre passe par-dessus. L'inscription sert seulement a etre prevenu des applis en plein ecran.
+        /// </summary>
         private void RegisterAppBar()
         {
             if (_hwnd == IntPtr.Zero || _appBar) return;
@@ -198,12 +210,7 @@ namespace WaveIsland
         {
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             int hp = (int)Math.Round(H * _k);
-            var d = new APPBARDATA { cbSize = Marshal.SizeOf<APPBARDATA>(), hWnd = _hwnd, uEdge = ABE_BOTTOM };
-            d.rc = new Native.RECT { Left = sb.Left, Right = sb.Right, Top = sb.Bottom - hp, Bottom = sb.Bottom };
-            SHAppBarMessage(ABM_QUERYPOS, ref d);
-            d.rc.Top = d.rc.Bottom - hp;
-            SHAppBarMessage(ABM_SETPOS, ref d);
-            Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, d.rc.Left, d.rc.Top, d.rc.Right - d.rc.Left, hp, Native.SWP_NOACTIVATE);
+            Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, sb.Left, sb.Bottom - hp, sb.Width, hp, Native.SWP_NOACTIVATE);
         }
 
         private void UnregisterAppBar()
@@ -285,7 +292,9 @@ namespace WaveIsland
         private void Geo(Bubble b)
         {
             double k = _k, W = _w * k, Hp = H * k;
-            double w = b.W, h = b.Hh, cx = b.X + w / 2, cy = EdgeY + h / 2;
+            // Goutte : la bulle s'etire en hauteur et s'affine quand la barre descend ou remonte
+            double st = _stretch.Value;
+            double w = b.W / Math.Sqrt(st), h = b.Hh * st, cx = b.X + b.W / 2, cy = EdgeY + b.Hh / 2 + _off.Value + (h - b.Hh) / 2;
             double rad = Math.Min(h / 2, w / 2);
             const double mag = 0.95;
             b.Fx.Geo = new Point4D(cx * k, cy * k, Math.Max(0, w / 2 - rad) * k, Math.Max(0, h / 2 - rad) * k);
@@ -296,10 +305,12 @@ namespace WaveIsland
             b.Fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             b.Fx.Light = new Point4D(-0.5, -0.866, b == _win && _bubbleHidden ? 0 : 1, mag);
             Canvas.SetLeft(b.Content, b.X);
-            Canvas.SetTop(b.Content, EdgeY);
-            b.Content.Width = w;
-            b.Content.Height = h;
-            b.Content.Clip = new RectangleGeometry(new Rect(0, 0, w, h), rad, rad);
+            Canvas.SetTop(b.Content, EdgeY + _off.Value);
+            b.Content.Width = b.W;
+            b.Content.Height = b.Hh;
+            b.Content.Clip = new RectangleGeometry(new Rect((b.W - w) / 2, 0, w, h), rad, rad);
+            b.Content.Opacity = (b == _win && _bubbleHidden) ? 0 : Math.Max(0, 1 - _off.Value / (H * 0.8));
+            b.Content.IsHitTestVisible = _off.Value < 10;
         }
 
         /// <summary>Place les bulles : Windows + applis au centre, etat et heure a droite.</summary>
@@ -327,9 +338,9 @@ namespace WaveIsland
         private void OnFrame(object s, EventArgs e)
         {
             if (!_gate.Ready()) return;
-            _appsW.Tick();
+            _appsW.Tick(); _off.Tick(); _stretch.Tick();
             Layout();
-            if (!_appsW.Moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
+            if (!_appsW.Moving && !_off.Moving && !_stretch.Moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
         }
 
         // ================== Bulle Windows (le menu des applis en sort) ==================
@@ -390,7 +401,7 @@ namespace WaveIsland
 
         private sealed class AppItem
         {
-            public string Key, Name, Lnk, Exe, Aumid;
+            public string Key, Name, Lnk, Exe, Aumid, Pin;
             public bool Pinned;
             public readonly List<IntPtr> Windows = new List<IntPtr>();
         }
@@ -408,35 +419,112 @@ namespace WaveIsland
         private List<AppItem> _pinned;
         private DateTime _pinnedAt;
 
+        /// <summary>Nos epingles (au premier lancement : celles de la barre de Windows).</summary>
+        private List<string> Pins()
+        {
+            var s = Settings.Current;
+            if (!s.TaskbarPinsInit)
+            {
+                s.TaskbarPinsInit = true;
+                try
+                {
+                    if (Directory.Exists(PinnedFolder))
+                        foreach (var f in Directory.GetFiles(PinnedFolder, "*.lnk").OrderBy(f => File.GetCreationTime(f)))
+                            s.TaskbarPins.Add("lnk|" + f);
+                }
+                catch { }
+                if (s.TaskbarPins.Count == 0)
+                    s.TaskbarPins.Add("exe|" + Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
+                s.Save();
+            }
+            return s.TaskbarPins;
+        }
+
         private List<AppItem> Pinned()
         {
             if (_pinned != null && (DateTime.Now - _pinnedAt).TotalSeconds < 30) return _pinned;
             var list = new List<AppItem>();
-            try
+            foreach (var p in Pins().ToList())
             {
-                if (Directory.Exists(PinnedFolder))
-                {
-                    var files = Directory.GetFiles(PinnedFolder, "*.lnk").OrderBy(f => File.GetCreationTime(f)).ToList();
-                    foreach (var f in files)
-                    {
-                        string exe = LinkTarget(f);
-                        string key = !string.IsNullOrEmpty(exe) ? exe.ToLowerInvariant() : "lnk:" + f.ToLowerInvariant();
-                        if (list.Any(x => x.Key == key)) continue;
-                        list.Add(new AppItem { Key = key, Name = Path.GetFileNameWithoutExtension(f), Lnk = f, Exe = exe, Pinned = true });
-                    }
-                }
-            }
-            catch (Exception e) { Log.I("Wave Theme : applis epinglees illisibles : " + e.Message); }
-            if (list.Count == 0)
-            {
-                // Rien d'epingle : l'Explorateur de fichiers et le navigateur par defaut
-                string explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
-                list.Add(new AppItem { Key = explorer.ToLowerInvariant(), Name = "Explorateur de fichiers", Exe = explorer, Pinned = true });
+                var it = FromPin(p);
+                if (it != null && !list.Any(x => x.Key == it.Key)) list.Add(it);
             }
             _pinned = list;
             _pinnedAt = DateTime.Now;
             return list;
         }
+
+        private static AppItem FromPin(string p)
+        {
+            int bar = p.IndexOf('|');
+            if (bar < 0) return null;
+            string kind = p.Substring(0, bar), v = p.Substring(bar + 1);
+            switch (kind)
+            {
+                case "lnk":
+                    if (!File.Exists(v)) return null;
+                    string exe = LinkTarget(v);
+                    return new AppItem { Key = !string.IsNullOrEmpty(exe) ? exe.ToLowerInvariant() : "lnk:" + v.ToLowerInvariant(), Name = Path.GetFileNameWithoutExtension(v), Lnk = v, Exe = exe, Pinned = true, Pin = p };
+                case "exe":
+                    if (!File.Exists(v)) return null;
+                    string name = Path.GetFileNameWithoutExtension(v);
+                    try { var d = FileVersionInfo.GetVersionInfo(v).FileDescription; if (!string.IsNullOrWhiteSpace(d)) name = d; } catch { }
+                    return new AppItem { Key = v.ToLowerInvariant(), Name = name, Exe = v, Pinned = true, Pin = p };
+                case "app":
+                    var e2 = Shortcuts.ResolveExe(v);
+                    var entry = AppCatalog.Apps.FirstOrDefault(a => a.Id == v);
+                    return new AppItem { Key = e2 != null ? e2.ToLowerInvariant() : "aumid:" + v.ToLowerInvariant(), Name = entry?.Name ?? v, Aumid = v, Exe = e2, Pinned = true, Pin = p };
+            }
+            return null;
+        }
+
+        public bool IsPinned(AppEntry app) => Pins().Contains("app|" + app.Id);
+
+        /// <summary>Epingler / desepingler depuis le menu des applis.</summary>
+        public void TogglePin(AppEntry app) => TogglePin("app|" + app.Id);
+
+        private void TogglePin(string pin)
+        {
+            var s = Settings.Current;
+            Pins();
+            if (s.TaskbarPins.Contains(pin)) s.TaskbarPins.Remove(pin); else s.TaskbarPins.Add(pin);
+            s.Save();
+            Log.I("Wave Theme : epingles = " + s.TaskbarPins.Count);
+            _pinned = null;
+            _sig = "";
+            RefreshApps();
+        }
+
+        /// <summary>Clic droit sur une icone de la barre : epingler, nouvelle fenetre, fermer.</summary>
+        private void ShowMenu(AppItem it, FrameworkElement at)
+        {
+            var live = _items.FirstOrDefault(x => x.Key == it.Key) ?? it;
+            var m = new ContextMenu
+            {
+                Background = new SolidColorBrush(Color.FromArgb(235, 28, 31, 36)), Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), BorderThickness = new Thickness(1),
+                FontFamily = Ui, FontSize = 13, PlacementTarget = at, Placement = System.Windows.Controls.Primitives.PlacementMode.Top
+            };
+            MenuItem Item(string text, Action a)
+            {
+                var mi = new MenuItem { Header = text, Foreground = Brushes.White, Padding = new Thickness(6, 6, 12, 6) };
+                mi.Click += (x, y) => a();
+                return mi;
+            }
+            m.Items.Add(new MenuItem { Header = live.Name, IsEnabled = false, Foreground = new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)) });
+            m.Items.Add(new Separator());
+            string pin = live.Pin ?? (live.Aumid != null ? "app|" + live.Aumid : live.Lnk != null ? "lnk|" + live.Lnk : "exe|" + live.Exe);
+            m.Items.Add(Item(live.Pinned ? "Désépingler de la barre des tâches" : "Épingler à la barre des tâches", () => TogglePin(pin)));
+            m.Items.Add(Item("Nouvelle fenêtre", () => Launch(live)));
+            if (live.Windows.Count > 0)
+                m.Items.Add(Item(live.Windows.Count > 1 ? "Fermer toutes les fenêtres" : "Fermer la fenêtre", () =>
+                {
+                    foreach (var h in live.Windows) PostMessage(h, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
+                }));
+            m.IsOpen = true;
+        }
+
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 
         private static readonly Dictionary<string, string> TargetCache = new Dictionary<string, string>();
         private static string LinkTarget(string lnk)
@@ -542,7 +630,7 @@ namespace WaveIsland
 
         private void RefreshApps()
         {
-            var items = Pinned().Select(p => new AppItem { Key = p.Key, Name = p.Name, Lnk = p.Lnk, Exe = p.Exe, Pinned = true }).ToList();
+            var items = Pinned().Select(p => new AppItem { Key = p.Key, Name = p.Name, Lnk = p.Lnk, Exe = p.Exe, Aumid = p.Aumid, Pin = p.Pin, Pinned = true }).ToList();
             foreach (var w in OpenWindows())
             {
                 string key = w.aumid != null ? "aumid:" + w.aumid.ToLowerInvariant() : w.exe.ToLowerInvariant();
@@ -617,6 +705,7 @@ namespace WaveIsland
             g.MouseLeftButtonDown += (a, b) => Pop(icon, 0.82);
             g.MouseLeftButtonUp += (a, b) => { Pop(icon, 1.16); Click(it); };
             g.MouseUp += (a, b) => { if (b.ChangedButton == MouseButton.Middle) Launch(it); };
+            g.MouseRightButtonUp += (a, b) => { b.Handled = true; ShowMenu(it, g); };
             // Arrivee avec un rebond
             icon.RenderTransformOrigin = new Point(0.5, 0.5);
             icon.RenderTransform = new ScaleTransform(0.3, 0.3);
@@ -710,7 +799,7 @@ namespace WaveIsland
             var host = new Grid { Width = 122, Height = BarH, Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = "Réglages rapides" };
             host.Children.Add(row);
             _status.Content.Children.Add(host);
-            host.MouseLeftButtonUp += (a, b) => { Pop(row, 1); Keys(0x41); };   // Win + A : reglages rapides
+            host.MouseLeftButtonUp += (a, b) => { Pop(row, 1); TaskbarPanel.Toggle("quick", ScreenRect(_status)); };
             host.MouseLeftButtonDown += (a, b) => Pop(row, 0.9);
             host.MouseEnter += (a, b) => Pop(row, 1.06);
             host.MouseLeave += (a, b) => Pop(row, 1);
@@ -731,9 +820,85 @@ namespace WaveIsland
             host.Children.Add(col);
             _clock.Content.Children.Add(host);
             host.MouseLeftButtonDown += (a, b) => Pop(col, 0.9);
-            host.MouseLeftButtonUp += (a, b) => { Pop(col, 1); Keys(0x4E); };   // Win + N
+            host.MouseLeftButtonUp += (a, b) => { Pop(col, 1); TaskbarPanel.Toggle("notes", ScreenRect(_clock)); };
             host.MouseEnter += (a, b) => Pop(col, 1.05);
             host.MouseLeave += (a, b) => Pop(col, 1);
+        }
+
+        /// <summary>Ouvre le panneau des reglages rapides (« quick ») ou des notifications (« notes »).</summary>
+        public void OpenPanel(string kind) => TaskbarPanel.Toggle(kind, ScreenRect(kind == "quick" ? _status : _clock));
+
+        private Rect ScreenRect(Bubble b) => new Rect(Left + b.X, Top + EdgeY, b.W, b.Hh);
+
+        // ================== Disparition en goutte (option) ==================
+
+        [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr h);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+
+        /// <summary>Une appli occupe tout l'ecran (agrandie) : la barre peut descendre.</summary>
+        private bool AppCovers()
+        {
+            var fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == _hwnd) return false;
+            GetWindowThreadProcessId(fg, out uint pid);
+            if (pid == (uint)Environment.ProcessId) return false;
+            var cls = new StringBuilder(64);
+            GetClassName(fg, cls, 64);
+            string c = cls.ToString();
+            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd") return false;
+            if (IsZoomed(fg)) return true;
+            if (!Native.GetWindowRect(fg, out var r)) return false;
+            var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            return r.Left <= sb.Left + 4 && r.Right >= sb.Right - 4 && r.Bottom >= sb.Bottom - (int)(H * _k);
+        }
+
+        private void AutoHide()
+        {
+            if (!Active) return;
+            bool panelOpen = TaskbarPanel.Current != null || (App.Launcher?.IsOpen ?? false);
+            bool want = Settings.Current.TaskbarAutoHide && !panelOpen && AppCovers();
+            if (!want) { _awaySince = DateTime.MaxValue; if (_dropped) Rise(); return; }
+            Native.GetCursorPos(out var p);
+            var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            bool atBottom = p.Y >= sb.Bottom - 3 && p.X >= sb.Left && p.X < sb.Right;
+            bool overBar = p.Y >= sb.Bottom - (int)((H + 20) * _k);
+            if (_dropped)
+            {
+                // Souris tout en bas : la barre ressort par-dessus l'appli
+                if (atBottom) { _awaySince = DateTime.MaxValue; Rise(); }
+                return;
+            }
+            if (overBar) { _awaySince = DateTime.MaxValue; return; }
+            if (_awaySince == DateTime.MaxValue) _awaySince = DateTime.Now;
+            if ((DateTime.Now - _awaySince).TotalMilliseconds > 700) Drop();
+        }
+
+        /// <summary>La barre s'etire comme une goutte puis glisse sous le bord de l'ecran.</summary>
+        private async void Drop()
+        {
+            if (_dropped) return;
+            _dropped = true;
+            Log.I("Wave Theme : la barre descend (appli en grand ecran)");
+            _stretch.AnimateTo(1.22, new Spring(0.7, 0.2));
+            Kick();
+            await System.Threading.Tasks.Task.Delay(110);
+            if (!_dropped) return;
+            _off.AnimateTo(H + 24, new Spring(0.9, 0.34));
+            _stretch.AnimateTo(1.0, new Spring(0.8, 0.4));
+            Kick();
+        }
+
+        /// <summary>Elle remonte par-dessus l'appli, s'ecrase un peu puis rebondit a sa forme.</summary>
+        private void Rise()
+        {
+            if (!_dropped) return;
+            _dropped = false;
+            Log.I("Wave Theme : la barre remonte");
+            _stretch.Set(1.25);
+            _off.AnimateTo(0, Spring.Pop);
+            _stretch.AnimateTo(1.0, new Spring(0.45, 0.5));
+            Kick();
+            BringToTop();
         }
 
         /// <summary>Win + touche (les touches injectees ne passent pas par le filtre de la touche Windows).</summary>

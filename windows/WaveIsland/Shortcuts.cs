@@ -152,7 +152,7 @@ namespace WaveIsland
             return false;
         }
 
-        private static string ResolveExe(string aumid)
+        internal static string ResolveExe(string aumid)
         {
             if (string.IsNullOrEmpty(aumid)) return null;
             try
