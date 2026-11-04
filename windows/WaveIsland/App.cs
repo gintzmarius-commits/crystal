@@ -35,7 +35,9 @@ namespace WaveIsland
             Volume.Changed += (v, m) => Island.ShowVolume(v, m);
             // Touche Windows : le menu des applis coule depuis l'ilot
             Launcher = new LauncherWindow(Island);
-            Volume.WinAllowed = () => !Island.HiddenFullscreen;
+            // Plein ecran (film, jeu en fenetre sans bordure...) : la touche Windows ouvre quand meme le menu de l'ilot.
+            // Seul un jeu en plein ecran exclusif garde le menu Demarrer (rien ne peut s'afficher par-dessus).
+            Volume.WinAllowed = () => !Island.ExclusiveFullscreen;
             Volume.WinTapped += () => Launcher.Toggle();
             AppCatalog.Refresh(Dispatcher);
             Volume.Start();

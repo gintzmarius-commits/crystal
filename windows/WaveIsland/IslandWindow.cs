@@ -557,6 +557,9 @@ namespace WaveIsland
         /// <summary>Plein ecran (jeu, film) : l'ilot est cache.</summary>
         public bool HiddenFullscreen => _hidden;
 
+        /// <summary>Jeu en plein ecran exclusif (DirectX) : aucune fenetre ne peut s'afficher par-dessus.</summary>
+        public bool ExclusiveFullscreen { get; private set; }
+
         /// <summary>Pendant le menu des applis, c'est sa fenetre qui dessine l'ilot (pour la goutte qui se detache).</summary>
         public void HideForLauncher(bool hide)
         {
@@ -571,8 +574,9 @@ namespace WaveIsland
                 _w.Set(_w.Target); _h.Set(_h.Target); _alpha.Set(_alpha.Target); _tint.Set(_tint.Target);
                 Render();
             }
-            _root.Opacity = hide ? 0 : 1;
-            _root.IsHitTestVisible = !hide;
+            // En plein ecran l'ilot reste cache apres la fermeture du menu
+            _root.Opacity = hide || _hidden ? 0 : 1;
+            _root.IsHitTestVisible = !hide && !_hidden;
         }
 
         /// <summary>Comme un clic sur la notification affichee (tests).</summary>
@@ -1095,8 +1099,12 @@ namespace WaveIsland
         private void Watch()
         {
             bool full = false;
-            if (Settings.Current.HideInFullscreen && Native.SHQueryUserNotificationState(out int st) == 0)
-                full = st == Native.QUNS_BUSY || st == Native.QUNS_RUNNING_D3D_FULL_SCREEN || st == Native.QUNS_PRESENTATION_MODE;
+            if (Native.SHQueryUserNotificationState(out int st) == 0)
+            {
+                ExclusiveFullscreen = st == Native.QUNS_RUNNING_D3D_FULL_SCREEN;
+                if (Settings.Current.HideInFullscreen)
+                    full = st == Native.QUNS_BUSY || st == Native.QUNS_RUNNING_D3D_FULL_SCREEN || st == Native.QUNS_PRESENTATION_MODE;
+            }
             if (full != _hidden)
             {
                 _hidden = full;

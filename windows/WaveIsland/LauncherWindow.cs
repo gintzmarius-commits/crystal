@@ -159,6 +159,9 @@ namespace WaveIsland
             if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
             _captureTimer.Interval = Frames.Interval;
             Show();
+            // Au-dessus de tout, y compris d'une video ou d'un jeu en plein ecran
+            if (_hwnd != IntPtr.Zero)
+                Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE);
             _island.HideForLauncher(true);
             ForceForeground();
             _captureTimer.Start();
