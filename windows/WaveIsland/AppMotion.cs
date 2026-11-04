@@ -222,10 +222,13 @@ namespace WaveIsland
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = sb.Left / k; Top = sb.Top / k; Width = _sw; Height = _sh;
             Show();
-            // Le dock reste au-dessus (comme sur iPad)
+            // Le dock reste au-dessus (comme sur iPad). Windows remet parfois cette fenetre devant juste apres
+            // son affichage : on repasse le dock devant plusieurs fois au debut, et des que l'image est dessinee
             App.Taskbar?.ShowDock(30);
-            App.Taskbar?.BringToTop();
-            App.Island?.BringToTop();
+            DockOnTop();
+            ContentRendered += (a, b) => DockOnTop();
+            Dispatcher.BeginInvoke(new Action(DockOnTop), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            foreach (var ms in new[] { 60, 180, 400 }) Task.Delay(ms).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(DockOnTop)));
         }
 
         private void Open(BitmapSource shot)
@@ -385,6 +388,7 @@ namespace WaveIsland
         public void Drag(Point finger, Point start)
         {
             if (Switcher || _cards.Count == 0) return;
+            if ((DateTime.Now - _lastTop).TotalMilliseconds > 150) { _lastTop = DateTime.Now; DockOnTop(); }
             var c = _cards[0];
             double dy = Math.Max(0, start.Y - finger.Y);
             double prog = Math.Min(1, dy / (_sh * 0.6));
@@ -638,6 +642,8 @@ namespace WaveIsland
         }
 
         /// <summary>Toucher la fenetre de l'animation la remet au-dessus de tout : le dock et l'ilot repassent devant.</summary>
+        private DateTime _lastTop = DateTime.MinValue;
+
         private void DockOnTop()
         {
             App.Taskbar?.BringToTop();
