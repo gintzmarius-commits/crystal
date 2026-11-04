@@ -310,7 +310,7 @@ namespace WaveIsland
                 c.Label.MaxWidth = Math.Max(10, w - 8);
                 c.Label.Opacity = Switcher ? op * (1 - mix) : 0;
                 // L'icone de l'appli apparait au centre quand l'apercu se change en icone
-                double isz = Math.Max(4, Math.Min(w, h));
+                double isz = Math.Max(4, Math.Min(Math.Min(w, h), IconSize * 1.15));   // jamais une icone geante et floue
                 Canvas.SetLeft(c.Icon, x + (w - isz) / 2); Canvas.SetTop(c.Icon, y + (h - isz) / 2);
                 c.Icon.Width = isz; c.Icon.Height = isz;
                 c.Icon.Opacity = op * mix;
