@@ -986,6 +986,7 @@ namespace WaveIsland
         {
             _shownUntil = DateTime.Now.AddSeconds(seconds);
             Rise();
+            BringToTop();
         }
 
         /// <summary>Fin d'une animation : le dock suit de nouveau les applis (sans bouger tout de suite).</summary>

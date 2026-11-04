@@ -216,10 +216,12 @@ namespace WaveIsland
         private void Place()
         {
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            Show();
-            double k = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            // Taille et place AVANT d'afficher la fenetre (sinon un flash a la mauvaise taille)
+            double k = App.Island != null ? VisualTreeHelper.GetDpi(App.Island).DpiScaleX : 1;
             _sw = sb.Width / k; _sh = sb.Height / k;
+            WindowStartupLocation = WindowStartupLocation.Manual;
             Left = sb.Left / k; Top = sb.Top / k; Width = _sw; Height = _sh;
+            Show();
             // Le dock reste au-dessus (comme sur iPad)
             App.Taskbar?.ShowDock(30);
             App.Taskbar?.BringToTop();
@@ -394,42 +396,37 @@ namespace WaveIsland
             Render();
         }
 
-        /// <summary>Doigt leve : l'appli tombe en goutte dans son icone du dock (ou vole jusqu'a elle, facon iPad).</summary>
+        /// <summary>Doigt leve : l'appli se change en son icone et va se ranger dans le dock avec un rebond.</summary>
         public async void CloseToDock()
         {
             if (_cards.Count == 0) { Finish(); return; }
             var c = _cards[0];
+            bool wasOut = App.Taskbar?.DockVisible ?? true;
+            App.Taskbar?.ShowDock(10);
+            DockOnTop();
+            Log.I("Mode tablette : appli rangee dans le dock (icone)");
+            // 1) l'apercu se change en icone, la ou il est
+            double cx = c.X.Value + c.W.Value / 2, cy = c.Y.Value + c.H.Value / 2;
+            var morph = new Spring(0.85, 0.26);
+            c.Mix.AnimateTo(1, morph);
+            c.W.AnimateTo(IconSize, morph); c.H.AnimateTo(IconSize, morph);
+            c.X.AnimateTo(cx - IconSize / 2, morph); c.Y.AnimateTo(cy - IconSize / 2, morph);
+            Kick();
+            await Task.Delay(wasOut ? 170 : 380);   // le dock a le temps de sortir
+            // 2) l'icone vole a sa place dans le dock et rebondit
+            DockOnTop();
             var target = App.Taskbar?.IconRect(_app) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
             double tx = target.X - Left, ty = target.Y - Top;
-            bool drop = Settings.Current.TabletCloseAnim2 != "ipad";
-            Log.I("Mode tablette : appli fermee vers le dock (" + (drop ? "goutte" : "iPad") + ")");
-            if (drop)
-            {
-                // Goutte : la carte s'affine et s'etire (la goutte se forme), puis tombe dans son icone en s'allongeant
-                double cx = c.X.Value + c.W.Value / 2, bottom = c.Y.Value + c.H.Value;
-                double w1 = c.W.Value * 0.62, h1 = c.H.Value * 1.12;
-                var form = new Spring(0.62, 0.24);
-                c.W.AnimateTo(w1, form); c.H.AnimateTo(h1, form);
-                c.X.AnimateTo(cx - w1 / 2, form); c.Y.AnimateTo(bottom - h1, form);
-                Kick();
-                await Task.Delay(150);
-                var fall = new Spring(0.8, 0.36);
-                c.X.AnimateTo(tx + target.Width * 0.15, fall); c.Y.AnimateTo(ty, fall);
-                c.W.AnimateTo(target.Width * 0.7, fall); c.H.AnimateTo(target.Height * 1.25, fall);
-                c.Op.AnimateTo(0, new Spring(1, 0.42));
-            }
-            else
-            {
-                var fly = new Spring(0.86, 0.42);
-                c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
-                c.Op.AnimateTo(0, new Spring(1, 0.5));
-            }
+            var fly = new Spring(0.55, 0.42);
+            c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
             Kick();
-            await Task.Delay(240);
             Native.ShowWindow(_app, 7 /* SW_SHOWMINNOACTIVE */);
-            await Settled();
+            await Task.Delay(270);
             App.Taskbar?.Splash(_app);
-            await Task.Delay(80);
+            await Task.Delay(130);
+            c.Op.AnimateTo(0, new Spring(1, 0.3));
+            Kick();
+            await Settled();
             Finish();
         }
 
@@ -637,8 +634,16 @@ namespace WaveIsland
             return null;
         }
 
+        /// <summary>Toucher la fenetre de l'animation la remet au-dessus de tout : le dock et l'ilot repassent devant.</summary>
+        private void DockOnTop()
+        {
+            App.Taskbar?.BringToTop();
+            App.Island?.BringToTop();
+        }
+
         private void PDown(Point p)
         {
+            DockOnTop();
             _pd = _pl = p; _pt = DateTime.Now; _pmoved = false; _mode = Mode.None; _flingVel = 0;
             // Toucher pendant que la pile file : elle s'arrete (sans ouvrir d'appli)
             _stopped = _inertia || _scroll.Moving;
@@ -745,6 +750,7 @@ namespace WaveIsland
                 foreach (var c in live) c.Mix.AnimateTo(1, new Spring(0.8, 0.3));
                 // Le dock sort tout de suite : les icones auront leur place ou se ranger
                 App.Taskbar?.ShowDock(15);
+                DockOnTop();
                 Log.I("Mode tablette : apercus changes en icones");
             }
             else if (_gathered && down < 55)
@@ -788,6 +794,7 @@ namespace WaveIsland
             _layoutLive = false;
             bool wasOut = App.Taskbar?.DockVisible ?? true;
             App.Taskbar?.ShowDock(10);
+            DockOnTop();
             var live = Live;
             foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
             // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
@@ -803,6 +810,7 @@ namespace WaveIsland
         private async void Fly(Card c, int i)
         {
             await Task.Delay(i * 50);
+            DockOnTop();
             var target = App.Taskbar?.IconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
             double tx = target.X - Left, ty = target.Y - Top;
             var fly = new Spring(0.55, 0.42);
