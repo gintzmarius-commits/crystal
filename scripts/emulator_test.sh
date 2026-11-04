@@ -168,6 +168,8 @@ sleep 1.5
 adb shell input swipe 930 20 930 900 500
 sleep 2.5
 shot 25-centre-controle
+sleep 4
+shot 25b-centre-controle-fini
 adb shell input keyevent KEYCODE_BACK
 sleep 1.5
 
