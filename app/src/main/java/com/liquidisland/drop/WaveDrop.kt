@@ -239,7 +239,7 @@ object WaveDrop {
         val sc = adapter?.bluetoothLeScanner ?: return
         val filter = ScanFilter.Builder().setManufacturerData(WaveDropProtocol.COMPANY_ID, byteArrayOf('W'.code.toByte(), 'D'.code.toByte()), byteArrayOf(-1, -1)).build()
         val settings = ScanSettings.Builder()
-            .setScanMode(if (fastScan) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
+            .setScanMode(if (fastScan) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_BALANCED)
             .build()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) = seen(result)
@@ -365,6 +365,7 @@ object WaveDrop {
 
     /** Une connexion entrante (ou sortante pour aller chercher un fichier) : presentation, puis reception si offre. */
     private fun handle(i: InputStream, o: OutputStream, connector: Boolean, via: String, close: () -> Unit) {
+        val wake = wakeLock()
         try {
             val s = WaveDropProtocol.Session(i, o, connector)
             s.handshake(hello(offer = false))
@@ -375,6 +376,7 @@ object WaveDrop {
         } catch (e: Exception) {
             Log.w(TAG, "Wave Drop : connexion interrompue ($via) : $e")
         } finally {
+            try { wake?.release() } catch (e: Exception) { }
             try { close() } catch (e: Exception) { }
         }
     }
@@ -470,12 +472,12 @@ object WaveDrop {
         if (!busy.compareAndSet(false, true)) return
         Thread {
             var sock: java.io.Closeable? = null
+            val wake = wakeLock()
             try {
-                val c = connect(target)
+                main.post { uis.forEach { it.progress("Connexion à ${target.label}…", out.name, 0, -1) } }
+                val (c, s) = connectAndGreet(target)
                 sock = c.fourth
                 val via = c.third
-                val s = WaveDropProtocol.Session(c.first, c.second, connector = true)
-                s.handshake(hello(offer = true))
                 val to = s.peer["name"] ?: target.label
                 Log.i(TAG, "Wave Drop : envoi de ${out.name} a $to ($via)")
                 main.post { uis.forEach { it.progress("En attente de $to", "Il doit accepter ${out.name}", 0, out.size) } }
@@ -492,6 +494,7 @@ object WaveDrop {
                 main.post { uis.forEach { it.finished("Envoi impossible", e.message ?: "Erreur", false) } }
             } finally {
                 try { sock?.close() } catch (e: Exception) { }
+                try { wake?.release() } catch (e: Exception) { }
                 busy.set(false)
             }
         }.start()
@@ -499,35 +502,85 @@ object WaveDrop {
 
     private data class Conn(val first: InputStream, val second: OutputStream, val third: String, val fourth: java.io.Closeable)
 
-    /** Le meilleur chemin vers l'appareil : Wi-Fi local, sinon Bluetooth (RFCOMM vers un PC, L2CAP vers un telephone). */
-    private fun connect(t: Nearby): Conn {
+    /** Les chemins possibles vers l'appareil, du plus rapide au plus lent : Wi-Fi local, puis Bluetooth. */
+    private fun routes(t: Nearby): List<() -> Conn> {
         val b = t.beacon
+        val list = ArrayList<() -> Conn>()
         val ip = b.ipString
-        if (ip != null && b.port > 0 && wifiIp() != null) {
-            try {
-                val s = Socket()
-                s.connect(InetSocketAddress(ip, b.port), 1500)
-                s.soTimeout = 120_000
-                return Conn(s.getInputStream(), s.getOutputStream(), "Wi-Fi", s)
-            } catch (e: Exception) { Log.i(TAG, "Wave Drop : pas de Wi-Fi commun, passage au Bluetooth ($e)") }
+        if (ip != null && b.port > 0 && wifiIp() != null) list.add {
+            val s = Socket()
+            s.tcpNoDelay = true
+            s.connect(InetSocketAddress(ip, b.port), 1500)
+            s.soTimeout = 6000
+            Conn(s.getInputStream(), s.getOutputStream(), "Wi-Fi", s)
         }
-        val ad = adapter ?: error("Bluetooth indisponible")
-        if (!hasPermissions(app)) error("autorise le Bluetooth dans Wave Drop")
-        try { ad.cancelDiscovery() } catch (e: Exception) { }
-        if (b.isPc && b.btAddr != null) {
-            val addr = b.btAddr.joinToString(":") { "%02X".format(it) }
-            val s = ad.getRemoteDevice(addr).createInsecureRfcommSocketToServiceRecord(UUID.fromString(WaveDropProtocol.RFCOMM_UUID))
-            s.connect()
-            return Conn(s.inputStream, s.outputStream, "Bluetooth", s)
+        val ad = adapter
+        if (ad != null && hasPermissions(app)) {
+            if (b.isPc && b.btAddr != null) list.add {
+                try { ad.cancelDiscovery() } catch (e: Exception) { }
+                val addr = b.btAddr.joinToString(":") { "%02X".format(it) }
+                val s = ad.getRemoteDevice(addr).createInsecureRfcommSocketToServiceRecord(UUID.fromString(WaveDropProtocol.RFCOMM_UUID))
+                s.connect()
+                Conn(s.inputStream, s.outputStream, "Bluetooth", s)
+            }
+            val dev = t.device
+            if (b.psm > 0 && dev != null && Build.VERSION.SDK_INT >= 29) list.add {
+                try { ad.cancelDiscovery() } catch (e: Exception) { }
+                val s = dev.createInsecureL2capChannel(b.psm)
+                s.connect()
+                Conn(s.inputStream, s.outputStream, "Bluetooth", s)
+            }
         }
-        val dev = t.device
-        if (b.psm > 0 && dev != null && Build.VERSION.SDK_INT >= 29) {
-            val s = dev.createInsecureL2capChannel(b.psm)
-            s.connect()
-            return Conn(s.inputStream, s.outputStream, "Bluetooth", s)
-        }
-        error("appareil injoignable (rapproche-le ou connecte-le au même Wi-Fi)")
+        return list
     }
+
+    /** Premier chemin qui se connecte (sans attendre la presentation). */
+    private fun connect(t: Nearby): Conn {
+        var last: Exception? = null
+        for (r in routes(t)) try { return r() } catch (e: Exception) { last = e; Log.i(TAG, "Wave Drop : chemin indisponible ($e)") }
+        throw last ?: IllegalStateException("appareil injoignable (rapproche-le ou connecte-le au même Wi-Fi)")
+    }
+
+    /**
+     * Se connecte ET se presente : un chemin qui ne repond pas dans les 6 s (appli endormie, Wi-Fi bride,
+     * adresse perimee) est abandonne au profit du suivant, au lieu de bloquer l'envoi pendant 2 minutes.
+     */
+    private fun connectAndGreet(t: Nearby): Pair<Conn, WaveDropProtocol.Session> {
+        var last: Exception? = null
+        for (r in routes(t)) {
+            var c: Conn? = null
+            val done = AtomicBoolean(false)
+            try {
+                c = r()
+                val cc = c
+                // Chien de garde : coupe la connexion si l'autre ne se presente pas a temps
+                val dog = Thread {
+                    try { Thread.sleep(7000) } catch (e: InterruptedException) { return@Thread }
+                    if (!done.get()) try { cc.fourth.close() } catch (e: Exception) { }
+                }.apply { isDaemon = true; start() }
+                val s = WaveDropProtocol.Session(cc.first, cc.second, connector = true)
+                s.handshake(hello(offer = true))
+                done.set(true)
+                dog.interrupt()
+                (cc.fourth as? Socket)?.soTimeout = 150_000
+                Log.i(TAG, "Wave Drop : connecte par ${cc.third}")
+                return cc to s
+            } catch (e: Exception) {
+                done.set(true)
+                last = e
+                Log.i(TAG, "Wave Drop : pas de reponse par ${c?.third ?: "ce chemin"} ($e), chemin suivant")
+                try { c?.fourth?.close() } catch (x: Exception) { }
+            }
+        }
+        throw IllegalStateException(if (last == null) "appareil injoignable (rapproche-le ou connecte-le au même Wi-Fi)"
+            else "l'appareil ne répond pas (ouvre Wave Island dessus ou rapproche-le)")
+    }
+
+    /** Garde le telephone eveille pendant un transfert (sinon l'ecran eteint peut tout figer). */
+    private fun wakeLock(): android.os.PowerManager.WakeLock? = try {
+        (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+            .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "WaveIsland:wavedrop").apply { acquire(10 * 60_000L) }
+    } catch (e: Exception) { null }
 
     /** Un PC sans Wi-Fi commun a un fichier pour nous : on se connecte a lui et il l'envoie. */
     private fun pullFrom(b: WaveDropProtocol.Beacon) {

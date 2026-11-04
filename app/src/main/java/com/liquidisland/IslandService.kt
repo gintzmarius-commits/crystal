@@ -221,7 +221,7 @@ class Rotator(ctx: Context, private val child: View, private val deg: Float) : F
  * de notifications Wave Island, depuis la moitie droite le centre de controle (comme sur iPhone / HyperOS).
  * [stolen] = Android a pris le geste (son volet va s'ouvrir, il faudra le refermer).
  */
-class EdgeStrip(ctx: Context, private val onPull: (left: Boolean, stolen: Boolean) -> Unit) : View(ctx) {
+class EdgeStrip(ctx: Context, private val onDown: (left: Boolean) -> Unit, private val onTap: () -> Unit, private val onPull: (left: Boolean, stolen: Boolean) -> Unit) : View(ctx) {
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
@@ -230,12 +230,12 @@ class EdgeStrip(ctx: Context, private val onPull: (left: Boolean, stolen: Boolea
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; fired = false }
+            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; fired = false; onDown(e.x < width / 2f) }
             MotionEvent.ACTION_MOVE -> {
                 val dy = e.y - downY
                 if (!fired && dy > slop * 1.5f && dy > abs(e.x - downX)) { fired = true; onPull(downX < width / 2f, false) }
             }
-            MotionEvent.ACTION_UP -> if (!fired && e.y - downY > slop * 2) { fired = true; onPull(downX < width / 2f, false) }
+            MotionEvent.ACTION_UP -> if (!fired && e.y - downY > slop * 2) { fired = true; onPull(downX < width / 2f, false) } else onTap()
             MotionEvent.ACTION_CANCEL -> if (!fired) { fired = true; onPull(downX < width / 2f, true) }
         }
         return true
@@ -837,7 +837,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 height = statusBarHeight()
             }
             lpStrip = ls
-            val st = EdgeStrip(this) { left, stolen -> pullShade(left, stolen) }
+            val st = EdgeStrip(this, { left -> arm { pullShade(left, false) } }, { disarm() }) { left, stolen -> disarm(); pullShade(left, stolen) }
             strip = st
             try { wm.addView(st, ls) } catch (e: Exception) { strip = null; Log.w(TAG, "Bande du haut : $e") }
             updateStrip()
@@ -1588,6 +1588,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     override fun press(down: Boolean) {
         Log.i(TAG, "Geste appui=$down mode=$mode")
+        // Doigt pose sur l'ilot replie : si le volet d'Android s'ouvre juste apres, c'est qu'il a vole le geste
+        if (down && mode == Mode.COLLAPSED && !opening && com.liquidisland.drop.WaveDrop.enabled(this)) arm { openWaveDrop() }
         if (down && mode != Mode.COLLAPSED) main.removeCallbacks(collapseRunnable)
         if (!down && mode == Mode.NOTIF) main.postDelayed(collapseRunnable, 4000)
         if (mode != Mode.COLLAPSED) return
@@ -1603,6 +1605,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     override fun tap() {
+        disarm()
         Log.i(TAG, "Geste toucher mode=$mode")
         if (opening) return
         when (mode) {
@@ -1613,7 +1616,13 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         }
     }
 
-    override fun longPress() = showMenu()
+    override fun longPress() { disarm(); showMenu() }
+
+    // Doigt pose (sur l'ilot ou la barre d'etat) : action a faire si le volet d'Android s'ouvre a la place
+    private var armedAt = 0L
+    private var armedThen: (() -> Unit)? = null
+    private fun arm(then: () -> Unit) { armedAt = android.os.SystemClock.uptimeMillis(); armedThen = then }
+    private fun disarm() { armedAt = 0L; armedThen = null }
 
     override fun drag(dy: Float) {
         if (mode == Mode.COLLAPSED && !opening && dy > 0 && com.liquidisland.drop.WaveDrop.enabled(this)) {
@@ -1644,6 +1653,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     override fun release(dy: Float) {
+        disarm()
         Log.i(TAG, "Geste relache dy=$dy mode=$mode")
         if (mode != Mode.NOTIF) {
             if (mode == Mode.COLLAPSED) {
@@ -1706,6 +1716,14 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     /** Une fenetre du systeme (volet des notifications, centre de controle) vient de s'afficher. */
     fun onShadeShown() {
+        // Certains telephones (HyperOS) ne previennent pas l'appli que le geste lui a ete pris :
+        // le volet qui s'ouvre juste apres avoir pose le doigt sur l'ilot suffit a le savoir
+        if (shadePending == 0L && armedAt != 0L && android.os.SystemClock.uptimeMillis() - armedAt < 1500) {
+            shadePending = armedAt
+            shadeThen = armedThen
+            main.removeCallbacks(shadeFallback)
+        }
+        disarm()
         val t = shadePending
         if (t == 0L || android.os.SystemClock.uptimeMillis() - t > 2500) return
         shadePending = 0L
@@ -1713,6 +1731,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         Log.i(TAG, "Volet ouvert par Android, on le referme")
         val acc = IslandAccessibility.instance
         acc?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        // Le centre de controle de HyperOS ne se ferme pas toujours avec « retour » : on insiste (sans effet si deja ferme)
+        if (Build.VERSION.SDK_INT >= 31) main.postDelayed({
+            try { acc?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE) } catch (e: Exception) { }
+        }, 140)
         val then = shadeThen
         shadeThen = null
         main.postDelayed({ then?.invoke() }, 280)

@@ -38,9 +38,16 @@ class IslandAccessibility : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // Jamais de plantage ici : Android couperait l'accessibilite (l'ilot passerait sous la barre d'etat)
         try {
-            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            val t = event?.eventType ?: return
+            // Volet des notifications / centre de controle (HyperOS : miui.systemui.plugin)
+            // (un panneau qui APPARAIT, pas la mise a jour de l'heure ou du debit dans la barre d'etat)
+            val pane = t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                (t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && android.os.Build.VERSION.SDK_INT >= 28 &&
+                    event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_PANE_APPEARED != 0)
+            if (pane &&
                 event.packageName?.toString()?.contains("systemui") == true) IslandService.instance?.onShadeShown()
-            IslandService.instance?.onScreenChanged()
+            // Les changements de contenu sont tres frequents : ils ne servent qu'a reperer le volet
+            if (t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) IslandService.instance?.onScreenChanged()
         } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }
     }
     override fun onInterrupt() {}

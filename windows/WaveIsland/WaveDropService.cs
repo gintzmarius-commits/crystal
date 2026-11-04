@@ -424,10 +424,23 @@ namespace WaveIsland
                             using (tcp)
                             using (var s = new WdProtocol.Session(tcp.GetStream(), true))
                             {
-                                await s.HandshakeAsync(Hello(true), ct);
-                                await SendOver(s, s.Peer.TryGetValue("name", out var nm) ? nm : target.Label, "Wi-Fi", ct);
+                                // L'autre appareil doit repondre vite : sinon (appli endormie, Wi-Fi bride) on passe au Bluetooth
+                                bool greeted = false;
+                                try
+                                {
+                                    using var hs = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                    hs.CancelAfter(6000);
+                                    using (hs.Token.Register(() => { try { tcp.Close(); } catch { } }))
+                                        await s.HandshakeAsync(Hello(true), hs.Token);
+                                    greeted = true;
+                                }
+                                catch (Exception e) when (!ct.IsCancellationRequested) { Log.I("Wave Drop : pas de reponse en Wi-Fi (" + e.Message + "), passage au Bluetooth"); }
+                                if (greeted)
+                                {
+                                    await SendOver(s, s.Peer.TryGetValue("name", out var nm) ? nm : target.Label, "Wi-Fi", ct);
+                                    return;
+                                }
                             }
-                            return;
                         }
                     }
                     // 2) Bluetooth vers un autre PC
