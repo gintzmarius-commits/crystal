@@ -133,7 +133,9 @@ namespace WaveIsland
                 string exe = Installer.IsInstalledCopy || !Installer.IsInstalled ? Environment.ProcessPath : Installer.Exe;
                 string tmp = Path.Combine(Path.GetTempPath(), "WaveIsland-maj");
                 Directory.CreateDirectory(tmp);
-                string fresh = Path.Combine(tmp, "WaveIsland.exe");
+                // Un nom unique a chaque essai : un ancien telechargement encore ouvert ne bloque plus rien
+                foreach (var old in Directory.GetFiles(tmp, "WaveIsland-*.exe")) { try { File.Delete(old); } catch { } }
+                string fresh = Path.Combine(tmp, $"WaveIsland-{DateTime.Now.Ticks}.exe");
                 Log.I("Mise a jour : telechargement vers " + fresh + " pour remplacer " + exe);
 
                 island.SetUpdate(dl);

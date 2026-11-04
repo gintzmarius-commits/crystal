@@ -45,7 +45,13 @@ namespace WaveIsland
             Volume.WinAllowed = () => !Island.ExclusiveFullscreen;
             Volume.WinTapped += () => Launcher.Toggle();
             // Wave Theme : la barre des taches de Windows remplacee par la notre (le menu monte de la bulle Windows)
-            AppDomain.CurrentDomain.ProcessExit += (a, b) => { try { Taskbar?.Stop(); } catch { } };
+            // (Pas de nettoyage dans ProcessExit : il tournait hors du fil de l'interface et bloquait la fermeture,
+            // donc la mise a jour ne pouvait pas remplacer l'appli.)
+            DispatcherUnhandledException += (a, b) =>
+            {
+                // Erreur interne de WPF quand une fenetre d'une autre appli disparait pendant un deplacement : sans gravite
+                if (b.Exception is System.ComponentModel.Win32Exception w && w.NativeErrorCode == 1400) { b.Handled = true; Log.I("Erreur WPF ignoree (fenetre disparue)"); }
+            };
             AppDomain.CurrentDomain.UnhandledException += (a, b) => { try { TaskbarWindow.RestoreSystemTaskbar(); } catch { } };
             ApplyTaskbar();
             // Version 4.0 : mode tablette facon iPad (ecran retourne)
