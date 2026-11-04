@@ -28,6 +28,25 @@ namespace WaveIsland
         private IntPtr _hwnd;
         private readonly string _kind;
         private DateTime _openedAt = DateTime.Now;
+        private bool _wasActive, _wasDown = true;
+        private readonly System.Windows.Threading.DispatcherTimer _outside;
+        private static string _lastClosedKind;
+        private static DateTime _lastClosedAt;
+        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
+
+        /// <summary>Bouton de la souris (ou doigt) appuye en dehors du panneau : on le ferme.</summary>
+        private void CheckOutside()
+        {
+            bool down = (GetAsyncKeyState(0x01) & 0x8000) != 0;
+            bool pressed = down && !_wasDown;
+            _wasDown = down;
+            if (!pressed || _closing || _hwnd == IntPtr.Zero) return;
+            if ((DateTime.Now - _openedAt).TotalMilliseconds < 350) return;
+            Native.GetCursorPos(out var p);
+            Native.GetWindowRect(_hwnd, out var r);
+            if (p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom) return;
+            CloseAnimated();
+        }
 
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -48,6 +67,8 @@ namespace WaveIsland
                 Current.CloseAnimated();
                 if (same) return;
             }
+            // Le toucher sur la bulle vient de fermer ce meme panneau (toucher « a cote ») : on ne le rouvre pas
+            if (_lastClosedKind == kind && (DateTime.Now - _lastClosedAt).TotalMilliseconds < 450) return;
             var p = new TaskbarPanel(kind);
             Current = p;
             p.Open(bubble);
@@ -83,7 +104,12 @@ namespace WaveIsland
                 Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW);
             };
             // Juste apres l'ouverture, Windows peut encore donner la main a l'ancienne fenetre : on ne ferme pas pour ca
-            Deactivated += (a, b) => { if ((DateTime.Now - _openedAt).TotalMilliseconds > 500) CloseAnimated(); else Dispatcher.BeginInvoke(new Action(ForceForeground)); };
+            // Fermeture : seulement si le panneau a vraiment eu la main (en tactile, Windows ne la donne pas toujours ;
+            // avant, il se refermait des l'ouverture). Un toucher / clic a cote le ferme aussi.
+            Activated += (a, b) => _wasActive = true;
+            Deactivated += (a, b) => { if (_wasActive && (DateTime.Now - _openedAt).TotalMilliseconds > 500) CloseAnimated(); };
+            _outside = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            _outside.Tick += (a, b) => CheckOutside();
             PreviewKeyDown += (a, b) => { if (b.Key == Key.Escape) CloseAnimated(); };
 
             if (kind == "quick") BuildQuick(); else BuildNotes();
@@ -104,6 +130,8 @@ namespace WaveIsland
             // Bulle en haut de l'ecran (mode tablette) : le panneau descend en dessous ; sinon il monte au-dessus
             bool below = bubble.Top < sb.Height / k / 2;
             Top = below ? bubble.Bottom + 10 : bubble.Top - 12 - h;
+            // La vraie hauteur n'est connue qu'apres l'affichage : on recale le panneau au-dessus de sa bulle
+            if (!below) SizeChanged += (a, b) => { if (!_closing) Top = bubble.Top - 12 - ActualHeight; };
             // Depart : une goutte qui sort de la bulle
             double ox = (bubble.Left + bubble.Width / 2) - Left;
             _root.RenderTransformOrigin = new Point(Math.Max(0, Math.Min(1, ox / Width)), below ? 0 : 1);
@@ -111,6 +139,8 @@ namespace WaveIsland
             _move.Y = below ? -30 : 30;
             _root.Opacity = 0;
             _openedAt = DateTime.Now;
+            _wasDown = true;
+            _outside.Start();
             Show();
             Activate();
             ForceForeground();
@@ -140,6 +170,9 @@ namespace WaveIsland
         {
             if (_closing) return;
             _closing = true;
+            _outside.Stop();
+            _lastClosedKind = _kind;
+            _lastClosedAt = DateTime.Now;
             if (Current == this) Current = null;
             var t = TimeSpan.FromMilliseconds(200);
             var ease = new QuadraticEase { EasingMode = EasingMode.EaseIn };

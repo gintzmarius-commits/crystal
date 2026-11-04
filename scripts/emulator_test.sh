@@ -177,7 +177,7 @@ sleep 1.5
 adb shell am start -W -n $P/.MainActivity
 sleep 2.5
 # 1er glissement depuis juste au-dessus de la barre d'accueil : le dock monte
-adb shell input swipe 540 2396 540 1900 300
+adb shell input swipe 540 2385 540 2200 200
 sleep 1.6
 shot 26-dock
 

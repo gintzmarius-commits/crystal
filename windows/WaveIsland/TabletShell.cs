@@ -95,6 +95,14 @@ namespace WaveIsland
 
         public static void Stop() { if (Active) Leave(); _watch?.Stop(); }
 
+        /// <summary>Apres une relance de l'Explorateur : on remet la barre d'etat (sa place reservee a ete perdue).</summary>
+        public static void Reattach()
+        {
+            if (!Active) return;
+            Leave();
+            Apply();
+        }
+
         // ================== Applis en plein ecran ==================
 
         private delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
@@ -393,37 +401,70 @@ namespace WaveIsland
     /// <summary>Glissements des bords de Windows (tactile) : coupes en mode tablette pour que le bas soit a nous.</summary>
     public static class EdgeSwipes
     {
-        private const string Key = @"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\EdgeUI";
+        private const string Path = @"SOFTWARE\Policies\Microsoft\Windows\EdgeUI";
 
         public static bool Disabled
         {
             get
             {
-                try { return Equals(Microsoft.Win32.Registry.GetValue(Key, "AllowEdgeSwipe", 1), 0); } catch { return false; }
+                try
+                {
+                    return Equals(Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\" + Path, "AllowEdgeSwipe", 1), 0)
+                        || Equals(Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\" + Path, "AllowEdgeSwipe", 1), 0);
+                }
+                catch { return false; }
             }
         }
 
+        /// <summary>Premiere fois en mode tablette : on coupe les glissements des bords (et on relance l'Explorateur pour l'appliquer).</summary>
         public static void AskOnce()
         {
             var s = Settings.Current;
-            if (s.EdgeSwipeAsked || Disabled || Program.Demo) return;
-            s.EdgeSwipeAsked = true;
+            if (s.EdgeSwipeDone || Program.Demo) return;
+            s.EdgeSwipeDone = true;
             s.Save();
             Set(false);
         }
 
-        /// <summary>allow = false : coupe les glissements des bords de Windows (une demande d'autorisation administrateur).</summary>
+        /// <summary>
+        /// allow = false : coupe les glissements des bords de Windows (bas = menu Demarrer / barre, droite = notifications,
+        /// gauche = widgets...). Une seule demande d'autorisation administrateur ; l'Explorateur est relance pour que ce soit
+        /// pris en compte tout de suite (sinon il fallait redemarrer le PC).
+        /// </summary>
         public static void Set(bool allow)
+        {
+            string hk = @"HKLM\" + Path, hc = @"HKCU\" + Path;
+            string cmd = allow
+                ? $"/c reg delete \"{hk}\" /v AllowEdgeSwipe /f & reg delete \"{hc}\" /v AllowEdgeSwipe /f"
+                : $"/c reg add \"{hk}\" /v AllowEdgeSwipe /t REG_DWORD /d 0 /f & reg add \"{hc}\" /v AllowEdgeSwipe /t REG_DWORD /d 0 /f";
+            var ui = System.Windows.Application.Current.Dispatcher;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var p = Process.Start(new ProcessStartInfo("cmd.exe", cmd) { Verb = "runas", UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
+                    p?.WaitForExit(20000);
+                    Log.I("Glissements des bords de Windows : " + (allow ? "remis" : "coupes") + " (code " + (p?.ExitCode.ToString() ?? "?") + ")");
+                    RestartExplorer(ui);
+                }
+                catch (Exception e) { Log.I("Glissements des bords : refus ou erreur (" + e.Message + ")"); }
+            });
+        }
+
+        /// <summary>Relance l'Explorateur (la barre Wave Theme et le mode tablette se remettent en place tout seuls).</summary>
+        private static void RestartExplorer(System.Windows.Threading.Dispatcher ui)
         {
             try
             {
-                string args = allow
-                    ? @"delete HKLM\SOFTWARE\Policies\Microsoft\Windows\EdgeUI /v AllowEdgeSwipe /f"
-                    : @"add HKLM\SOFTWARE\Policies\Microsoft\Windows\EdgeUI /v AllowEdgeSwipe /t REG_DWORD /d 0 /f";
-                Process.Start(new ProcessStartInfo("reg.exe", args) { Verb = "runas", UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
-                Log.I("Glissements des bords de Windows : " + (allow ? "remis" : "coupes"));
+                foreach (var p in Process.GetProcessesByName("explorer")) { try { p.Kill(); } catch { } }
+                System.Threading.Thread.Sleep(1200);
+                if (Process.GetProcessesByName("explorer").Length == 0)
+                    Process.Start(new ProcessStartInfo(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe")) { UseShellExecute = true });
+                Log.I("Explorateur relance pour appliquer le reglage");
+                System.Threading.Thread.Sleep(3500);
+                ui.BeginInvoke(new Action(TabletShell.Reattach));
             }
-            catch (Exception e) { Log.I("Glissements des bords : refus ou erreur (" + e.Message + ")"); }
+            catch (Exception e) { Log.I("Relance de l'Explorateur impossible : " + e.Message); }
         }
     }
 }

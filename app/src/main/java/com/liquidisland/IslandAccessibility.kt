@@ -39,8 +39,6 @@ class IslandAccessibility : AccessibilityService() {
         // Jamais de plantage ici : Android couperait l'accessibilite (l'ilot passerait sous la barre d'etat)
         try {
             val t = event?.eventType ?: return
-            if (t == AccessibilityEvent.TYPE_GESTURE_DETECTION_START) { gestureSeen = false; ui.removeCallbacks(touchEnded); return }
-            if (t == AccessibilityEvent.TYPE_GESTURE_DETECTION_END) { ui.removeCallbacks(touchEnded); ui.postDelayed(touchEnded, 280); return }
             // Volet des notifications / centre de controle (HyperOS : miui.systemui.plugin)
             // (un panneau qui APPARAIT, pas la mise a jour de l'heure ou du debit dans la barre d'etat)
             val pane = t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
@@ -54,61 +52,6 @@ class IslandAccessibility : AccessibilityService() {
         } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }
     }
     override fun onInterrupt() {}
-
-    private var dockOn = false
-    private var dockStrip = 0
-
-    /**
-     * Dock Wave Theme : la bande tout en bas de l'ecran passe par l'accessibilite (avant Android),
-     * pour qu'un glissement vers le haut ouvre le dock au lieu de quitter l'appli. Tout le reste de
-     * l'ecran est laisse tel quel (zones « passthrough »).
-     */
-    fun setDockGestures(on: Boolean, stripPx: Int) {
-        if (android.os.Build.VERSION.SDK_INT < 30) return
-        if (on == dockOn && (!on || stripPx == dockStrip)) return
-        try {
-            val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
-            val b = wm.currentWindowMetrics.bounds
-            if (on) {
-                val keep = android.graphics.Region(0, 0, b.width(), b.height() - stripPx)
-                setTouchExplorationPassthroughRegion(android.view.Display.DEFAULT_DISPLAY, keep)
-                setGestureDetectionPassthroughRegion(android.view.Display.DEFAULT_DISPLAY, keep)
-            }
-            val info = serviceInfo
-            val f = android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
-            info.flags = if (on) info.flags or f else info.flags and f.inv()
-            // Debut / fin de detection de geste (seulement sur la bande du bas) : filet de securite si le geste n'est pas reconnu
-            val touch = AccessibilityEvent.TYPE_GESTURE_DETECTION_START or AccessibilityEvent.TYPE_GESTURE_DETECTION_END
-            info.eventTypes = if (on) info.eventTypes or touch else info.eventTypes and touch.inv()
-            serviceInfo = info
-            dockOn = on
-            dockStrip = stripPx
-            Log.i("LiquidIsland", "Dock : geste du bas ${if (on) "pris par Wave Island ($stripPx px)" else "rendu a Android"}")
-        } catch (e: Exception) { Log.w("LiquidIsland", "Dock : geste du bas impossible : $e") }
-    }
-
-    private var gestureSeen = false
-    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
-
-    /** Toucher fini sur la bande du bas sans geste reconnu : on le traite comme un glissement vers le haut. */
-    private val touchEnded = Runnable {
-        if (!gestureSeen && dockOn) {
-            Log.i("LiquidIsland", "Dock : glissement du bas (sans geste reconnu)")
-            IslandService.instance?.dockSwipeUp()
-        }
-    }
-
-    override fun onGesture(gestureEvent: android.accessibilityservice.AccessibilityGestureEvent): Boolean {
-        gestureSeen = true
-        ui.removeCallbacks(touchEnded)
-        val id = gestureEvent.gestureId
-        Log.i("LiquidIsland", "Dock : geste $id")
-        when (id) {
-            GESTURE_SWIPE_UP, GESTURE_SWIPE_UP_AND_DOWN, GESTURE_2_FINGER_SWIPE_UP -> IslandService.instance?.dockSwipeUp()
-            GESTURE_SWIPE_LEFT, GESTURE_SWIPE_RIGHT, GESTURE_SWIPE_UP_AND_LEFT, GESTURE_SWIPE_UP_AND_RIGHT -> IslandService.instance?.dockSwipeSide()
-        }
-        return true
-    }
 
     /** Boutons de volume : l'indicateur facon iPhone remplace celui du telephone. */
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean = try {

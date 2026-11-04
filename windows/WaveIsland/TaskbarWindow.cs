@@ -25,7 +25,9 @@ namespace WaveIsland
     /// </summary>
     public sealed class TaskbarWindow : Window
     {
-        private const double H = 64, BarH = 52, Gap = 8, Cell = 48, EdgeY = 6;
+        private const double H = 64, BarH = 52, Gap = 8, Cell = 48;
+        /// <summary>Marge invisible au-dessus des bulles : la place pour que la goutte s'etire vers le haut.</summary>
+        private const double Pad = 54, WH = H + Pad, EdgeY = Pad + 6;
 
         private readonly Canvas _root = new Canvas();
         private readonly ScreenCapture _cap = new ScreenCapture();
@@ -43,13 +45,13 @@ namespace WaveIsland
             public readonly GlassEffect Fx = new GlassEffect();
             public readonly Canvas Content = new Canvas { Background = Brushes.Transparent };
             public double X, W, Hh = BarH;
+            /// <summary>Descente (0 = en place) et etirement de la goutte (1 = forme normale) de cette bulle.</summary>
+            public readonly SpringValue Off = new SpringValue(0), St = new SpringValue(1);
             public Bubble() { Img.Effect = Fx; }
         }
 
         private readonly Bubble _win = new Bubble(), _apps = new Bubble(), _status = new Bubble(), _clock = new Bubble();
         private readonly SpringValue _appsW = new SpringValue(Cell + 16);
-        /// <summary>Descente de la barre (0 = visible, H + 20 = cachee sous l'ecran) et etirement de la goutte.</summary>
-        private readonly SpringValue _off = new SpringValue(0), _stretch = new SpringValue(1);
         private bool _dropped;
         private DateTime _awaySince = DateTime.MaxValue;
         private DispatcherTimer _mouse;
@@ -107,10 +109,10 @@ namespace WaveIsland
             _k = VisualTreeHelper.GetDpi(this).DpiScaleX;
             _w = sb.Width / _k;
             Width = _w;
-            Height = H;
+            Height = WH;
             Left = sb.Left / _k;
-            Top = (sb.Bottom / _k) - H;
-            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Img.Width = _w; b.Img.Height = H; }
+            Top = (sb.Bottom / _k) - WH;
+            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Img.Width = _w; b.Img.Height = WH; }
             HideSystemTaskbar();
             RegisterAppBar();
             Active = true;
@@ -209,7 +211,7 @@ namespace WaveIsland
         private void PlaceAppBar()
         {
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            int hp = (int)Math.Round(H * _k);
+            int hp = (int)Math.Round(WH * _k);
             Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, sb.Left, sb.Bottom - hp, sb.Width, hp, Native.SWP_NOACTIVATE);
         }
 
@@ -291,10 +293,10 @@ namespace WaveIsland
 
         private void Geo(Bubble b)
         {
-            double k = _k, W = _w * k, Hp = H * k;
-            // Goutte : la bulle s'etire en hauteur et s'affine quand la barre descend ou remonte
-            double st = _stretch.Value;
-            double w = b.W / Math.Sqrt(st), h = b.Hh * st, cx = b.X + b.W / 2, cy = EdgeY + b.Hh / 2 + _off.Value + (h - b.Hh) / 2;
+            double k = _k, W = _w * k, Hp = WH * k;
+            // Goutte : la bulle s'etire vers le haut et s'affine (ou s'ecrase et s'elargit au rebond)
+            double st = Math.Max(0.55, b.St.Value), off = b.Off.Value;
+            double w = b.W / Math.Sqrt(st), h = b.Hh * st, cx = b.X + b.W / 2, cy = EdgeY + b.Hh - h / 2 + off;
             double rad = Math.Min(h / 2, w / 2);
             const double mag = 0.95;
             b.Fx.Geo = new Point4D(cx * k, cy * k, Math.Max(0, w / 2 - rad) * k, Math.Max(0, h / 2 - rad) * k);
@@ -305,12 +307,12 @@ namespace WaveIsland
             b.Fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             b.Fx.Light = new Point4D(-0.5, -0.866, b == _win && _bubbleHidden ? 0 : 1, mag);
             Canvas.SetLeft(b.Content, b.X);
-            Canvas.SetTop(b.Content, EdgeY + _off.Value);
+            Canvas.SetTop(b.Content, EdgeY + off);
             b.Content.Width = b.W;
             b.Content.Height = b.Hh;
-            b.Content.Clip = new RectangleGeometry(new Rect((b.W - w) / 2, 0, w, h), rad, rad);
-            b.Content.Opacity = (b == _win && _bubbleHidden) ? 0 : Math.Max(0, 1 - _off.Value / (H * 0.8));
-            b.Content.IsHitTestVisible = _off.Value < 10;
+            b.Content.Clip = new RectangleGeometry(new Rect((b.W - w) / 2, b.Hh - h, w, h), rad, rad);
+            b.Content.Opacity = (b == _win && _bubbleHidden) ? 0 : Math.Max(0, Math.Min(1, 1 - off / (H * 0.7)) * Math.Min(1, 2.2 - st));
+            b.Content.IsHitTestVisible = off < 10;
         }
 
         /// <summary>Place les bulles : Windows + applis au centre, etat et heure a droite.</summary>
@@ -323,12 +325,6 @@ namespace WaveIsland
             _apps.X = gx + BarH + Gap; _apps.W = appsW;
             _clock.W = 104; _clock.X = _w - 10 - _clock.W;
             _status.W = 122; _status.X = _clock.X - Gap - _status.W;
-            // Mode tablette : l'heure et l'etat passent dans la barre du haut, il ne reste que le dock
-            foreach (var b in new[] { _status, _clock })
-            {
-                var v = Tablet ? Visibility.Collapsed : Visibility.Visible;
-                if (b.Img.Visibility != v) { b.Img.Visibility = v; b.Content.Visibility = v; }
-            }
             foreach (var b in new[] { _win, _apps, _status, _clock }) Geo(b);
             // Les icones restent centrees dans la barre pendant qu'elle s'elargit
             Canvas.SetLeft(_appsPanel, Math.Round((appsW - _appsPanel.Children.Count * Cell) / 2));
@@ -344,9 +340,11 @@ namespace WaveIsland
         private void OnFrame(object s, EventArgs e)
         {
             if (!_gate.Ready()) return;
-            _appsW.Tick(); _off.Tick(); _stretch.Tick();
+            _appsW.Tick();
+            bool moving = _appsW.Moving;
+            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
             Layout();
-            if (!_appsW.Moving && !_off.Moving && !_stretch.Moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
+            if (!moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
         }
 
         // ================== Bulle Windows (le menu des applis en sort) ==================
@@ -939,32 +937,54 @@ namespace WaveIsland
             if ((DateTime.Now - _awaySince).TotalMilliseconds > 700) Drop();
         }
 
-        /// <summary>La barre s'etire comme une goutte puis glisse sous le bord de l'ecran.</summary>
-        public async void Drop()
+        /// <summary>Les bulles, de la plus proche du centre de l'ecran a la plus eloignee (la goutte part du milieu).</summary>
+        private IEnumerable<(Bubble b, int order)> FromCenter()
+            => new[] { _win, _apps, _status, _clock }.OrderBy(x => Math.Abs(x.X + x.W / 2 - _w / 2)).Select((x, i) => (x, i));
+
+        /// <summary>
+        /// Goutte : chaque bulle s'etire vers le haut en s'affinant (la goutte se forme), puis tombe sous le bord
+        /// de l'ecran en s'allongeant. Les bulles partent l'une apres l'autre, depuis le centre.
+        /// </summary>
+        public void Drop()
         {
             if (_dropped) return;
             _dropped = true;
-            Log.I("Wave Theme : la barre descend (appli en grand ecran)");
-            _stretch.AnimateTo(1.22, new Spring(0.7, 0.2));
-            Kick();
-            await System.Threading.Tasks.Task.Delay(110);
+            Log.I("Wave Theme : la barre descend en goutte");
+            foreach (var (b, i) in FromCenter()) DropOne(b, i * 55);
+        }
+
+        private async void DropOne(Bubble b, int delayMs)
+        {
+            if (delayMs > 0) await System.Threading.Tasks.Task.Delay(delayMs);
             if (!_dropped) return;
-            _off.AnimateTo(H + 24, new Spring(0.9, 0.34));
-            _stretch.AnimateTo(1.0, new Spring(0.8, 0.4));
+            b.St.AnimateTo(1.45, new Spring(0.62, 0.22));
+            b.Off.AnimateTo(-6, new Spring(0.7, 0.22));
+            Kick();
+            await System.Threading.Tasks.Task.Delay(130);
+            if (!_dropped) return;
+            b.Off.AnimateTo(H + 40, new Spring(0.9, 0.38));
+            b.St.AnimateTo(1.75, new Spring(0.85, 0.4));
             Kick();
         }
 
-        /// <summary>Elle remonte par-dessus l'appli, s'ecrase un peu puis rebondit a sa forme.</summary>
+        /// <summary>Elles remontent par-dessus l'appli, depassent un peu, s'ecrasent puis rebondissent a leur forme.</summary>
         public void Rise()
         {
             if (!_dropped) return;
             _dropped = false;
-            Log.I("Wave Theme : la barre remonte");
-            _stretch.Set(1.25);
-            _off.AnimateTo(0, Spring.Pop);
-            _stretch.AnimateTo(1.0, new Spring(0.45, 0.5));
-            Kick();
+            Log.I("Wave Theme : la barre remonte en goutte");
+            foreach (var (b, i) in FromCenter()) RiseOne(b, i * 45);
             BringToTop();
+        }
+
+        private async void RiseOne(Bubble b, int delayMs)
+        {
+            if (delayMs > 0) await System.Threading.Tasks.Task.Delay(delayMs);
+            if (_dropped) return;
+            b.St.Set(1.7);
+            b.Off.AnimateTo(0, new Spring(0.5, 0.42));
+            b.St.AnimateTo(1.0, new Spring(0.38, 0.5));
+            Kick();
         }
 
         /// <summary>Win + touche (les touches injectees ne passent pas par le filtre de la touche Windows).</summary>

@@ -50,6 +50,8 @@ namespace WaveIsland
         /// <summary>Fermeture d'une appli en mode tablette : « ipad » ou « drop » (goutte).</summary>
         public string TabletCloseAnim { get; set; } = "ipad";
         public bool EdgeSwipeAsked { get; set; }
+        /// <summary>Glissements des bords coupes ET Explorateur relance (correctif 4.0).</summary>
+        public bool EdgeSwipeDone { get; set; }
         /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
         public bool ShowInCaptures { get; set; }
         /// <summary>Wave Drop : visible des appareils proches, envoi / reception de fichiers</summary>
