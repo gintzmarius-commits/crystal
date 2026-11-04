@@ -176,6 +176,16 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         handle?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
     }
 
+    /**
+     * HyperOS ne previent pas toujours quand on revient a l'accueil par le geste : on considere qu'on y est
+     * jusqu'a ce qu'une appli repasse au premier plan (sinon le dock s'ouvrait sur l'ecran d'accueil).
+     */
+    private fun leavingApp() {
+        inApp = false
+        lastPkg = homePkg
+        refresh()
+    }
+
     /** Laisse le bas de l'ecran a Android pendant [ms] (2e glissement = fermer l'appli, barre des taches...). */
     private fun pause(ms: Long) {
         pausedUntil = SystemClock.uptimeMillis() + ms
@@ -202,7 +212,11 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                     }
                 }
                 MotionEvent.ACTION_UP -> if (!fired && downY - e.rawY > slop) { fired = true; show() }
-                MotionEvent.ACTION_CANCEL -> if (!fired) Log.i(TAG, "Dock : glissement pris par Android")
+                MotionEvent.ACTION_CANCEL -> if (!fired) {
+                    // Android a pris le geste : l'appli se ferme, on part du principe qu'on revient a l'accueil
+                    Log.i(TAG, "Dock : glissement pris par Android")
+                    leavingApp()
+                }
             }
             return true
         }
@@ -234,7 +248,13 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         val root = object : FrameLayout(ctx) {
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 // Toucher ailleurs (ou glisser depuis le bas : Android s'en charge) : le dock redescend
-                if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) { hide(); return true }
+                if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                    // Toucher tout en bas pendant que le dock est la : c'est le 2e glissement (Android ferme l'appli)
+                    val bottom = ev.rawY <= 0f || ev.rawY > ctx.resources.displayMetrics.heightPixels - gestureHeight() - dp(40)
+                    hide()
+                    if (bottom) leavingApp()
+                    return true
+                }
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) main.removeCallbacks(autoHide)
                 val r = super.dispatchTouchEvent(ev)
                 // Toucher le dock (pas une icone) : il redescend aussi
@@ -289,7 +309,8 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         dock = null
         val remove = { try { wm.removeView(root) } catch (e: Exception) { } }
         // La zone du bas revient un peu apres (le glissement d'Android en cours n'est pas gene)
-        pause(700)
+        // Le bas de l'ecran reste a Android encore 2,5 s : un 2e glissement ferme l'appli au lieu de rouvrir le dock
+        pause(2500)
         if (!animated || dv == null) { remove(); return }
         // Goutte : le dock s'etire vers le bas, s'affine, puis tombe sous le bord de l'ecran
         dv.animate().scaleY(1.18f).scaleX(0.9f).setDuration(90).withEndAction {

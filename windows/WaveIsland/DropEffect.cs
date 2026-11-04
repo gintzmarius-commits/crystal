@@ -10,7 +10,11 @@ namespace WaveIsland
     public class DropEffect : ShaderEffect
     {
         /// <summary>Carte graphique : version complete (ps_3_0) identique au verre de l'ilot ; sinon version simple (ps_2_0).</summary>
-        public static readonly bool Full = !Program.Demo && RenderCapability.IsPixelShaderVersionSupported(3, 0) && RenderCapability.Tier >> 16 >= 2;
+        /// <summary>
+        /// Version complete du verre (plus de calculs) seulement sur un PC assez puissant :
+        /// les petits processeurs (Lenovo 500w, N100/N200, Celeron, Pentium...) prennent la version legere.
+        /// </summary>
+        public static readonly bool Full = !Program.Demo && RenderCapability.IsPixelShaderVersionSupported(3, 0) && RenderCapability.Tier >> 16 >= 2 && !Frames.LowEnd;
 
         private static readonly PixelShader Shader = new PixelShader
         {

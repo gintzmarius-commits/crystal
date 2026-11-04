@@ -41,13 +41,16 @@ namespace WaveIsland
 
         private sealed class Bubble
         {
-            public readonly Image Img = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
+            // Le verre n'est calcule que sur la zone de la bulle (avant : sur toute la largeur de l'ecran, 4 fois)
+            public readonly System.Windows.Shapes.Rectangle Img = new System.Windows.Shapes.Rectangle { IsHitTestVisible = false };
+            public readonly ImageBrush Brush = new ImageBrush { Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.Absolute };
+            public BitmapSource Source;
             public readonly GlassEffect Fx = new GlassEffect();
             public readonly Canvas Content = new Canvas { Background = Brushes.Transparent };
             public double X, W, Hh = BarH;
             /// <summary>Descente (0 = en place) et etirement de la goutte (1 = forme normale) de cette bulle.</summary>
             public readonly SpringValue Off = new SpringValue(0), St = new SpringValue(1);
-            public Bubble() { Img.Effect = Fx; }
+            public Bubble() { Img.Effect = Fx; Img.Fill = Brush; }
         }
 
         private readonly Bubble _win = new Bubble(), _apps = new Bubble(), _status = new Bubble(), _clock = new Bubble();
@@ -85,10 +88,22 @@ namespace WaveIsland
             BuildStatus();
             BuildClock();
 
-            _capTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(Math.Max(1000.0 / Frames.Fps, 1000.0 / 60)) };
+            _capTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
             _capTimer.Tick += (a, b) => Capture();
             _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
             _tick.Tick += (a, b) => Tick();
+
+            // Glisser une appli (menu Windows) ou un raccourci / programme (bureau, Explorateur) sur la barre : epinglee
+            AllowDrop = true;
+            DragOver += (a, e) =>
+            {
+                bool ok = e.Data.GetDataPresent("WaveIslandApp") || e.Data.GetDataPresent(DataFormats.FileDrop);
+                e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
+                e.Handled = true;
+            };
+            DragEnter += (a, e) => Pop(_appsPanel, 1.06);
+            DragLeave += (a, e) => Pop(_appsPanel, 1);
+            Drop += (a, e) => { Pop(_appsPanel, 1); DropPin(e.Data); e.Handled = true; };
 
             SourceInitialized += (a, b) =>
             {
@@ -112,7 +127,7 @@ namespace WaveIsland
             Height = WH;
             Left = sb.Left / _k;
             Top = (sb.Bottom / _k) - WH;
-            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Img.Width = _w; b.Img.Height = WH; }
+            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Img.Height = WH; }
             HideSystemTaskbar();
             RegisterAppBar();
             Active = true;
@@ -259,20 +274,29 @@ namespace WaveIsland
             if (_hwnd == IntPtr.Zero || _hiddenFull) return;
             if (!_excluded || !Settings.Current.Refraction)
             {
-                if (_win.Img.Source == null)
+                if (_win.Source == null)
                 {
                     var px = new byte[] { 40, 34, 30, 255 };
                     var flat = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, px, 4);
                     flat.Freeze();
-                    foreach (var b in new[] { _win, _apps, _status, _clock }) b.Img.Source = flat;
+                    foreach (var b in new[] { _win, _apps, _status, _clock })
+                    {
+                        b.Source = flat; b.Brush.ImageSource = flat;
+                        b.Brush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox; b.Brush.Viewbox = new Rect(0, 0, 1, 1);
+                    }
                 }
                 return;
             }
             if (!Native.GetWindowRect(_hwnd, out var r)) return;
             try
             {
-                if (_cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) && _win.Img.Source != _cap.Bitmap)
-                    foreach (var b in new[] { _win, _apps, _status, _clock }) b.Img.Source = _cap.Bitmap;
+                if (_cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) && _win.Source != _cap.Bitmap)
+                    foreach (var b in new[] { _win, _apps, _status, _clock })
+                    {
+                        b.Source = _cap.Bitmap; b.Brush.ImageSource = _cap.Bitmap;
+                        b.Brush.ViewboxUnits = BrushMappingMode.Absolute;
+                        Geo(b);
+                    }
                 ApplyInk();
             }
             catch { }
@@ -293,16 +317,23 @@ namespace WaveIsland
 
         private void Geo(Bubble b)
         {
-            double k = _k, W = _w * k, Hp = WH * k;
+            double k = _k, Hp = WH * k;
             // Goutte : la bulle s'etire vers le haut et s'affine (ou s'ecrase et s'elargit au rebond)
             double st = Math.Max(0.55, b.St.Value), off = b.Off.Value;
             double w = b.W / Math.Sqrt(st), h = b.Hh * st, cx = b.X + b.W / 2, cy = EdgeY + b.Hh - h / 2 + off;
             double rad = Math.Min(h / 2, w / 2);
             const double mag = 0.95;
-            b.Fx.Geo = new Point4D(cx * k, cy * k, Math.Max(0, w / 2 - rad) * k, Math.Max(0, h / 2 - rad) * k);
+            // Zone de calcul du verre : la bulle et une petite marge (les bords courbent la lumiere de juste a cote)
+            double half = Math.Max(w, b.W) / 2 + 22;
+            double rx0 = Math.Max(0, cx - half), rx1 = Math.Min(_w, cx + half), rw = Math.Max(4, rx1 - rx0);
+            Canvas.SetLeft(b.Img, rx0);
+            b.Img.Width = rw;
+            if (b.Brush.ViewboxUnits == BrushMappingMode.Absolute) b.Brush.Viewbox = new Rect(rx0 * k, 0, rw * k, Hp);
+            double W = rw * k, lx = (cx - rx0) * k;
+            b.Fx.Geo = new Point4D(lx, cy * k, Math.Max(0, w / 2 - rad) * k, Math.Max(0, h / 2 - rad) * k);
             b.Fx.Sizes = new Point4D(W, Hp, rad * k, 1.0 / (Math.Min(18, h * 0.42) * k));
             double strength = 14 * k;
-            b.Fx.Bend = new Point4D(strength / W, strength / Hp, cx * k / W * (1 - mag), cy * k / Hp * (1 - mag));
+            b.Fx.Bend = new Point4D(strength / W, strength / Hp, lx / W * (1 - mag), cy * k / Hp * (1 - mag));
             b.Fx.Tint = new Point4D(0.05, 0.06, 0.08, 0);   // verre transparent : ni voile ni flou
             b.Fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             b.Fx.Light = new Point4D(-0.5, -0.866, b == _win && _bubbleHidden ? 0 : 1, mag);
@@ -334,6 +365,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
+            _capTimer.Interval = TimeSpan.FromMilliseconds(1000.0 / Math.Min(60, Frames.Fps));
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -344,7 +376,12 @@ namespace WaveIsland
             bool moving = _appsW.Moving;
             foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
             Layout();
-            if (!moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
+            if (!moving)
+            {
+                CompositionTarget.Rendering -= OnFrame; _animating = false;
+                // Au repos : le fond n'est recopie que 15 fois par seconde (economise le processeur des petits PC)
+                _capTimer.Interval = TimeSpan.FromMilliseconds(66);
+            }
         }
 
         // ================== Bulle Windows (le menu des applis en sort) ==================
@@ -531,6 +568,28 @@ namespace WaveIsland
             st.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.75, 1, TimeSpan.FromMilliseconds(560)) { EasingFunction = new SpringEase() });
         }
 
+        private void DropPin(IDataObject d)
+        {
+            try
+            {
+                var pins = Pins();
+                if (d.GetDataPresent("WaveIslandApp") && d.GetData("WaveIslandApp") is string id)
+                {
+                    if (!pins.Contains("app|" + id)) TogglePin("app|" + id);
+                    Log.I("Wave Theme : appli epinglee par glisser-deposer");
+                    return;
+                }
+                if (d.GetData(DataFormats.FileDrop) is string[] files)
+                    foreach (var f in files)
+                    {
+                        string ext = Path.GetExtension(f).ToLowerInvariant();
+                        string pin = ext == ".lnk" ? "lnk|" + f : ext == ".exe" ? "exe|" + f : null;
+                        if (pin != null && !Pins().Contains(pin)) TogglePin(pin);
+                    }
+            }
+            catch (Exception e) { Log.I("Wave Theme : depot impossible : " + e.Message); }
+        }
+
         /// <summary>Applis epinglees au dock (pour les reglages) : nom + valeur interne.</summary>
         public List<(string name, string pin)> PinnedList() => Pins().Select(p => (FromPin(p)?.Name ?? p, p)).ToList();
 
@@ -668,6 +727,8 @@ namespace WaveIsland
             return list;
         }
 
+        private readonly List<string> _runOrder = new List<string>();
+
         private void RefreshApps()
         {
             var items = Pinned().Select(p => new AppItem { Key = p.Key, Name = p.Name, Lnk = p.Lnk, Exe = p.Exe, Aumid = p.Aumid, Pin = p.Pin, Pinned = true }).ToList();
@@ -683,6 +744,12 @@ namespace WaveIsland
                 }
                 it.Windows.Add(w.h);
             }
+            // Ordre stable : les epinglees dans leur ordre, puis les autres dans l'ordre ou elles se sont ouvertes
+            // (avant, elles suivaient l'ordre des fenetres a l'ecran et changeaient de place a chaque clic)
+            foreach (var it in items) if (!it.Pinned && !_runOrder.Contains(it.Key)) _runOrder.Add(it.Key);
+            _runOrder.RemoveAll(k => !items.Any(i => i.Key == k && !i.Pinned));
+            items = items.Where(i => i.Pinned).Concat(items.Where(i => !i.Pinned).OrderBy(i => _runOrder.IndexOf(i.Key))).ToList();
+            foreach (var it in items) it.Windows.Sort((x, y) => x.ToInt64().CompareTo(y.ToInt64()));
             var fg = GetForegroundWindow();
             string sig = string.Join("|", items.Select(i => i.Key));
             _items = items;

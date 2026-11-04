@@ -100,10 +100,29 @@ namespace WaveIsland
         public static void Begin(IntPtr app)
         {
             if (Current != null) return;
-            var shot = Shot(app);
+            // Pas d'attente : on part de la derniere image connue et on la rafraichit en arriere-plan
+            Shots.TryGetValue(app, out var shot);
             var m = new AppMotion(app);
             Current = m;
             m.Open(shot);
+            m.Refresh(app);
+        }
+
+        /// <summary>Copie a jour d'une fenetre, faite hors du fil de l'interface (aucune saccade).</summary>
+        private async void Refresh(IntPtr h)
+        {
+            var b = await Task.Run(() => Capture(h));
+            if (b == null || _closing) return;
+            Shots[h] = b;
+            foreach (var c in _cards.Where(c => c.Src == h)) { c.View.Background = new ImageBrush(b) { Stretch = Stretch.Fill }; c.View.Child = null; }
+        }
+
+        /// <summary>Mode tablette : garde une image recente de l'appli au premier plan (pour des animations immediates).</summary>
+        public static async void Cache(IntPtr h)
+        {
+            if (h == IntPtr.Zero || Current != null) return;
+            var b = await Task.Run(() => Capture(h));
+            if (b != null) Shots[h] = b;
         }
 
         private AppMotion(IntPtr app)
@@ -197,9 +216,10 @@ namespace WaveIsland
             c.View = new Border
             {
                 Background = shot != null ? new ImageBrush(shot) { Stretch = Stretch.Fill } : (Brush)new SolidColorBrush(Color.FromArgb(150, 40, 44, 54)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), BorderThickness = new Thickness(0.8),
-                Child = inner,
-                Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 6, Direction = 270, Opacity = 0.35 }
+                // Contour noir (ou blanc) au lieu d'une grosse ombre : bien plus leger pour les petits PC
+                BorderBrush = Settings.Current.WindowBorder == "white" ? new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)) : new SolidColorBrush(Color.FromArgb(230, 0, 0, 0)),
+                BorderThickness = new Thickness(Settings.Current.WindowBorder == "none" ? 0 : 1.5),
+                Child = inner
             };
             // Voile pour les cartes du fond (plus elles sont loin, plus elles sont sombres)
             c.Shade = new Border { Background = Brushes.Black, Opacity = 0, IsHitTestVisible = false };
@@ -390,7 +410,8 @@ namespace WaveIsland
             Log.I("Mode tablette : vue des applis ouvertes");
             var first = _cards[0];
             var others = TaskbarWindow.AppWindows().Select(w => w.h).Where(h => h != _app).ToList();
-            foreach (var h in others) if (!Shots.ContainsKey(h)) Shot(h);
+            // Les images manquantes arrivent en arriere-plan (la vue s'ouvre tout de suite)
+            foreach (var h in others) if (!Shots.ContainsKey(h)) Refresh(h);
             // Ordre d'affichage : la plus ancienne d'abord (au fond), la plus recente en dernier (devant)
             for (int i = others.Count - 1; i >= 0; i--)
             {

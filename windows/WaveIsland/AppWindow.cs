@@ -299,6 +299,9 @@ namespace WaveIsland
             tab.Children.Add(T("Animation quand une appli se ferme", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
             tab.Children.Add(Segmented(new[] { "Goutte", "iPad" }, new[] { "drop", "ipad" },
                 () => S.TabletCloseAnim2, v => { S.TabletCloseAnim2 = v; S.Save(); }));
+            tab.Children.Add(T("Contour des fenêtres d'applis (coins arrondis)", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            tab.Children.Add(Segmented(new[] { "Noir", "Blanc", "Windows" }, new[] { "black", "white", "none" },
+                () => S.WindowBorder, v => { S.WindowBorder = v; S.Save(); TabletShell.ReapplyBorders(); }));
             tab.Children.Add(Button("Couper les glissements des bords de Windows", () => EdgeSwipes.Set(false)));
             tab.Children.Add(Button("Remettre les glissements des bords de Windows", () => EdgeSwipes.Set(true)));
             _col.Children.Add(tab.Parent as FrameworkElement);

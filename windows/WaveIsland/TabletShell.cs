@@ -49,12 +49,26 @@ namespace WaveIsland
             catch { return false; }
         }
 
+        private static int _tick;
+
         public static void Start()
         {
             _watch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
-            _watch.Tick += (a, b) => Apply();
+            _watch.Tick += (a, b) =>
+            {
+                Apply();
+                // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
+                if (Active && ++_tick % 2 == 0 && AppMotion.Current == null) AppMotion.Cache(AppInFront());
+            };
             _watch.Start();
+            // Contour et coins arrondis des fenetres : surveille l'appli au premier plan (dans tous les modes)
+            _hookProc ??= OnForeground;
+            _hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _hookProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+            // Ecran tourne (portrait / paysage) : la petite barre du bas se replace
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (a, b) =>
+                System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() => { if (Active) { _edge?.Start(); Log.I("Mode tablette : ecran tourne"); } }));
             Apply();
+            Border(GetForegroundWindow());
         }
 
         /// <summary>Choisit le mode selon le reglage : « auto » (ecran retourne), « on » ou « off ».</summary>
@@ -74,8 +88,6 @@ namespace WaveIsland
             App.Taskbar.SetTablet(true);
             _edge ??= new EdgeWindow();
             _edge.Start();
-            _hookProc ??= OnForeground;
-            _hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _hookProc, 0, 0, WINEVENT_OUTOFCONTEXT);
             MaximizeIfApp(GetForegroundWindow());
             EdgeSwipes.AskOnce();
         }
@@ -86,10 +98,14 @@ namespace WaveIsland
             Log.I("Mode tablette : desactive");
             App.Taskbar?.SetTablet(false);
             _edge?.Stop();
-            if (_hook != IntPtr.Zero) { UnhookWinEvent(_hook); _hook = IntPtr.Zero; }
         }
 
-        public static void Stop() { if (Active) Leave(); _watch?.Stop(); }
+        public static void Stop()
+        {
+            if (Active) Leave();
+            _watch?.Stop();
+            if (_hook != IntPtr.Zero) { UnhookWinEvent(_hook); _hook = IntPtr.Zero; }
+        }
 
         /// <summary>Apres une relance de l'Explorateur : on remet la barre d'etat (sa place reservee a ete perdue).</summary>
         public static void Reattach()
@@ -114,8 +130,50 @@ namespace WaveIsland
 
         private static void OnForeground(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
         {
-            if (idObject != 0 || !Active) return;
-            MaximizeIfApp(hwnd);
+            if (idObject != 0) return;
+            Border(hwnd);
+            if (Active) MaximizeIfApp(hwnd);
+        }
+
+        [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
+        private static readonly HashSet<IntPtr> _bordered = new HashSet<IntPtr>();
+
+        /// <summary>Coins arrondis + contour noir (ou blanc) autour de chaque fenetre d'appli (Windows 11).</summary>
+        internal static void Border(IntPtr h)
+        {
+            try
+            {
+                string mode = Settings.Current.WindowBorder ?? "black";
+                if (h == IntPtr.Zero || mode == "none" || _bordered.Contains(h)) return;
+                GetWindowThreadProcessId(h, out uint pid);
+                if (pid == (uint)Environment.ProcessId) return;
+                if (GetWindow(h, 4 /* GW_OWNER */) != IntPtr.Zero) return;
+                int ex = Native.GetWindowLong(h, Native.GWL_EXSTYLE);
+                if ((ex & Native.WS_EX_TOOLWINDOW) != 0) return;
+                int round = 2; // DWMWCP_ROUND
+                DwmSetWindowAttribute(h, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, 4);
+                int color = mode == "white" ? 0x00FFFFFF : 0x00000000;
+                DwmSetWindowAttribute(h, 34 /* DWMWA_BORDER_COLOR */, ref color, 4);
+                if (_bordered.Count > 2000) _bordered.Clear();
+                _bordered.Add(h);
+            }
+            catch { }
+        }
+
+        /// <summary>Reglage change : on remet le contour de Windows ou on applique le nouveau a toutes les fenetres.</summary>
+        public static void ReapplyBorders()
+        {
+            string mode = Settings.Current.WindowBorder ?? "black";
+            foreach (var w in TaskbarWindow.AppWindows())
+            {
+                if (mode == "none")
+                {
+                    int def = unchecked((int)0xFFFFFFFF); // DWMWA_COLOR_DEFAULT
+                    DwmSetWindowAttribute(w.h, 34, ref def, 4);
+                }
+                else { _bordered.Remove(w.h); Border(w.h); }
+            }
+            if (mode == "none") _bordered.Clear();
         }
 
         /// <summary>Comme sur iPad : une vraie fenetre d'appli s'ouvre en plein ecran.</summary>
@@ -256,8 +314,11 @@ namespace WaveIsland
             Height = EH;
             Left = sb.Left / k;
             Top = sb.Bottom / k - EH;
-            _t ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-            _t.Tick += (a, b) => Refresh();
+            if (_t == null)
+            {
+                _t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                _t.Tick += (a, b) => Refresh();
+            }
             _t.Start();
             Refresh();
         }

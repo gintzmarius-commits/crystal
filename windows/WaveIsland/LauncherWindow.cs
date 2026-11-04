@@ -114,7 +114,7 @@ namespace WaveIsland
             _root.Children.Add(_content);
             Content = _root;
 
-            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
+            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
             _captureTimer.Tick += (a, b) => Capture();
 
             SourceInitialized += (a, b) =>
@@ -192,7 +192,6 @@ namespace WaveIsland
             _alpha.Set(0);
             Render();
             if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
-            _captureTimer.Interval = Frames.Interval;
             Show();
             // Au-dessus de tout, y compris d'une video ou d'un jeu en plein ecran
             if (_hwnd != IntPtr.Zero)
@@ -311,6 +310,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
+            _captureTimer.Interval = Frames.Interval;   // fond recopie a pleine cadence pendant l'animation
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -323,6 +323,8 @@ namespace WaveIsland
             {
                 CompositionTarget.Rendering -= OnFrame;
                 _animating = false;
+                // Au repos : 15 copies du fond par seconde suffisent (moins de travail pour les petits PC)
+                _captureTimer.Interval = TimeSpan.FromMilliseconds(66);
             }
         }
 
@@ -819,10 +821,29 @@ namespace WaveIsland
             var rest = cell.Background;
             cell.MouseEnter += (x, y) => cell.Background = _plateHover;
             cell.MouseLeave += (x, y) => { cell.Background = rest; press.ScaleX = press.ScaleY = 1; };
-            cell.MouseLeftButtonDown += (x, y) => { press.ScaleX = press.ScaleY = 0.9; y.Handled = true; };
-            cell.MouseLeftButtonUp += (x, y) => { y.Handled = true; press.ScaleX = press.ScaleY = 1; click(); };
+            Point downAt = new Point();
+            bool down = false, dragged = false;
+            cell.MouseLeftButtonDown += (x, y) => { press.ScaleX = press.ScaleY = 0.9; y.Handled = true; down = true; dragged = false; downAt = y.GetPosition(this); };
+            cell.MouseLeftButtonUp += (x, y) => { y.Handled = true; press.ScaleX = press.ScaleY = 1; down = false; if (!dragged) click(); };
             if (app != null)
             {
+                // Glisser une appli du menu jusqu'a la barre des taches / au dock : elle y est epinglee
+                cell.MouseMove += (x, y) =>
+                {
+                    if (!down || dragged || y.LeftButton != MouseButtonState.Pressed) return;
+                    var p = y.GetPosition(this);
+                    if (Math.Abs(p.X - downAt.X) < 10 && Math.Abs(p.Y - downAt.Y) < 10) return;
+                    dragged = true;
+                    press.ScaleX = press.ScaleY = 1;
+                    _dialog = true; // le menu reste ouvert pendant le glisser-deposer
+                    try
+                    {
+                        var data = new DataObject("WaveIslandApp", app.Id);
+                        DragDrop.DoDragDrop(cell, data, DragDropEffects.Copy | DragDropEffects.Link);
+                    }
+                    catch { }
+                    finally { _dialog = false; down = false; }
+                };
                 cell.MouseRightButtonUp += (x, y) =>
                 {
                     y.Handled = true;

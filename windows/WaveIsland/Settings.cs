@@ -52,6 +52,8 @@ namespace WaveIsland
         public bool EdgeSwipeAsked { get; set; }
         /// <summary>Glissements des bords coupes ET Explorateur relance (correctif 4.0).</summary>
         public bool EdgeSwipeDone { get; set; }
+        /// <summary>Contour des fenetres d'applis (coins arrondis) : « black », « white » ou « none ».</summary>
+        public string WindowBorder { get; set; } = "black";
         /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
         public bool ShowInCaptures { get; set; }
         /// <summary>Wave Drop : visible des appareils proches, envoi / reception de fichiers</summary>

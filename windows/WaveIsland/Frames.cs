@@ -12,6 +12,22 @@ namespace WaveIsland
     /// </summary>
     public static class Frames
     {
+        /// <summary>Petit PC (4 coeurs ou moins, ou processeur basse consommation) : on allege le verre.</summary>
+        public static readonly bool LowEnd = DetectLowEnd();
+
+        private static bool DetectLowEnd()
+        {
+            try
+            {
+                if (Environment.ProcessorCount <= 4) return true;
+                string cpu = (Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0", "ProcessorNameString", "") as string ?? "").ToLowerInvariant();
+                foreach (var w in new[] { "celeron", "pentium", "atom", " n100", " n200", " n50", " n95", " n97", "i3-n", " n300", "athlon" })
+                    if (cpu.Contains(w)) return true;
+            }
+            catch { }
+            return false;
+        }
+
         public static int Fps => Math.Max(30, Math.Min(120, Settings.Current.Fps));
         public static TimeSpan Interval => TimeSpan.FromMilliseconds(1000.0 / Fps);
 

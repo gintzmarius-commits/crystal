@@ -257,7 +257,7 @@ namespace WaveIsland
             };
             MouseWheel += (a, b) => _volume?.Wheel(b.Delta);
 
-            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
+            _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
             _captureTimer.Tick += (a, b) => CaptureFrame();
             _hideTimer = new DispatcherTimer();
             _hideTimer.Tick += (a, b) => { _hideTimer.Stop(); if (!_hover) Collapse(); };
@@ -330,7 +330,6 @@ namespace WaveIsland
         private void ApplySettings()
         {
             if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
-            _captureTimer.Interval = Frames.Interval;
             Place();
             _flat = null;
             BuildMenu();
@@ -970,6 +969,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
+            _captureTimer.Interval = Frames.Interval;   // fond recopie a pleine cadence pendant l'animation
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -984,6 +984,8 @@ namespace WaveIsland
             {
                 CompositionTarget.Rendering -= OnFrame;
                 _animating = false;
+                // Au repos : 15 copies du fond par seconde suffisent (moins de travail pour les petits PC)
+                _captureTimer.Interval = TimeSpan.FromMilliseconds(66);
             }
         }
 
