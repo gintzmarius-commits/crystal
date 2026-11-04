@@ -40,7 +40,14 @@ namespace WaveIsland
         /// <summary>Ecran retourne / clavier replie (PC convertible) ?</summary>
         public static bool SlateNow()
         {
-            try { return GetSystemMetrics(SM_CONVERTIBLESLATEMODE) == 0; } catch { return false; }
+            try
+            {
+                // Un PC de bureau (ou sans ecran tactile) repond aussi « 0 » : on exige un ecran tactile integre
+                int dig = GetSystemMetrics(94 /* SM_DIGITIZER */);
+                bool touch = (dig & 0x01 /* NID_INTEGRATED_TOUCH */) != 0 && (dig & 0x80 /* NID_READY */) != 0;
+                return touch && GetSystemMetrics(SM_CONVERTIBLESLATEMODE) == 0;
+            }
+            catch { return false; }
         }
 
         public static void Start()
