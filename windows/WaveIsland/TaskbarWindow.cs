@@ -56,6 +56,7 @@ namespace WaveIsland
         private readonly Bubble _win = new Bubble(), _apps = new Bubble(), _status = new Bubble(), _clock = new Bubble();
         private readonly SpringValue _appsW = new SpringValue(Cell + 16);
         private bool _dropped;
+        private DateTime _riseAt = DateTime.MinValue;
         private DateTime _awaySince = DateTime.MaxValue;
         private DispatcherTimer _mouse;
         private readonly TextBlock _time = new TextBlock(), _date = new TextBlock(), _wifi = new TextBlock(), _vol = new TextBlock(), _bat = new TextBlock();
@@ -989,6 +990,14 @@ namespace WaveIsland
             BringToTop();
         }
 
+        /// <summary>Temps (ms) avant que le dock soit completement sorti et pose (0 s'il est deja la).</summary>
+        public int DockSettleMs()
+        {
+            if (_dropped) return 800;
+            double done = (DateTime.Now - _riseAt).TotalMilliseconds;
+            return (int)Math.Max(0, 700 - done);
+        }
+
         /// <summary>Fin d'une animation : le dock suit de nouveau les applis (sans bouger tout de suite).</summary>
         public void ReleaseDock() => _shownUntil = DateTime.MinValue;
 
@@ -1107,6 +1116,7 @@ namespace WaveIsland
         {
             if (!_dropped) return;
             _dropped = false;
+            _riseAt = DateTime.Now;
             Log.I("Wave Theme : la barre remonte en goutte");
             foreach (var (b, i) in FromCenter()) RiseOne(b, i * 45);
             BringToTop();

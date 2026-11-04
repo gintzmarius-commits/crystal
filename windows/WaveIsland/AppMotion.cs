@@ -412,7 +412,10 @@ namespace WaveIsland
             c.W.AnimateTo(IconSize, morph); c.H.AnimateTo(IconSize, morph);
             c.X.AnimateTo(cx - IconSize / 2, morph); c.Y.AnimateTo(cy - IconSize / 2, morph);
             Kick();
-            await Task.Delay(wasOut ? 170 : 380);   // le dock a le temps de sortir
+            await Task.Delay(170);
+            // Le dock doit etre completement sorti avant que l'icone y aille
+            int wait = App.Taskbar?.DockSettleMs() ?? 0;
+            if (wait > 0) await Task.Delay(wait);
             // 2) l'icone vole a sa place dans le dock et rebondit
             DockOnTop();
             var target = App.Taskbar?.IconRect(_app) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
@@ -798,7 +801,7 @@ namespace WaveIsland
             var live = Live;
             foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
             // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
-            await Task.Delay(wasOut ? 120 : 450);
+            await Task.Delay(Math.Max(60, App.Taskbar?.DockSettleMs() ?? 0));
             int i = 0;
             foreach (var c in live) Fly(c, i++);
             await Task.Delay(120 + live.Count * 50);
