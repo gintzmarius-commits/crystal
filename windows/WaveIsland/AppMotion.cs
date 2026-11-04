@@ -684,7 +684,6 @@ namespace WaveIsland
                     _flingVel = _flingVel * 0.6 + dyStep / dt * 0.4;
                     double up = Math.Min(0, ty);
                     _fling.Y.Set(_flingFrom.Y + up + Math.Max(0, ty) * 0.2);
-                    _fling.X.Set(_flingFrom.X + tx * 0.25);
                     Render();
                     break;
                 }
@@ -744,6 +743,8 @@ namespace WaveIsland
             {
                 _gathered = true;
                 foreach (var c in live) c.Mix.AnimateTo(1, new Spring(0.8, 0.3));
+                // Le dock sort tout de suite : les icones auront leur place ou se ranger
+                App.Taskbar?.ShowDock(15);
                 Log.I("Mode tablette : apercus changes en icones");
             }
             else if (_gathered && down < 55)
@@ -785,10 +786,12 @@ namespace WaveIsland
         {
             Log.I("Mode tablette : toutes les applis rangees dans le dock");
             _layoutLive = false;
+            bool wasOut = App.Taskbar?.DockVisible ?? true;
             App.Taskbar?.ShowDock(10);
             var live = Live;
             foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
-            await Task.Delay(60);
+            // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
+            await Task.Delay(wasOut ? 120 : 450);
             int i = 0;
             foreach (var c in live) Fly(c, i++);
             await Task.Delay(120 + live.Count * 50);

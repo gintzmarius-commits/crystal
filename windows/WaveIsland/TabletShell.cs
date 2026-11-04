@@ -200,7 +200,8 @@ namespace WaveIsland
         internal static IntPtr AppInFront()
         {
             var fg = GetForegroundWindow();
-            if (fg == IntPtr.Zero) return IntPtr.Zero;
+            // Une appli reduite (rangee dans le dock) peut rester « au premier plan » : on est alors sur le bureau
+            if (fg == IntPtr.Zero || Native.IsIconic(fg) || !IsWindowVisible(fg)) return IntPtr.Zero;
             GetWindowThreadProcessId(fg, out uint pid);
             if (pid == (uint)Environment.ProcessId) return IntPtr.Zero;
             var cls = new StringBuilder(64);
