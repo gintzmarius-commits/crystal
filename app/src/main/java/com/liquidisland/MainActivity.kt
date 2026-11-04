@@ -114,9 +114,15 @@ class MainActivity : Activity() {
         ) { Prefs.setLiveDownloads(this, it); IslandService.instance?.applySettings() })
         live.addView(switchRow(
             "Dock Wave Theme",
-            text("Comme sur iPad : touche la barre tout en bas de l'écran (navigation par gestes) pour faire monter tes applis favorites et récentes. Appui long sur une icône : l'ajouter ou la retirer des favoris.", 13f, Glass.INK_SOFT),
+            text("Un contour en verre liquide autour des applis du bas de l'écran d'accueil, comme sur iPhone. Il ne bloque rien : tes icônes et le glissement vers le haut marchent comme avant.", 13f, Glass.INK_SOFT),
             Prefs.dock(this)
         ) { Prefs.setDock(this, it); IslandService.instance?.updateStrip() })
+        live.addView(slider("Dock : distance du bas", 0, 80, Prefs.dockBottom(this)) {
+            Prefs.setDockBottom(this, it); IslandService.instance?.updateStrip()
+        })
+        live.addView(slider("Dock : hauteur", 60, 160, Prefs.dockHeight(this)) {
+            Prefs.setDockHeight(this, it); IslandService.instance?.updateStrip()
+        })
         live.addView(switchRow(
             "Centres de notifications et de contrôle",
             text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Glass.INK_SOFT),

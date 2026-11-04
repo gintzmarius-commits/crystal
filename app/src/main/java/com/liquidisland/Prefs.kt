@@ -83,4 +83,8 @@ object Prefs {
     fun setDock(c: Context, v: Boolean) = sp(c).edit().putBoolean("dock", v).apply()
     fun dockApps(c: Context): List<String> = (sp(c).getString("dockApps", "") ?: "").split("|").filter { it.isNotBlank() }
     fun setDockApps(c: Context, l: List<String>) = sp(c).edit().putString("dockApps", l.joinToString("|")).apply()
+    fun dockHeight(c: Context) = sp(c).getInt("dockH", 104)
+    fun setDockHeight(c: Context, v: Int) = sp(c).edit().putInt("dockH", v).apply()
+    fun dockBottom(c: Context) = sp(c).getInt("dockY", 16)
+    fun setDockBottom(c: Context, v: Int) = sp(c).edit().putInt("dockY", v).apply()
 }

@@ -178,9 +178,7 @@ adb shell am start -W -n $P/.MainActivity
 sleep 2
 adb shell input keyevent KEYCODE_HOME
 sleep 2
-echo "::notice::Navigation : $(adb shell settings get secure navigation_mode)"
-adb shell input tap 540 2392
-sleep 1.8
+sleep 1.5
 shot 26-dock
 
 timeout 90 "$ADB_BIN" logcat -d > $OUT/logcat-complet.txt
@@ -207,7 +205,7 @@ grep -q "Volume : " $OUT/log.txt || { echo "::error::Les boutons de volume ne so
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Wave Drop : demarrage" $OUT/log.txt || { echo "::error::Wave Drop ne s'est pas lance"; fail=1; }
 grep -q "panneau ouvert depuis l'ilot" $OUT/log.txt || echo "::warning::Glisser l'ilot n'a pas ouvert Wave Drop"
-grep -q "Dock ouvert" $OUT/log.txt || echo "::warning::Le dock ne s'est pas ouvert"
+grep -q "Dock : contour affiche" $OUT/log.txt || echo "::warning::Le contour du dock ne s'est pas affiche sur l'accueil"
 grep -q "Centre Wave Island ouvert" $OUT/log.txt || echo "::warning::Tirer la barre d'etat n'a pas ouvert le centre Wave Island"
 grep "Bord du haut tire" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
