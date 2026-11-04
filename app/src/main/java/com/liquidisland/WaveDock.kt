@@ -53,6 +53,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     private var inApp = false
     private var touchable = false
     private var homePkg: String? = null
+    private var lastPkg: String? = null
     private val recents = ArrayList<String>()
 
     companion object {
@@ -109,7 +110,10 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         }
         if (inApp != !home) Log.i(TAG, "Dock : ${if (home) "accueil" else "appli ouverte ($pkg)"}")
         inApp = !home
-        if (shown) hide()
+        // Le dock lui-meme (fenetre de Wave Island) declenche aussi cet evenement : on ne le ferme
+        // que si on change vraiment d'appli
+        if (shown && pkg != lastPkg) hide()
+        lastPkg = pkg
         refresh()
     }
 
