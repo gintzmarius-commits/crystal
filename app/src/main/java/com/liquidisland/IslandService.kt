@@ -1797,6 +1797,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         main.postDelayed(collapseRunnable, 1800)
     }
 
+    /** Telephones colles (NFC) : l'ilot vibre et le menu Wave Drop en sort tout seul. */
+    fun openWaveDropFromNfc() {
+        main.post {
+            Log.i(TAG, "Wave Drop : telephones colles, menu ouvert depuis l'ilot")
+            if (mode != Mode.COLLAPSED) collapse("telephones colles")
+            openWaveDrop()
+        }
+    }
+
     /** Glisser l'ilot replie vers le bas : le panneau Wave Drop coule depuis l'ilot. */
     private fun openWaveDrop() {
         Log.i(TAG, "Wave Drop : panneau ouvert depuis l'ilot")

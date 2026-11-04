@@ -276,6 +276,13 @@ object WaveDrop {
         notifyNearby()
     }
 
+    /** Telephones colles : le menu Wave Drop sort de l'ilot (s'il n'est pas deja ouvert). */
+    fun touched(c: Context) {
+        if (uis.any { it is WaveDropActivity }) return
+        val island = com.liquidisland.IslandService.instance
+        if (island != null) island.openWaveDropFromNfc() else WaveDropActivity.open(c)
+    }
+
     /** Appareil detecte en collant les telephones (NFC). */
     fun nfcPeer(b: WaveDropProtocol.Beacon, name: String) {
         if (b.id == myId) return

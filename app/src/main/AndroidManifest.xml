@@ -124,6 +124,20 @@
             android:taskAffinity="com.liquidisland.shade"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- Wave Drop : deux telephones colles alors que le menu est ferme -->
+        <activity
+            android:name=".drop.NfcTapActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.liquidisland.nfc"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.nfc.action.TECH_DISCOVERED" />
+            </intent-filter>
+            <meta-data android:name="android.nfc.action.TECH_DISCOVERED" android:resource="@xml/wavedrop_nfc_tech" />
+        </activity>
+
         <!-- Pastilles des reglages rapides (comme Tailscale ou Proton) -->
         <service
             android:name=".WaveDropTile"

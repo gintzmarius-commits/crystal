@@ -152,12 +152,13 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     /** [f] = 0 (ferme) a 1 (ouvert). Sans flou (economie d'energie, vieux Android) : verre plus teinte. */
     private fun applyBlur(f: Float) {
         blurLevel = f
-        val tint = if (blurOn) 46 else 200
+        // Verre liquide clair (pas de verre depoli) : les textes restent lisibles grace a leurs petites plaques
+        val tint = 58
         window.setBackgroundDrawable(GradientDrawable().apply {
             cornerRadius = dpf(34)
             setColor(Color.argb((tint * f).toInt(), 12, 16, 24))
         })
-        if (Build.VERSION.SDK_INT >= 31 && blurOn) window.setBackgroundBlurRadius((dpf(26) * f).toInt())
+        if (Build.VERSION.SDK_INT >= 31 && blurOn) window.setBackgroundBlurRadius(0)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -447,18 +448,11 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         if (a != null && a.isEnabled && Build.VERSION.SDK_INT >= 19) {
             try {
                 a.enableReaderMode(this, { tag ->
-                    val iso = IsoDep.get(tag) ?: return@enableReaderMode
-                    try {
-                        iso.connect()
-                        iso.timeout = 2000
-                        val res = WaveDropHce.parse(iso.transceive(WaveDropHce.selectApdu()))
-                        if (res != null) runOnUiThread {
-                            WaveDrop.nfcPeer(res.first, res.second)
-                            window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
-                        }
-                    } catch (e: Exception) {
-                        Log.w("LiquidIsland", "Wave Drop : lecture NFC impossible ($e)")
-                    } finally { try { iso.close() } catch (e: Exception) { } }
+                    val res = WaveDropHce.exchange(tag)
+                    if (res != null) runOnUiThread {
+                        WaveDrop.nfcPeer(res.first, res.second)
+                        window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                    }
                 }, NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NFC_B or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS, null)
             } catch (e: Exception) { Log.w("LiquidIsland", "Wave Drop : NFC indisponible ($e)") }
         }
