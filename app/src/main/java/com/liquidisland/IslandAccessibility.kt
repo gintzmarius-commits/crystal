@@ -39,6 +39,8 @@ class IslandAccessibility : AccessibilityService() {
         // Jamais de plantage ici : Android couperait l'accessibilite (l'ilot passerait sous la barre d'etat)
         try {
             val t = event?.eventType ?: return
+            if (t == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) { gestureSeen = false; ui.removeCallbacks(touchEnded); return }
+            if (t == AccessibilityEvent.TYPE_TOUCH_INTERACTION_END) { ui.removeCallbacks(touchEnded); ui.postDelayed(touchEnded, 280); return }
             // Volet des notifications / centre de controle (HyperOS : miui.systemui.plugin)
             // (un panneau qui APPARAIT, pas la mise a jour de l'heure ou du debit dans la barre d'etat)
             val pane = t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
@@ -75,6 +77,9 @@ class IslandAccessibility : AccessibilityService() {
             val info = serviceInfo
             val f = android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
             info.flags = if (on) info.flags or f else info.flags and f.inv()
+            // Debut / fin d'un toucher sur la bande du bas : filet de securite si le geste n'est pas reconnu
+            val touch = AccessibilityEvent.TYPE_TOUCH_INTERACTION_START or AccessibilityEvent.TYPE_TOUCH_INTERACTION_END
+            info.eventTypes = if (on) info.eventTypes or touch else info.eventTypes and touch.inv()
             serviceInfo = info
             dockOn = on
             dockStrip = stripPx
@@ -82,7 +87,20 @@ class IslandAccessibility : AccessibilityService() {
         } catch (e: Exception) { Log.w("LiquidIsland", "Dock : geste du bas impossible : $e") }
     }
 
+    private var gestureSeen = false
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Toucher fini sur la bande du bas sans geste reconnu : on le traite comme un glissement vers le haut. */
+    private val touchEnded = Runnable {
+        if (!gestureSeen && dockOn) {
+            Log.i("LiquidIsland", "Dock : glissement du bas (sans geste reconnu)")
+            IslandService.instance?.dockSwipeUp()
+        }
+    }
+
     override fun onGesture(gestureEvent: android.accessibilityservice.AccessibilityGestureEvent): Boolean {
+        gestureSeen = true
+        ui.removeCallbacks(touchEnded)
         val id = gestureEvent.gestureId
         Log.i("LiquidIsland", "Dock : geste $id")
         when (id) {
