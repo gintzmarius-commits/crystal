@@ -83,6 +83,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             windowAnimations = 0
         }
         try { wm.addView(v, lp); handle = v; handleLp = lp } catch (e: Exception) { Log.w(TAG, "Dock : zone tactile impossible : $e") }
+        Log.i(TAG, "Dock : zone de ${dp(BAND)} px a ${gestureHeight()} px du bas")
         refresh()
     }
 
@@ -117,9 +118,10 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     } catch (e: Exception) { false }
 
     private fun gestureHeight(): Int {
-        val id = ctx.resources.getIdentifier("navigation_bar_gesture_height", "dimen", "android")
+        // Hauteur de la petite barre d'accueil (la ou Android garde le geste pour lui)
+        val id = ctx.resources.getIdentifier("navigation_bar_height", "dimen", "android")
         val h = if (id > 0) ctx.resources.getDimensionPixelSize(id) else 0
-        return maxOf(h, dp(16))
+        return maxOf(h, dp(14)).coerceAtMost(dp(40))
     }
 
     private fun refresh() {
