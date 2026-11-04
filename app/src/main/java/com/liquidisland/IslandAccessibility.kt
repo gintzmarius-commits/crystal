@@ -39,8 +39,8 @@ class IslandAccessibility : AccessibilityService() {
         // Jamais de plantage ici : Android couperait l'accessibilite (l'ilot passerait sous la barre d'etat)
         try {
             val t = event?.eventType ?: return
-            if (t == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) { gestureSeen = false; ui.removeCallbacks(touchEnded); return }
-            if (t == AccessibilityEvent.TYPE_TOUCH_INTERACTION_END) { ui.removeCallbacks(touchEnded); ui.postDelayed(touchEnded, 280); return }
+            if (t == AccessibilityEvent.TYPE_GESTURE_DETECTION_START) { gestureSeen = false; ui.removeCallbacks(touchEnded); return }
+            if (t == AccessibilityEvent.TYPE_GESTURE_DETECTION_END) { ui.removeCallbacks(touchEnded); ui.postDelayed(touchEnded, 280); return }
             // Volet des notifications / centre de controle (HyperOS : miui.systemui.plugin)
             // (un panneau qui APPARAIT, pas la mise a jour de l'heure ou du debit dans la barre d'etat)
             val pane = t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
@@ -77,8 +77,8 @@ class IslandAccessibility : AccessibilityService() {
             val info = serviceInfo
             val f = android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
             info.flags = if (on) info.flags or f else info.flags and f.inv()
-            // Debut / fin d'un toucher sur la bande du bas : filet de securite si le geste n'est pas reconnu
-            val touch = AccessibilityEvent.TYPE_TOUCH_INTERACTION_START or AccessibilityEvent.TYPE_TOUCH_INTERACTION_END
+            // Debut / fin de detection de geste (seulement sur la bande du bas) : filet de securite si le geste n'est pas reconnu
+            val touch = AccessibilityEvent.TYPE_GESTURE_DETECTION_START or AccessibilityEvent.TYPE_GESTURE_DETECTION_END
             info.eventTypes = if (on) info.eventTypes or touch else info.eventTypes and touch.inv()
             serviceInfo = info
             dockOn = on
