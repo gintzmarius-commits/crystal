@@ -77,4 +77,10 @@ object Prefs {
     /** Centre de notifications (glisser depuis le haut a gauche) et de controle (a droite) facon Wave Island */
     fun shade(c: Context) = sp(c).getBoolean("shade", true)
     fun setShade(c: Context, v: Boolean) = sp(c).edit().putBoolean("shade", v).apply()
+
+    /** Wave Theme : dock facon iPad (toucher la barre tout en bas de l'ecran) */
+    fun dock(c: Context) = sp(c).getBoolean("dock", true)
+    fun setDock(c: Context, v: Boolean) = sp(c).edit().putBoolean("dock", v).apply()
+    fun dockApps(c: Context): List<String> = (sp(c).getString("dockApps", "") ?: "").split("|").filter { it.isNotBlank() }
+    fun setDockApps(c: Context, l: List<String>) = sp(c).edit().putString("dockApps", l.joinToString("|")).apply()
 }

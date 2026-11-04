@@ -46,6 +46,7 @@ class IslandAccessibility : AccessibilityService() {
                     event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_PANE_APPEARED != 0)
             if (pane &&
                 event.packageName?.toString()?.contains("systemui") == true) IslandService.instance?.onShadeShown()
+            if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) event.packageName?.toString()?.let { IslandService.instance?.onForegroundApp(it) }
             // Les changements de contenu sont tres frequents : ils ne servent qu'a reperer le volet
             if (t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) IslandService.instance?.onScreenChanged()
         } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }

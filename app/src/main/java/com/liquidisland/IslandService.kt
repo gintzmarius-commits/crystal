@@ -264,6 +264,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var pad: TouchPad? = null
     /** Bande du haut (centres de notifications / de controle) */
     private var strip: EdgeStrip? = null
+    /** Wave Theme : le dock facon iPad */
+    private var dock: WaveDock? = null
     private var lpStrip: WindowManager.LayoutParams? = null
     /** Indicateur de volume facon iPhone */
     private var hud: VolumeHud? = null
@@ -841,6 +843,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             strip = st
             try { wm.addView(st, ls) } catch (e: Exception) { strip = null; Log.w(TAG, "Bande du haut : $e") }
             updateStrip()
+            dock = WaveDock(this, wm, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY).also { it.attach() }
         }
         val p = TouchPad(this, this)
         pad = p
@@ -1153,6 +1156,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     /** La bande du haut n'ecoute qu'ilot replie, en portrait, hors plein ecran, et si l'option est active. */
     fun updateStrip() {
+        val portraitNow = rotation == android.view.Surface.ROTATION_0 || rotation == android.view.Surface.ROTATION_180
+        dock?.update(!fullscreen && portraitNow)
         val st = strip ?: return
         val ls = lpStrip ?: return
         val portrait = rotation == android.view.Surface.ROTATION_0 || rotation == android.view.Surface.ROTATION_180
@@ -1186,6 +1191,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             strip?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             strip = null
+            dock?.detach()
+            dock = null
             rootView = null
             rootPad = null
             hud?.detach()
@@ -1713,6 +1720,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         shadeThen?.invoke()
         shadeThen = null
     }
+
+    /** Une appli passe au premier plan (pour les applis recentes du dock). */
+    fun onForegroundApp(pkg: String) { try { dock?.onForeground(pkg) } catch (e: Exception) { } }
 
     /** Une fenetre du systeme (volet des notifications, centre de controle) vient de s'afficher. */
     fun onShadeShown() {
