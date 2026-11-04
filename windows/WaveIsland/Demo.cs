@@ -155,6 +155,15 @@ namespace WaveIsland
                 island.Collapse();
                 await Wait(0.8);
 
+                // Wave Theme : la barre des taches en verre liquide
+                if (App.Taskbar != null)
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe") { UseShellExecute = true }); } catch { }
+                    await Wait(2.5);
+                    App.Taskbar.Snap("24-barre-des-taches", Folder);
+                    Log.I("DEMO : barre des taches Wave Theme " + (App.Taskbar.Active ? "active" : "inactive"));
+                }
+
                 // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)
                 Native.keybd_event((byte)Native.VK_LWIN, 0, 0x1, UIntPtr.Zero);
                 Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP | 0x1, UIntPtr.Zero);

@@ -13,6 +13,8 @@ namespace WaveIsland
         public static MediaService Media { get; private set; }
         public static DownloadWatcher Downloads { get; private set; }
         public static LauncherWindow Launcher { get; private set; }
+        /// <summary>Wave Theme : la barre des taches en verre liquide (null si desactivee).</summary>
+        public static TaskbarWindow Taskbar { get; private set; }
         public static WaveDropService Drop { get; private set; }
         private NotificationWatcher _notes;
         private System.Windows.Forms.NotifyIcon _tray;
@@ -39,6 +41,10 @@ namespace WaveIsland
             // Seul un jeu en plein ecran exclusif garde le menu Demarrer (rien ne peut s'afficher par-dessus).
             Volume.WinAllowed = () => !Island.ExclusiveFullscreen;
             Volume.WinTapped += () => Launcher.Toggle();
+            // Wave Theme : la barre des taches de Windows remplacee par la notre (le menu monte de la bulle Windows)
+            AppDomain.CurrentDomain.ProcessExit += (a, b) => { try { Taskbar?.Stop(); } catch { } };
+            AppDomain.CurrentDomain.UnhandledException += (a, b) => { try { TaskbarWindow.RestoreSystemTaskbar(); } catch { } };
+            ApplyTaskbar();
             AppCatalog.Refresh(Dispatcher);
             Volume.Start();
 
@@ -229,9 +235,33 @@ namespace WaveIsland
             Quit();
         }
 
+        /// <summary>Met en place (ou retire) la barre des taches Wave Theme selon le reglage.</summary>
+        public static void ApplyTaskbar()
+        {
+            try
+            {
+                if (Settings.Current.WaveTaskbar)
+                {
+                    if (Taskbar == null) Taskbar = new TaskbarWindow();
+                    if (!Taskbar.Active) Taskbar.Start();
+                }
+                else
+                {
+                    Taskbar?.Stop();
+                    TaskbarWindow.RestoreSystemTaskbar();
+                }
+            }
+            catch (Exception e)
+            {
+                Log.I("Wave Theme : barre des taches impossible : " + e);
+                TaskbarWindow.RestoreSystemTaskbar();
+            }
+        }
+
         public static void Quit()
         {
             Log.I("Fermeture demandee");
+            try { Taskbar?.Stop(); } catch { }
             ((App)Current).Cleanup();
             Current.Shutdown();
         }

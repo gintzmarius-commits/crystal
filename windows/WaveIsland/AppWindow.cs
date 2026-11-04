@@ -243,6 +243,8 @@ namespace WaveIsland
                 () => S.LiveMedia, v => { S.LiveMedia = v; S.Save(); }));
             fx.Children.Add(Toggle("Téléchargements en cours", "Une barre de progression par téléchargement",
                 () => S.LiveDownloads, v => { S.LiveDownloads = v; S.Save(); }));
+            fx.Children.Add(Toggle("Wave Theme : barre des tâches en verre liquide", "Remplace la barre de Windows : bulle Windows à part, applis épinglées et ouvertes, Wi-Fi / son / batterie et l'heure",
+                () => S.WaveTaskbar, v => { S.WaveTaskbar = v; S.Save(); App.ApplyTaskbar(); }));
             fx.Children.Add(Toggle("Touche Windows : menu de l'îlot", "Le menu des applis coule depuis la Wave Island au lieu du menu Démarrer (Win + autre touche marche comme avant)",
                 () => S.WinKeyMenu, v => { S.WinKeyMenu = v; S.Save(); }));
             fx.Children.Add(Toggle("Cacher en plein écran", "Jeux, films, présentations",

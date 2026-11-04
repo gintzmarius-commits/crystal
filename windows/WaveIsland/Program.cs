@@ -27,6 +27,8 @@ namespace WaveIsland
 
             if (args.Contains("--uninstall"))
             {
+                // La barre des taches de Windows revient telle qu'elle etait
+                TaskbarWindow.RestoreSystemTaskbar();
                 Installer.Uninstall(args.Contains("--quiet"));
                 return;
             }

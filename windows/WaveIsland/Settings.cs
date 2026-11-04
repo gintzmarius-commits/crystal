@@ -36,6 +36,10 @@ namespace WaveIsland
         public string StartView { get; set; } = "categories";
         /// <summary>Images par seconde des animations et du verre (30 a 120)</summary>
         public int Fps { get; set; } = 60;
+        /// <summary>Wave Theme : barre des taches en verre liquide a la place de celle de Windows.</summary>
+        public bool WaveTaskbar { get; set; } = true;
+        /// <summary>Etat d'origine de la barre de Windows (-1 = non modifiee), pour la rendre telle quelle.</summary>
+        public int TaskbarPrevState { get; set; } = -1;
         /// <summary>Visible dans les captures et enregistrements d'ecran (le verre ne deforme alors plus le fond)</summary>
         public bool ShowInCaptures { get; set; }
         /// <summary>Wave Drop : visible des appareils proches, envoi / reception de fichiers</summary>

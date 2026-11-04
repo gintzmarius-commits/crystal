@@ -1873,7 +1873,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         Log.i(TAG, "Mise a jour proposee sur l'ilot : $version")
         show(IslandNote(
             "Mise à jour disponible",
-            "Wave Island 2.0.${version - 100} — touche pour l'installer",
+            "Wave Island 3.0.${version - 100} — touche pour l'installer",
             applicationInfo.loadIcon(packageManager), null, packageName,
             action = { updateFromIsland() }
         ))

@@ -89,7 +89,7 @@ namespace WaveIsland
                 _checkedAt = DateTime.Now;
                 string s = await Http.GetStringAsync(Base + "version.txt?t=" + DateTime.UtcNow.Ticks);
                 Latest = int.Parse(s.Trim());
-                Log.I($"Mise a jour : version en ligne 2.0.{Latest}, installee {CurrentVersion}");
+                Log.I($"Mise a jour : version en ligne 3.0.{Latest}, installee {CurrentVersion}");
                 island.RefreshMenu();
                 if (Available)
                 {
@@ -117,7 +117,7 @@ namespace WaveIsland
             {
                 App = "Wave Island",
                 Title = "Mise à jour disponible",
-                Text = $"Wave Island 2.0.{Latest} — clique pour l'installer",
+                Text = $"Wave Island 3.0.{Latest} — clique pour l'installer",
                 OnClick = () => Install(island)
             });
         }

@@ -44,7 +44,7 @@ jobs:
       - name: Build WaveIsland.exe
         shell: pwsh
         run: |
-          dotnet publish windows\WaveIsland\WaveIsland.csproj -c Release -o out "-p:Version=2.0.${{ github.run_number }}" 2>&1 | Tee-Object -FilePath build.log
+          dotnet publish windows\WaveIsland\WaveIsland.csproj -c Release -o out "-p:Version=3.0.${{ github.run_number }}" 2>&1 | Tee-Object -FilePath build.log
           if ($LASTEXITCODE -ne 0) {
             Select-String -Path build.log -Pattern ': error ' | Select-Object -ExpandProperty Line -Unique | ForEach-Object { Write-Host "::error::$_" }
             exit 1
@@ -126,4 +126,4 @@ jobs:
           "${{ github.run_number }}" | Out-File -Encoding ascii -NoNewline version.txt
           Copy-Item out\WaveIsland.exe WaveIsland.exe
           gh release delete windows -y --cleanup-tag 2>$null
-          gh release create windows WaveIsland.exe version.txt --prerelease --latest=false --title "Wave Island pour Windows 2.0.${{ github.run_number }}" --notes "Telecharge WaveIsland.exe et lance-le."
+          gh release create windows WaveIsland.exe version.txt --prerelease --latest=false --title "Wave Island pour Windows 3.0.${{ github.run_number }}" --notes "Telecharge WaveIsland.exe et lance-le."

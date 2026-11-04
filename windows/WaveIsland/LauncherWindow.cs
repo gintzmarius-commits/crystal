@@ -41,6 +41,20 @@ namespace WaveIsland
         private readonly SpringValue _aw = new SpringValue(0), _ah = new SpringValue(0), _bx = new SpringValue(0), _by = new SpringValue(0),
             _bw = new SpringValue(0), _bh = new SpringValue(0), _alpha = new SpringValue(0);
         private double _acx, _top, _w0, _h0, _ph, _scale = 1;
+        /// <summary>+1 : le menu coule vers le bas depuis l'ilot ; -1 : il monte depuis la bulle Windows de la barre des taches.</summary>
+        private double _dir = 1;
+        private bool _fromBar;
+        /// <summary>Centre vertical de la goutte de depart (ilot ou bulle), bord d'accroche fixe.</summary>
+        private double ACy(double ah) => _top + _dir * ah / 2;
+
+        // La forme de depart : la Wave Island, ou la bulle Windows de la barre des taches (Wave Theme)
+        private void AnchorHide(bool hide) { if (_fromBar) App.Taskbar?.HideBubble(hide); else _island.HideForLauncher(hide); }
+        private void AnchorTop() { if (_fromBar) App.Taskbar?.BringToTop(); else _island.BringToTop(); }
+        private (double w, double h) AnchorNow()
+        {
+            if (_fromBar && App.Taskbar != null) { var b = App.Taskbar.BubbleShape(); return (b.w, b.h); }
+            var c = _island.CurrentShape(); return (c.w, c.h);
+        }
         private IntPtr _hwnd;
         private bool _animating, _closing, _open, _excluded;
         /// <summary>true : c'est la vraie Wave Island qui s'affiche (et se clique) au-dessus du menu.</summary>
@@ -132,18 +146,39 @@ namespace WaveIsland
             AppCatalog.Refresh(Dispatcher);
             Log.I("Menu des applis : ouverture");
 
-            var (cx, top, w0, h0) = _island.RestShape();
-            var now = _island.CurrentShape();
+            _fromBar = !_drop && App.Taskbar != null && App.Taskbar.Active;
+            _dir = _fromBar ? -1 : 1;
             _islandLive = false;
             _scale = VisualTreeHelper.GetDpi(_island).DpiScaleX;
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             double sl = sb.Left / _scale, st = sb.Top / _scale, sw = sb.Width / _scale, sh = sb.Height / _scale;
-            _top = top; _w0 = w0; _h0 = h0;
-            _ph = _drop ? Math.Min(460, sh - top - h0 - 70) : Math.Max(320, Math.Min(600, sh - top - h0 - 70));
+            double cx, top, w0, h0;
+            (double w, double h) now;
             Width = LW;
-            Height = top + h0 + 18 + _ph + 30;
+            if (_fromBar)
+            {
+                // Le menu monte depuis la bulle Windows, au-dessus de la barre des taches
+                var b = App.Taskbar.BubbleShape();
+                cx = b.cx; w0 = b.w; h0 = b.h;
+                now = (b.w, b.h);
+                double bottom = b.cy + h0 / 2;          // bord bas de la bulle (ecran)
+                _ph = Math.Max(320, Math.Min(600, bottom - h0 - st - 70));
+                Height = 30 + _ph + 18 + h0 + 12;
+                Top = bottom + 12 - Height;
+                top = bottom - Top;                     // bord d'accroche (bas) dans la fenetre
+            }
+            else
+            {
+                var r = _island.RestShape();
+                var c = _island.CurrentShape();
+                cx = r.cx; top = r.top; w0 = r.w; h0 = r.h;
+                now = (c.w, c.h);
+                _ph = _drop ? Math.Min(460, sh - top - h0 - 70) : Math.Max(320, Math.Min(600, sh - top - h0 - 70));
+                Height = top + h0 + 18 + _ph + 30;
+                Top = st;
+            }
+            _top = top; _w0 = w0; _h0 = h0;
             Left = Math.Max(sl, Math.Min(sl + sw - LW, cx - LW / 2));
-            Top = st;
             _acx = cx - Left;
             _glass.Width = LW;
             _glass.Height = Height;
@@ -153,7 +188,7 @@ namespace WaveIsland
 
             // Depart : la goutte du menu est cachee dans l'ilot (exactement la ou il est affiche)
             _aw.Set(now.w); _ah.Set(now.h);
-            _bx.Set(_acx); _by.Set(top + h0 / 2); _bw.Set(w0 * 0.8); _bh.Set(h0 * 0.7);
+            _bx.Set(_acx); _by.Set(ACy(h0)); _bw.Set(w0 * 0.8); _bh.Set(h0 * 0.7);
             _alpha.Set(0);
             Render();
             if (_hwnd != IntPtr.Zero) _excluded = Native.ApplyCaptureMode(_hwnd);
@@ -162,7 +197,7 @@ namespace WaveIsland
             // Au-dessus de tout, y compris d'une video ou d'un jeu en plein ecran
             if (_hwnd != IntPtr.Zero)
                 Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE);
-            _island.HideForLauncher(true);
+            AnchorHide(true);
             ForceForeground();
             _captureTimer.Start();
             Capture();
@@ -171,7 +206,7 @@ namespace WaveIsland
 
             // 1) L'ilot s'etire vers le bas
             var stretch = new Spring(0.75, 0.24);
-            _by.AnimateTo(top + h0 + 20, stretch);
+            _by.AnimateTo(top + _dir * (h0 + 20), stretch);
             _bw.AnimateTo(w0 * 0.9, stretch);
             _bh.AnimateTo(Math.Max(h0, 34), stretch);
             _aw.AnimateTo(w0 * 0.94, stretch);
@@ -182,7 +217,7 @@ namespace WaveIsland
 
             // 2) La goutte se detache : l'ilot rebondit a sa taille, le menu descend et s'ouvre
             double bcx = Math.Max(PW / 2 + 16, Math.Min(LW - PW / 2 - 16, _acx));
-            _by.AnimateTo(top + h0 + 18 + _ph / 2, new Spring(0.7, 0.5));
+            _by.AnimateTo(top + _dir * (h0 + 18 + _ph / 2), new Spring(0.7, 0.5));
             _bx.AnimateTo(bcx, new Spring(0.75, 0.45));
             _bw.AnimateTo(PW, new Spring(0.72, 0.46));
             _bh.AnimateTo(_ph, new Spring(0.7, 0.5));
@@ -202,8 +237,8 @@ namespace WaveIsland
             // on peut cliquer dessus (raccourcis, son...) pendant que le menu est ouvert.
             await Settled(gen, a: true);
             if (gen != _gen || !_open || _closing) return;
-            _island.HideForLauncher(false);
-            _island.BringToTop();
+            AnchorHide(false);
+            AnchorTop();
             _islandLive = true;
             Render();
         }
@@ -228,9 +263,9 @@ namespace WaveIsland
             Log.I("Menu des applis : fermeture");
             if (_islandLive)
             {
-                var cur = _island.CurrentShape();
-                _island.HideForLauncher(true);
-                var rest = _island.CurrentShape();
+                var cur = AnchorNow();
+                AnchorHide(true);
+                var rest = AnchorNow();
                 _aw.Set(cur.w); _ah.Set(cur.h);
                 _aw.AnimateTo(rest.w, Spring.Soft); _ah.AnimateTo(rest.h, Spring.Soft);
                 _w0 = rest.w; _h0 = rest.h;
@@ -243,7 +278,7 @@ namespace WaveIsland
             if (gen != _gen) return;
             var rise = new Spring(0.86, 0.36);
             _bx.AnimateTo(_acx, rise);
-            _by.AnimateTo(_top + _h0 * 0.7, rise);
+            _by.AnimateTo(_top + _dir * _h0 * 0.7, rise);
             _bw.AnimateTo(_w0 * 0.8, rise);
             _bh.AnimateTo(_h0 * 0.75, rise);
             Kick();
@@ -265,7 +300,7 @@ namespace WaveIsland
             _drop = false;
             _dropRequest = null;
             Hide();
-            _island.HideForLauncher(false);
+            AnchorHide(false);
             _open = false;
             _closing = false;
         }
@@ -300,13 +335,13 @@ namespace WaveIsland
             double ra = Math.Min(ah / 2, 30), rb = Math.Min(bh / 2, 30);
             _fx.A = _islandLive
                 ? new Point4D(-5000, -5000, 0, 0) // la vraie Wave Island est affichee : le menu ne la dessine plus
-                : new Point4D(_acx * k, (_top + ah / 2) * k, (aw / 2 - ra) * k, (ah / 2 - ra) * k);
+                : new Point4D(_acx * k, ACy(ah) * k, (aw / 2 - ra) * k, (ah / 2 - ra) * k);
             _fx.B = new Point4D(_bx.Value * k, _by.Value * k, Math.Max(0, bw / 2 - rb) * k, Math.Max(0, bh / 2 - rb) * k);
             // Memes reglages que le verre de l'ilot (courbure, lentille, loupe, couleurs, lumiere)
             _fx.Rad = new Point4D(ra * k, rb * k, Blend * k, 1.0 / (Math.Min(18, Math.Min(ah, bh) * 0.42) * k));
             double strength = Math.Min(ah * 0.4, 14) * k;
             const double mag = 0.95;
-            _fx.Magc = new Point4D(mag, _acx * k / W * (1 - mag), (_top + ah / 2) * k / H * (1 - mag), 0);
+            _fx.Magc = new Point4D(mag, _acx * k / W * (1 - mag), ACy(ah) * k / H * (1 - mag), 0);
             _fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             _fx.Sz = new Point4D(W, H, strength / W, strength / H);
             string theme = Settings.Current.Theme;
@@ -314,7 +349,7 @@ namespace WaveIsland
             double tintA = theme == "dark" ? 0.8 : light ? 0.7 : 0.0;
             double tintB = theme == "dark" ? 0.86 : light ? 0.82 : 0.0; // transparent comme l'ilot
             _fx.Tint = light ? new Point4D(0.97, 0.98, 1.0, tintA) : new Point4D(0.05, 0.06, 0.08, tintA);
-            var ld = _island.LightDir;
+            var ld = _fromBar ? new Point(-0.5, -0.866) : _island.LightDir;
             if (Math.Abs(ld.X) + Math.Abs(ld.Y) < 0.01) ld = new Point(-0.5, -0.866);
             _fx.Light = new Point4D(ld.X, ld.Y, 1, tintB);
             _fx.Blend = new Point4D(0.5 / (Blend * k), Blend * k, 0, 0);
@@ -341,10 +376,12 @@ namespace WaveIsland
                 double k = _scale, pad = 30;
                 double x0 = Math.Min(_acx - _aw.Value / 2, _bx.Value - _bw.Value / 2) - pad;
                 double x1 = Math.Max(_acx + _aw.Value / 2, _bx.Value + _bw.Value / 2) + pad;
-                double y1 = Math.Max(_top + _ah.Value, _by.Value + _bh.Value / 2) + pad;
+                double y0 = Math.Max(0, Math.Min(ACy(_ah.Value) - _ah.Value / 2, _by.Value - _bh.Value / 2) - pad);
+                double y1 = Math.Max(ACy(_ah.Value) + _ah.Value / 2, _by.Value + _bh.Value / 2) + pad;
                 int ww = r.Right - r.Left, wh = r.Bottom - r.Top;
                 int sx = Math.Max(0, (int)(x0 * k) & ~15), sw = Math.Min(ww - sx, (int)Math.Ceiling((x1 - x0) * k) + 32);
-                var sub = new Int32Rect(sx, 0, Math.Max(16, sw), Math.Min(wh, (int)Math.Ceiling(y1 * k) + 16));
+                int sy = Math.Max(0, (int)(y0 * k) & ~15);
+                var sub = new Int32Rect(sx, sy, Math.Max(16, sw), Math.Max(16, Math.Min(wh - sy, (int)Math.Ceiling(y1 * k) + 16 - sy)));
                 if (_cap.Grab(r.Left, r.Top, ww, wh, sub) && _glass.Source != _cap.Bitmap)
                     _glass.Source = _cap.Bitmap;
             }

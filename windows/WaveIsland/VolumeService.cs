@@ -157,6 +157,13 @@ namespace WaveIsland
 
         public void ToggleMute() => Step(Native.VK_VOLUME_MUTE);
 
+        /// <summary>Volume actuel (0..1) et son coupe.</summary>
+        public (float level, bool muted) Read()
+        {
+            try { var ep = Endpoint(); if (ep != null) return (ep.MasterVolumeLevelScalar, ep.Mute); } catch { }
+            return (0.5f, false);
+        }
+
         public void Dispose()
         {
             if (_hook != IntPtr.Zero) Native.UnhookWindowsHookEx(_hook);
