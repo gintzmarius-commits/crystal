@@ -91,7 +91,12 @@ namespace WaveIsland
             SizeToContent = SizeToContent.Height;
 
             var glass = new GlassBackdrop(this, 26, 0.0);   // verre transparent : ni flou ni voile
-            _root.Children.Add(glass.Image);
+            // L'image du fond ne doit pas decider de la taille du panneau (sinon il prenait toute la hauteur
+            // de l'ecran et son contenu sortait de l'ecran) : elle est posee dans un Canvas et suit le panneau.
+            var holder = new Canvas { IsHitTestVisible = false };
+            holder.Children.Add(glass.Image);
+            _root.Children.Add(holder);
+            _root.SizeChanged += (a, b) => { glass.Image.Width = _root.ActualWidth; glass.Image.Height = _root.ActualHeight; };
             _root.Children.Add(_col);
             _root.RenderTransformOrigin = new Point(0.5, 1);
             _root.RenderTransform = new TransformGroup { Children = { _scale, _move } };
