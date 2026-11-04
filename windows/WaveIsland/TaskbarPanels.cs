@@ -27,6 +27,7 @@ namespace WaveIsland
         private bool _closing;
         private IntPtr _hwnd;
         private readonly string _kind;
+        private DateTime _openedAt = DateTime.Now;
 
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
@@ -81,7 +82,8 @@ namespace WaveIsland
                 int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
                 Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW);
             };
-            Deactivated += (a, b) => CloseAnimated();
+            // Juste apres l'ouverture, Windows peut encore donner la main a l'ancienne fenetre : on ne ferme pas pour ca
+            Deactivated += (a, b) => { if ((DateTime.Now - _openedAt).TotalMilliseconds > 500) CloseAnimated(); else Dispatcher.BeginInvoke(new Action(ForceForeground)); };
             PreviewKeyDown += (a, b) => { if (b.Key == Key.Escape) CloseAnimated(); };
 
             if (kind == "quick") BuildQuick(); else BuildNotes();
@@ -106,6 +108,7 @@ namespace WaveIsland
             _scale.ScaleX = 0.25; _scale.ScaleY = 0.08;
             _move.Y = 30;
             _root.Opacity = 0;
+            _openedAt = DateTime.Now;
             Show();
             Activate();
             ForceForeground();
