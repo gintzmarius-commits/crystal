@@ -161,6 +161,17 @@ namespace WaveIsland
                     try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe") { UseShellExecute = true }); } catch { }
                     await Wait(2.5);
                     App.Taskbar.Snap("24-barre-des-taches", Folder);
+                    // Disparition en goutte (option « Faire disparaitre la barre ») puis retour
+                    App.Taskbar.Drop();
+                    await Wait(0.16);
+                    App.Taskbar.Snap("24b-barre-goutte-se-forme", Folder);
+                    await Wait(0.18);
+                    App.Taskbar.Snap("24c-barre-goutte-tombe", Folder);
+                    await Wait(1.0);
+                    App.Taskbar.Rise();
+                    await Wait(0.2);
+                    App.Taskbar.Snap("24d-barre-remonte", Folder);
+                    await Wait(1.0);
                     Log.I("DEMO : barre des taches Wave Theme " + (App.Taskbar.Active ? "active" : "inactive"));
                     App.NoteHistory.Insert(0, (new IslandNote { App = "Messages", Title = "Léa", Text = "On se retrouve à 20h devant le ciné ?" }, DateTime.Now.AddMinutes(-3)));
                     foreach (var (kind, shot) in new[] { ("quick", "25-reglages-rapides"), ("notes", "26-notifications") })
