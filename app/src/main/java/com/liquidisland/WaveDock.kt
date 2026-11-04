@@ -98,7 +98,6 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     /** Appli au premier plan : la zone n'existe que dans une appli (pas sur l'ecran d'accueil). */
     fun onForeground(pkg: String) {
         if (pkg.contains("systemui") || pkg == "android") return
-        if (pkg == ctx.packageName) return
         val home = pkg == homePkg || (homePkg == null && pkg.contains("launcher", ignoreCase = true))
         if (!home) {
             if (ctx.packageManager.getLaunchIntentForPackage(pkg) == null && !pkg.contains("inputmethod") && !pkg.contains("keyboard")) return
@@ -107,6 +106,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                 while (recents.size > 8) recents.removeAt(recents.size - 1)
             }
         }
+        if (inApp != !home) Log.i(TAG, "Dock : ${if (home) "accueil" else "appli ouverte ($pkg)"}")
         inApp = !home
         if (shown) hide()
         refresh()
@@ -123,7 +123,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     }
 
     private fun refresh() {
-        val lp = handleLp ?: return
+        if (handleLp == null) return
         val want = allowed && inApp && Prefs.dock(ctx) && gestureNav() && IslandAccessibility.instance != null
         setTouchable(want)
         if (!want && shown) hide(animated = false)
