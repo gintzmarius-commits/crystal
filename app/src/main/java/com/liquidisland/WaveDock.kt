@@ -44,70 +44,57 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
     private fun dp(v: Int) = (v * d).toInt()
     private val main = Handler(Looper.getMainLooper())
 
-    private var handle: View? = null
-    private var handleLp: WindowManager.LayoutParams? = null
     private var dockRoot: FrameLayout? = null
     private var dock: DockView? = null
     private var shown = false
     private var allowed = true
     private var inApp = false
-    private var touchable = false
     private var homePkg: String? = null
     private var lastPkg: String? = null
     private val recents = ArrayList<String>()
+    private var attached = false
 
     companion object {
         private const val TAG = "LiquidIsland"
         private const val CELL = 64
-        private const val BAND = 22
     }
 
-    // ================== Zone qui ouvre le dock ==================
+    // ================== Le geste du bas (comme sur iPad) ==================
+    //
+    // Dans une appli, le glissement depuis le bas de l'ecran est pris par Wave Island AVANT Android
+    // (seulement sur la bande tout en bas, le reste de l'ecran marche normalement) :
+    // 1er glissement : le dock monte. Le dock affiche, la bande est rendue a Android :
+    // le 2e glissement est le vrai geste d'Android (l'appli se ferme), et le dock redescend en goutte.
 
     fun attach() {
-        if (handle != null) return
+        attached = true
         homePkg = try {
             @Suppress("DEPRECATION")
             ctx.packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
         } catch (e: Exception) { null }
-        val v = Handle()
-        val lp = WindowManager.LayoutParams(
-            (ctx.resources.displayMetrics.widthPixels * 0.62f).toInt(), dp(BAND), type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = gestureHeight()
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
-            windowAnimations = 0
-        }
-        try { wm.addView(v, lp); handle = v; handleLp = lp } catch (e: Exception) { Log.w(TAG, "Dock : zone tactile impossible : $e") }
-        Log.i(TAG, "Dock : zone de ${dp(BAND)} px a ${gestureHeight()} px du bas")
         refresh()
     }
 
     fun detach() {
+        attached = false
         hide(animated = false)
-        handle?.let { try { wm.removeView(it) } catch (e: Exception) { } }
-        handle = null
+        IslandAccessibility.instance?.setDockGestures(false, 0)
     }
 
     /** Reglages changes, plein ecran, rotation. */
     fun update(on: Boolean) { allowed = on; refresh() }
 
-    /** Appli au premier plan : la zone n'existe que dans une appli (pas sur l'ecran d'accueil). */
+    /** Appli au premier plan : le geste n'est pris que dans une appli (pas sur l'ecran d'accueil). */
     fun onForeground(pkg: String) {
         if (pkg.contains("systemui") || pkg == "android") return
+        val ime = pkg.contains("inputmethod") || pkg.contains("keyboard")
         val home = pkg == homePkg || (homePkg == null && pkg.contains("launcher", ignoreCase = true))
-        if (!home) {
-            if (ctx.packageManager.getLaunchIntentForPackage(pkg) == null && !pkg.contains("inputmethod") && !pkg.contains("keyboard")) return
-            if (!pkg.contains("inputmethod") && !pkg.contains("keyboard")) {
-                recents.remove(pkg); recents.add(0, pkg)
-                while (recents.size > 8) recents.removeAt(recents.size - 1)
-            }
+        if (!home && !ime) {
+            if (ctx.packageManager.getLaunchIntentForPackage(pkg) == null) return
+            recents.remove(pkg); recents.add(0, pkg)
+            while (recents.size > 8) recents.removeAt(recents.size - 1)
         }
+        if (ime) return
         if (inApp != !home) Log.i(TAG, "Dock : ${if (home) "accueil" else "appli ouverte ($pkg)"}")
         inApp = !home
         // Le dock lui-meme (fenetre de Wave Island) declenche aussi cet evenement : on ne le ferme
@@ -121,93 +108,30 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         Settings.Secure.getInt(ctx.contentResolver, "navigation_mode", 0) == 2
     } catch (e: Exception) { false }
 
+    /** Hauteur de la bande du bas (la petite barre d'accueil d'Android). */
     private fun gestureHeight(): Int {
-        // Hauteur de la petite barre d'accueil (la ou Android garde le geste pour lui)
         val id = ctx.resources.getIdentifier("navigation_bar_height", "dimen", "android")
         val h = if (id > 0) ctx.resources.getDimensionPixelSize(id) else 0
-        return maxOf(h, dp(14)).coerceAtMost(dp(40))
+        return maxOf(h, dp(20)).coerceAtMost(dp(40))
     }
 
     private fun refresh() {
-        if (handleLp == null) return
-        val want = allowed && inApp && Prefs.dock(ctx) && gestureNav() && IslandAccessibility.instance != null
-        setTouchable(want)
-        if (!want && shown) hide(animated = false)
+        if (!attached) return
+        val want = allowed && inApp && Prefs.dock(ctx) && gestureNav() && !shown
+        IslandAccessibility.instance?.setDockGestures(want, gestureHeight())
+        if (!(allowed && inApp && Prefs.dock(ctx)) && shown) hide(animated = false)
     }
 
-    private fun setTouchable(on: Boolean) {
-        val lp = handleLp ?: return
-        if (on == touchable && lp.y == gestureHeight()) return
-        touchable = on
-        val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        lp.flags = if (on) lp.flags and noTouch.inv() else lp.flags or noTouch
-        lp.y = gestureHeight()
-        handle?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
+    /** Glissement vers le haut sur la bande du bas (recu par l'accessibilite) : le dock monte. */
+    fun onSwipeUp() {
+        if (!inApp) return
+        if (shown) { hide(); return }
+        show()
     }
 
-    /** Deuxieme glissement : on quitte l'appli. */
-    private fun goHome() {
-        hide()
-        Log.i(TAG, "Dock : deuxieme glissement, retour a l'accueil")
-        IslandAccessibility.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-    }
-
-    /**
-     * Ce n'etait pas pour nous (toucher, glissement de cote) : on rejoue le geste pour l'appli en dessous.
-     * La zone devient transparente aux touchers le temps du geste rejoue.
-     */
-    private fun passThrough(points: List<FloatArray>, durationMs: Long) {
-        val acc = IslandAccessibility.instance ?: return
-        if (Build.VERSION.SDK_INT < 24 || points.isEmpty()) return
-        setTouchable(false)
-        val path = Path().apply {
-            moveTo(points[0][0], points[0][1])
-            for (i in 1 until points.size) lineTo(points[i][0], points[i][1])
-        }
-        val g = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(1, 1500)))
-            .build()
-        val back = Runnable { refresh() }
-        main.postDelayed(back, durationMs + 400)
-        try {
-            acc.dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) { main.removeCallbacks(back); main.postDelayed(back, 30) }
-                override fun onCancelled(gestureDescription: GestureDescription?) { main.removeCallbacks(back); main.postDelayed(back, 30) }
-            }, main)
-        } catch (e: Exception) { main.removeCallbacks(back); refresh() }
-    }
-
-    @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
-    private inner class Handle : View(ctx) {
-        private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
-        private var downX = 0f
-        private var downY = 0f
-        private var downAt = 0L
-        private var fired = false
-        private val pts = ArrayList<FloatArray>()
-        override fun onTouchEvent(e: MotionEvent): Boolean {
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX; downY = e.rawY; downAt = SystemClock.uptimeMillis(); fired = false
-                    pts.clear(); pts.add(floatArrayOf(e.rawX, e.rawY))
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    pts.add(floatArrayOf(e.rawX, e.rawY))
-                    val dy = downY - e.rawY
-                    if (!fired && dy > dp(18) && dy > abs(e.rawX - downX)) {
-                        fired = true
-                        // 1er glissement : le dock monte ; 2e (dock deja la) : on quitte l'appli
-                        if (shown) goHome() else show()
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    pts.add(floatArrayOf(e.rawX, e.rawY))
-                    if (!fired) passThrough(pts.toList(), SystemClock.uptimeMillis() - downAt)
-                }
-                MotionEvent.ACTION_CANCEL -> fired = true
-            }
-            return true
-        }
+    /** Glissement de cote sur la bande du bas : les applis recentes d'Android. */
+    fun onSwipeSide() {
+        IslandAccessibility.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
     }
 
     // ================== Le dock ==================
@@ -235,7 +159,6 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         val rec = recents.filter { it !in favs }.take(3)
         if (favs.isEmpty() && rec.isEmpty()) return
         shown = true
-        handle?.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
         Log.i(TAG, "Dock ouvert (${favs.size} favoris, ${rec.size} recentes)")
 
         val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), 0, dp(10), 0) }
@@ -254,7 +177,11 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                 if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) { hide(); return true }
                 // Deuxieme glissement vers le haut (sur le dock) : on quitte l'appli
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) sy = ev.rawY
-                if (ev.actionMasked == MotionEvent.ACTION_MOVE && sy - ev.rawY > dp(40)) { goHome(); return true }
+                if (ev.actionMasked == MotionEvent.ACTION_MOVE && sy - ev.rawY > dp(40)) {
+                    hide()
+                    IslandAccessibility.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                    return true
+                }
                 return super.dispatchTouchEvent(ev)
             }
         }
@@ -274,6 +201,9 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             windowAnimations = 0
         }
         try { wm.addView(root, lp); dockRoot = root } catch (e: Exception) { shown = false; Log.w(TAG, "Dock impossible : $e"); return }
+        root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        // Le dock est la : le prochain glissement du bas revient a Android (quitter l'appli)
+        refresh()
 
         // Il monte depuis la barre du bas en s'etirant, avec un rebond (comme une goutte)
         dv.pivotY = dp(CELL + 20).toFloat()
@@ -299,10 +229,15 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         dockRoot = null
         dock = null
         val remove = { try { wm.removeView(root) } catch (e: Exception) { } }
+        // Le geste du bas reviendra a Wave Island une fois le glissement d'Android termine
+        main.postDelayed({ refresh() }, 900)
         if (!animated || dv == null) { remove(); return }
-        val s = Spring.CLOSE
-        dv.animate().translationY(dp(70).toFloat()).scaleX(0.5f).scaleY(0.4f).alpha(0f).setInterpolator(s)
-            .setDuration((s.durationMs * 0.6).toLong()).withEndAction { remove() }.start()
+        // Goutte : le dock s'etire vers le bas, s'affine, puis tombe sous le bord de l'ecran
+        dv.animate().scaleY(1.18f).scaleX(0.9f).setDuration(90).withEndAction {
+            val s = Spring.CLOSE
+            dv.animate().translationY(dp(110).toFloat()).scaleX(0.55f).scaleY(0.7f).alpha(0f).setInterpolator(s)
+                .setDuration((s.durationMs * 0.55).toLong()).withEndAction { remove() }.start()
+        }.start()
     }
 
     private fun icon(pkg: String, index: Int): View {

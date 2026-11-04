@@ -267,6 +267,14 @@ namespace WaveIsland
             }
         }
 
+        /// <summary>Avant une mise a jour : on rend la barre de Windows et on retire l'icone, sans rien d'autre qui puisse bloquer.</summary>
+        public static void PrepareForUpdate()
+        {
+            try { Taskbar?.Stop(); } catch { }
+            try { TaskbarWindow.RestoreSystemTaskbar(); } catch { }
+            try { var t = ((App)Current)._tray; if (t != null) { t.Visible = false; t.Dispose(); } } catch { }
+        }
+
         public static void Quit()
         {
             Log.I("Fermeture demandee");

@@ -1721,6 +1721,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         shadeThen = null
     }
 
+    fun dockSwipeUp() { main.post { dock?.onSwipeUp() } }
+    fun dockSwipeSide() { main.post { dock?.onSwipeSide() } }
+
     /** Une appli passe au premier plan (pour les applis recentes du dock). */
     fun onForegroundApp(pkg: String) { try { dock?.onForeground(pkg) } catch (e: Exception) { } }
 

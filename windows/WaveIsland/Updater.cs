@@ -185,8 +185,11 @@ namespace WaveIsland
                     $"start \"\" \"{exe}\" --updated\r\n");
                 Log.I("Mise a jour : installation, la Wave Island redemarre");
                 Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{script}\"") { CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, UseShellExecute = false });
-                App.Quit();
-                Environment.Exit(0); // fermeture immediate : le fichier doit etre libere
+                // Fermeture immediate et certaine : avant, l'arret « propre » pouvait rester bloque (barre figee a la fin)
+                // et l'ancien fichier restait verrouille, donc la mise a jour ne s'installait jamais.
+                App.PrepareForUpdate();
+                Log.I("Mise a jour : fermeture pour remplacement");
+                Process.GetCurrentProcess().Kill();
             }
             catch (Exception e)
             {

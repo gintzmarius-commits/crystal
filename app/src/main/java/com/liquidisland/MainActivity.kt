@@ -114,7 +114,7 @@ class MainActivity : Activity() {
         ) { Prefs.setLiveDownloads(this, it); IslandService.instance?.applySettings() })
         live.addView(switchRow(
             "Dock Wave Theme",
-            text("Dans une appli : glisse une fois vers le haut depuis le bas de l'écran (juste au-dessus de la petite barre) pour faire monter le dock, une deuxième fois pour quitter l'appli. Appui long sur une icône du dock : l'ajouter ou la retirer des favoris.", 13f, Glass.INK_SOFT),
+            text("Comme sur iPad, dans une appli : glisse depuis le bas de l'écran une fois pour faire monter le dock, une deuxième fois pour quitter l'appli (le dock redescend en goutte). Glisser de côté en bas : applis récentes. Appui long sur une icône du dock : l'ajouter ou la retirer des favoris.", 13f, Glass.INK_SOFT),
             Prefs.dock(this)
         ) { Prefs.setDock(this, it); IslandService.instance?.updateStrip() })
         live.addView(switchRow(

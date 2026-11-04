@@ -53,6 +53,45 @@ class IslandAccessibility : AccessibilityService() {
     }
     override fun onInterrupt() {}
 
+    private var dockOn = false
+    private var dockStrip = 0
+
+    /**
+     * Dock Wave Theme : la bande tout en bas de l'ecran passe par l'accessibilite (avant Android),
+     * pour qu'un glissement vers le haut ouvre le dock au lieu de quitter l'appli. Tout le reste de
+     * l'ecran est laisse tel quel (zones « passthrough »).
+     */
+    fun setDockGestures(on: Boolean, stripPx: Int) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return
+        if (on == dockOn && (!on || stripPx == dockStrip)) return
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+            val b = wm.currentWindowMetrics.bounds
+            if (on) {
+                val keep = android.graphics.Region(0, 0, b.width(), b.height() - stripPx)
+                setTouchExplorationPassthroughRegion(android.view.Display.DEFAULT_DISPLAY, keep)
+                setGestureDetectionPassthroughRegion(android.view.Display.DEFAULT_DISPLAY, keep)
+            }
+            val info = serviceInfo
+            val f = android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
+            info.flags = if (on) info.flags or f else info.flags and f.inv()
+            serviceInfo = info
+            dockOn = on
+            dockStrip = stripPx
+            Log.i("LiquidIsland", "Dock : geste du bas ${if (on) "pris par Wave Island ($stripPx px)" else "rendu a Android"}")
+        } catch (e: Exception) { Log.w("LiquidIsland", "Dock : geste du bas impossible : $e") }
+    }
+
+    override fun onGesture(gestureEvent: android.accessibilityservice.AccessibilityGestureEvent): Boolean {
+        val id = gestureEvent.gestureId
+        Log.i("LiquidIsland", "Dock : geste $id")
+        when (id) {
+            GESTURE_SWIPE_UP, GESTURE_SWIPE_UP_AND_DOWN, GESTURE_2_FINGER_SWIPE_UP -> IslandService.instance?.dockSwipeUp()
+            GESTURE_SWIPE_LEFT, GESTURE_SWIPE_RIGHT, GESTURE_SWIPE_UP_AND_LEFT, GESTURE_SWIPE_UP_AND_RIGHT -> IslandService.instance?.dockSwipeSide()
+        }
+        return true
+    }
+
     /** Boutons de volume : l'indicateur facon iPhone remplace celui du telephone. */
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean = try {
         if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
