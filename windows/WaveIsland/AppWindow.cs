@@ -272,6 +272,21 @@ namespace WaveIsland
             _col.Children.Add(sc.Parent as FrameworkElement);
             RefreshShortcuts();
 
+            // --- Mode tablette (4.0) ---
+            Section("Mode tablette");
+            var tab = CardPanel();
+            tab.Children.Add(T("Quand l'écran est retourné (PC convertible), le PC se comporte comme un iPad : barre d'état en haut, applis en plein écran, " +
+                "petite barre en bas. Glisse depuis le bas : 1 fois = le dock, 2 fois = l'appli rentre dans le dock. Garde le doigt en haut : toutes les applis ouvertes.",
+                13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
+            tab.Children.Add(Segmented(new[] { "Automatique", "Toujours", "Jamais" }, new[] { "auto", "on", "off" },
+                () => S.TabletMode, v => { S.TabletMode = v; S.Save(); TabletShell.Apply(); }));
+            tab.Children.Add(T("Animation quand une appli se ferme", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            tab.Children.Add(Segmented(new[] { "iPad", "Goutte" }, new[] { "ipad", "drop" },
+                () => S.TabletCloseAnim, v => { S.TabletCloseAnim = v; S.Save(); }));
+            tab.Children.Add(Button("Couper les glissements des bords de Windows", () => EdgeSwipes.Set(false)));
+            tab.Children.Add(Button("Remettre les glissements des bords de Windows", () => EdgeSwipes.Set(true)));
+            _col.Children.Add(tab.Parent as FrameworkElement);
+
             // --- Wave Drop ---
             Section("Wave Drop");
             var wd = CardPanel();

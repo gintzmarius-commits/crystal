@@ -323,6 +323,12 @@ namespace WaveIsland
             _apps.X = gx + BarH + Gap; _apps.W = appsW;
             _clock.W = 104; _clock.X = _w - 10 - _clock.W;
             _status.W = 122; _status.X = _clock.X - Gap - _status.W;
+            // Mode tablette : l'heure et l'etat passent dans la barre du haut, il ne reste que le dock
+            foreach (var b in new[] { _status, _clock })
+            {
+                var v = Tablet ? Visibility.Collapsed : Visibility.Visible;
+                if (b.Img.Visibility != v) { b.Img.Visibility = v; b.Content.Visibility = v; }
+            }
             foreach (var b in new[] { _win, _apps, _status, _clock }) Geo(b);
             // Les icones restent centrees dans la barre pendant qu'elle s'elargit
             Canvas.SetLeft(_appsPanel, Math.Round((appsW - _appsPanel.Children.Count * Cell) / 2));
@@ -604,7 +610,10 @@ namespace WaveIsland
         }
 
         /// <summary>Fenetres qui apparaitraient dans la barre de Windows.</summary>
-        private List<(IntPtr h, string exe, string aumid, string title)> OpenWindows()
+        /// <summary>Fenetres d'applis ouvertes, de la plus recente (au premier plan) a la plus ancienne.</summary>
+        internal static List<(IntPtr h, string exe, string aumid, string title)> AppWindows() => OpenWindows();
+
+        private static List<(IntPtr h, string exe, string aumid, string title)> OpenWindows()
         {
             var list = new List<(IntPtr, string, string, string)>();
             uint me = (uint)Environment.ProcessId;
@@ -669,6 +678,7 @@ namespace WaveIsland
         {
             _appsPanel.Children.Clear();
             _dots.Clear();
+            _buttons.Clear();
             if (!_apps.Content.Children.Contains(_appsPanel)) _apps.Content.Children.Add(_appsPanel);
             int i = 0;
             foreach (var it in _items) _appsPanel.Children.Add(AppButton(it, i++));
@@ -700,6 +710,7 @@ namespace WaveIsland
             };
             g.Children.Add(dot);
             _dots[it.Key] = dot;
+            _buttons[it.Key] = g;
             g.MouseEnter += (a, b) => Pop(icon, 1.16);
             g.MouseLeave += (a, b) => Pop(icon, 1);
             g.MouseLeftButtonDown += (a, b) => Pop(icon, 0.82);
@@ -825,6 +836,57 @@ namespace WaveIsland
             host.MouseLeave += (a, b) => Pop(col, 1);
         }
 
+        // ================== Mode tablette (4.0) ==================
+
+        /// <summary>Mode tablette : la barre devient un dock facon iPad (il disparait quand une appli est ouverte).</summary>
+        public bool Tablet { get; private set; }
+        private DateTime _shownUntil = DateTime.MinValue;
+        private readonly Dictionary<string, FrameworkElement> _buttons = new Dictionary<string, FrameworkElement>();
+
+        public void SetTablet(bool on)
+        {
+            if (Tablet == on) return;
+            Tablet = on;
+            _shownUntil = DateTime.MinValue;
+            Layout();
+            if (!on && _dropped) Rise();
+        }
+
+        /// <summary>Le dock est-il visible a l'ecran ?</summary>
+        public bool DockVisible => Active && !_dropped;
+
+        /// <summary>1er glissement du bas : le dock monte par-dessus l'appli (quelques secondes).</summary>
+        public void ShowDock(double seconds = 4)
+        {
+            _shownUntil = DateTime.Now.AddSeconds(seconds);
+            Rise();
+        }
+
+        /// <summary>Fin d'une animation : le dock suit de nouveau les applis (sans bouger tout de suite).</summary>
+        public void ReleaseDock() => _shownUntil = DateTime.MinValue;
+
+        public void HideDock()
+        {
+            _shownUntil = DateTime.MinValue;
+            if (!_dropped) Drop();
+        }
+
+        /// <summary>Position (ecran) de l'icone de l'appli de cette fenetre dans le dock, sinon le centre du dock.</summary>
+        public Rect IconRect(IntPtr hwnd)
+        {
+            var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
+            if (it != null && _buttons.TryGetValue(it.Key, out var b) && b.IsLoaded)
+            {
+                try
+                {
+                    var p = b.TranslatePoint(new Point(0, 0), _root);
+                    return new Rect(Left + p.X + 8, Top + EdgeY + 6, Cell - 16, Cell - 16);
+                }
+                catch { }
+            }
+            return new Rect(Left + _apps.X + _apps.W / 2 - 20, Top + EdgeY + 6, 40, 40);
+        }
+
         /// <summary>Ouvre le panneau des reglages rapides (« quick ») ou des notifications (« notes »).</summary>
         public void OpenPanel(string kind) => TaskbarPanel.Toggle(kind, ScreenRect(kind == "quick" ? _status : _clock));
 
@@ -856,7 +918,11 @@ namespace WaveIsland
         {
             if (!Active) return;
             bool panelOpen = TaskbarPanel.Current != null || (App.Launcher?.IsOpen ?? false);
-            bool want = Settings.Current.TaskbarAutoHide && !panelOpen && AppCovers();
+            // Mode tablette (4.0) : le dock disparait des qu'une appli est ouverte ; il revient d'un glissement du bas
+            bool want = Tablet
+                ? !panelOpen && AppCovers() && DateTime.Now > _shownUntil
+                : Settings.Current.TaskbarAutoHide && !panelOpen && AppCovers();
+            if (Tablet && want && !_dropped) { Drop(); return; }
             if (!want) { _awaySince = DateTime.MaxValue; if (_dropped) Rise(); return; }
             Native.GetCursorPos(out var p);
             var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
@@ -874,7 +940,7 @@ namespace WaveIsland
         }
 
         /// <summary>La barre s'etire comme une goutte puis glisse sous le bord de l'ecran.</summary>
-        private async void Drop()
+        public async void Drop()
         {
             if (_dropped) return;
             _dropped = true;
@@ -889,7 +955,7 @@ namespace WaveIsland
         }
 
         /// <summary>Elle remonte par-dessus l'appli, s'ecrase un peu puis rebondit a sa forme.</summary>
-        private void Rise()
+        public void Rise()
         {
             if (!_dropped) return;
             _dropped = false;

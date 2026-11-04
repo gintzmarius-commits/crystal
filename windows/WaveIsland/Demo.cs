@@ -173,6 +173,22 @@ namespace WaveIsland
                     }
                 }
 
+                // Version 4.0 : mode tablette facon iPad (sur la machine de test, force)
+                if (App.Taskbar != null)
+                {
+                    Settings.Current.TabletMode = "on";
+                    TabletShell.Apply();
+                    await Wait(1.5);
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe") { UseShellExecute = true }); } catch { }
+                    await Wait(3);
+                    ScreenShot("27-tablette-appli");
+                    await AppMotion.Demo(ScreenShot);
+                    Log.I("DEMO : mode tablette " + (TabletShell.Active ? "actif" : "inactif"));
+                    Settings.Current.TabletMode = "auto";
+                    TabletShell.Apply();
+                    await Wait(1);
+                }
+
                 // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)
                 Native.keybd_event((byte)Native.VK_LWIN, 0, 0x1, UIntPtr.Zero);
                 Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP | 0x1, UIntPtr.Zero);
@@ -241,6 +257,23 @@ namespace WaveIsland
             bmp.Render(dv);
             bmp.Freeze();
             return bmp;
+        }
+
+        /// <summary>Capture de tout l'ecran (vignettes en direct comprises).</summary>
+        private static void ScreenShot(string name)
+        {
+            try
+            {
+                var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                var cap = new ScreenCapture();
+                cap.Grab(sb.Left, sb.Top, sb.Width, sb.Height);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(cap.Bitmap));
+                Directory.CreateDirectory(Folder);
+                using var f = File.Create(Path.Combine(Folder, name + ".png"));
+                enc.Save(f);
+            }
+            catch (Exception e) { Log.I("Capture ecran : " + e.Message); }
         }
 
         private static void SnapWindow(Window w, string name)

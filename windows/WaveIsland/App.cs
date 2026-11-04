@@ -48,6 +48,8 @@ namespace WaveIsland
             AppDomain.CurrentDomain.ProcessExit += (a, b) => { try { Taskbar?.Stop(); } catch { } };
             AppDomain.CurrentDomain.UnhandledException += (a, b) => { try { TaskbarWindow.RestoreSystemTaskbar(); } catch { } };
             ApplyTaskbar();
+            // Version 4.0 : mode tablette facon iPad (ecran retourne)
+            TabletShell.Start();
             AppCatalog.Refresh(Dispatcher);
             Volume.Start();
 
@@ -270,6 +272,7 @@ namespace WaveIsland
         /// <summary>Avant une mise a jour : on rend la barre de Windows et on retire l'icone, sans rien d'autre qui puisse bloquer.</summary>
         public static void PrepareForUpdate()
         {
+            try { TabletShell.Stop(); } catch { }
             try { Taskbar?.Stop(); } catch { }
             try { TaskbarWindow.RestoreSystemTaskbar(); } catch { }
             try { var t = ((App)Current)._tray; if (t != null) { t.Visible = false; t.Dispose(); } } catch { }

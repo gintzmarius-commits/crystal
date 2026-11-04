@@ -101,12 +101,14 @@ namespace WaveIsland
             Measure(new Size(Width, double.PositiveInfinity));
             double h = Math.Min(DesiredSize.Height, sb.Height / k - 120);
             MaxHeight = sb.Height / k - 120;
-            Top = bubble.Top - 12 - h;
+            // Bulle en haut de l'ecran (mode tablette) : le panneau descend en dessous ; sinon il monte au-dessus
+            bool below = bubble.Top < sb.Height / k / 2;
+            Top = below ? bubble.Bottom + 10 : bubble.Top - 12 - h;
             // Depart : une goutte qui sort de la bulle
             double ox = (bubble.Left + bubble.Width / 2) - Left;
-            _root.RenderTransformOrigin = new Point(Math.Max(0, Math.Min(1, ox / Width)), 1);
+            _root.RenderTransformOrigin = new Point(Math.Max(0, Math.Min(1, ox / Width)), below ? 0 : 1);
             _scale.ScaleX = 0.25; _scale.ScaleY = 0.08;
-            _move.Y = 30;
+            _move.Y = below ? -30 : 30;
             _root.Opacity = 0;
             _openedAt = DateTime.Now;
             Show();
@@ -143,7 +145,7 @@ namespace WaveIsland
             var ease = new QuadraticEase { EasingMode = EasingMode.EaseIn };
             _scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.3, t) { EasingFunction = ease });
             _scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.1, t) { EasingFunction = ease });
-            _move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(30, t) { EasingFunction = ease });
+            _move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(_root.RenderTransformOrigin.Y < 0.5 ? -30 : 30, t) { EasingFunction = ease });
             var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(180)) { BeginTime = TimeSpan.FromMilliseconds(40) };
             fade.Completed += (a, b) => { try { Close(); } catch { } };
             _root.BeginAnimation(OpacityProperty, fade);
