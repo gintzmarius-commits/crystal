@@ -306,7 +306,7 @@ namespace WaveIsland
         /// <summary>Fond tres clair derriere la barre : textes et icones passent en fonce.</summary>
         private void ApplyInk()
         {
-            bool dark = _cap.Luma > 0.62;
+            bool dark = _darkInk ? _cap.Luma > 0.5 : _cap.Luma > 0.6;
             if (dark == _darkInk) return;
             _darkInk = dark;
             var ink = dark ? new SolidColorBrush(Color.FromRgb(24, 26, 32)) : Brushes.White;
@@ -554,6 +554,13 @@ namespace WaveIsland
             Point p;
             try { p = at.TranslatePoint(new Point(0, 0), _root); } catch { p = new Point(_apps.X, 0); }
             TaskbarPanel.Menu(new Rect(Left + p.X - 120, Top + EdgeY, 290, BarH), live.Name, items.ToArray());
+        }
+
+        /// <summary>Icone de l'appli de cette fenetre (pour les apercus qui se changent en icone).</summary>
+        public ImageSource IconFor(IntPtr hwnd)
+        {
+            var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
+            return it != null ? IconOf(it) : null;
         }
 
         /// <summary>L'appli vient de tomber dans son icone : l'icone rebondit (comme une goutte qui tombe dans l'eau).</summary>

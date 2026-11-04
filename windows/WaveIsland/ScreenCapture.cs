@@ -51,7 +51,8 @@ namespace WaveIsland
             _lastSub = sub;
 
             // Luminosite moyenne (pour choisir un texte clair ou fonce) : une image sur 8 suffit
-            if (++_lumaTick % 8 == 1)
+            // Calculee a chaque changement (sinon la couleur des icones restait fausse jusqu'au prochain clic)
+            if (++_lumaTick > 0)
             {
             double sum = 0; int count = 0;
             for (int row = sy; row < sy + sh; row += 4)

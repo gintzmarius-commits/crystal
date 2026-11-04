@@ -132,7 +132,13 @@ namespace WaveIsland
         {
             if (idObject != 0) return;
             Border(hwnd);
-            if (Active) MaximizeIfApp(hwnd);
+            if (Active)
+            {
+                MaximizeIfApp(hwnd);
+                // Image de l'appli des qu'elle est affichee : son apercu est pret avant meme d'ouvrir la pile
+                var ui = System.Windows.Application.Current?.Dispatcher;
+                System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => ui?.BeginInvoke(new Action(() => AppMotion.Cache(hwnd))));
+            }
         }
 
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
@@ -223,7 +229,12 @@ namespace WaveIsland
             double dy = g.Start.Y - p.Y;
             if (Math.Abs(p.Y - g.Last.Y) > 6 || Math.Abs(p.X - g.Last.X) > 6) { g.StillSince = DateTime.Now; }
             g.Last = p;
-            if (g.App == IntPtr.Zero) return; // sur le bureau, le dock est deja la
+            if (g.App == IntPtr.Zero)
+            {
+                // Sur le bureau : glisser la petite barre vers le haut ouvre directement la pile des applis
+                if (!g.Fired && dy > 40 && AppMotion.Current == null) { g.Fired = true; AppMotion.BeginSwitcher(); }
+                return;
+            }
             if (!g.DockWasVisible)
             {
                 // 1er glissement : le dock monte
@@ -316,7 +327,7 @@ namespace WaveIsland
             Top = sb.Bottom / k - EH;
             if (_t == null)
             {
-                _t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                _t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
                 _t.Tick += (a, b) => Refresh();
             }
             _t.Start();
@@ -325,13 +336,35 @@ namespace WaveIsland
 
         public void Stop() { _t?.Stop(); Hide(); }
 
-        /// <summary>La petite barre n'apparait que quand une appli est ouverte (sur le bureau, le dock est la).</summary>
+        private readonly ScreenCapture _cap = new ScreenCapture();
+        private bool _darkPill;
+
+        /// <summary>
+        /// La petite barre est toujours la (bureau compris), par-dessus l'appli sans lui prendre de place.
+        /// Sa couleur suit le fond juste derriere : noire sur un fond clair, blanche sur un fond fonce.
+        /// </summary>
         private void Refresh()
         {
-            bool app = TabletShell.AppInFront() != IntPtr.Zero || AppMotion.Current != null;
-            _pill.Opacity = app ? 1 : 0;
-            if (_hwnd != IntPtr.Zero)
-                Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            _pill.Opacity = 1;
+            if (_hwnd == IntPtr.Zero) return;
+            Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            try
+            {
+                if (!Native.GetWindowRect(_hwnd, out var r)) return;
+                int cx = (r.Left + r.Right) / 2, pw = 220, ph = 26;
+                // Bande juste au-dessus de la petite barre (ce qu'il y a derriere elle)
+                _cap.Grab(cx - pw / 2, r.Top - ph, pw, ph);
+                double l = _cap.Luma;
+                bool dark = _darkPill ? l > 0.45 : l > 0.58;
+                if (dark == _darkPill) return;
+                _darkPill = dark;
+                var to = dark ? Color.FromArgb(230, 20, 22, 28) : Color.FromArgb(235, 255, 255, 255);
+                var b = _pill.Background as SolidColorBrush;
+                if (b == null || b.IsFrozen) { b = new SolidColorBrush(((SolidColorBrush)_pill.Background).Color); _pill.Background = b; }
+                b.BeginAnimation(SolidColorBrush.ColorProperty, new System.Windows.Media.Animation.ColorAnimation(to, TimeSpan.FromMilliseconds(220)));
+                if (_pill.Effect is System.Windows.Media.Effects.DropShadowEffect fx) fx.Color = dark ? Colors.White : Colors.Black;
+            }
+            catch { }
         }
     }
 

@@ -36,8 +36,13 @@ namespace WaveIsland
             public IntPtr Src;
             public string Title;
             public readonly SpringValue X = new SpringValue(0), Y = new SpringValue(0), W = new SpringValue(0), H = new SpringValue(0), Op = new SpringValue(1);
+            /// <summary>0 = apercu, 1 = icone de l'appli (pour tout ranger dans le dock).</summary>
+            public readonly SpringValue Mix = new SpringValue(0);
             public Border View, Shade;
             public TextBlock Label;
+            public Image Icon;
+            /// <summary>En train de se fermer (jetee vers le haut) : elle ne suit plus la pile.</summary>
+            public bool Leaving;
         }
 
         private readonly Canvas _canvas = new Canvas();
@@ -49,6 +54,10 @@ namespace WaveIsland
         public bool Switcher { get; private set; }
         /// <summary>Position dans la pile (0 = la plus recente devant ; 1 = la suivante devant...).</summary>
         private readonly SpringValue _scroll = new SpringValue(0);
+        private readonly System.Diagnostics.Stopwatch _frameClock = new System.Diagnostics.Stopwatch();
+        /// <summary>Lancee de la pile apres le lacher (en cartes par seconde).</summary>
+        private double _vel;
+        private bool _inertia;
 
         // ================== Copie d'une fenetre ==================
 
@@ -70,7 +79,13 @@ namespace WaveIsland
                 var bmi = new Native.BITMAPINFOHEADER { biSize = 40, biWidth = w, biHeight = -hh, biPlanes = 1, biBitCount = 32 };
                 dib = Native.CreateDIBSection(dc, ref bmi, 0, out IntPtr bits, IntPtr.Zero, 0);
                 old = Native.SelectObject(dc, dib);
-                if (!PrintWindow(h, dc, 2 /* PW_RENDERFULLCONTENT */)) return null;
+                bool ok = PrintWindow(h, dc, 2 /* PW_RENDERFULLCONTENT */);
+                // Certaines applis (Parametres, Explorateur, Xbox...) donnent une image toute noire :
+                // si l'appli est a l'ecran, on copie l'ecran a la place ; sinon pas d'image (carte avec son icone)
+                if (!ok || Blank(bits, w, hh))
+                {
+                    if (h != Native_GetForeground() || !CopyScreen(dc, r, w, hh) || Blank(bits, w, hh)) return null;
+                }
                 var src = BitmapSource.Create(w, hh, 96, 96, PixelFormats.Bgr32, null, bits, w * hh * 4, w * 4);
                 BitmapSource result = src;
                 if (w > 1400) result = new TransformedBitmap(src, new ScaleTransform(1400.0 / w, 1400.0 / w));
@@ -85,6 +100,31 @@ namespace WaveIsland
                 if (dc != IntPtr.Zero) Native.DeleteDC(dc);
                 Native.ReleaseDC(IntPtr.Zero, screen);
             }
+        }
+
+        [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")] private static extern IntPtr Native_GetForeground();
+
+        /// <summary>Image presque entierement noire (copie ratee) ?</summary>
+        private static unsafe bool Blank(IntPtr bits, int w, int h)
+        {
+            uint* p = (uint*)bits;
+            int dark = 0, n = 0;
+            for (int y = 2; y < h; y += Math.Max(1, h / 40))
+                for (int x = 2; x < w; x += Math.Max(1, w / 40))
+                {
+                    uint c = p[y * w + x];
+                    if ((c & 0xFF) < 10 && ((c >> 8) & 0xFF) < 10 && ((c >> 16) & 0xFF) < 10) dark++;
+                    n++;
+                }
+            return n > 0 && dark > n * 0.97;
+        }
+
+        /// <summary>Copie de la zone de l'ecran ou est la fenetre (quand elle est devant).</summary>
+        private static bool CopyScreen(IntPtr dc, Native.RECT r, int w, int h)
+        {
+            IntPtr screen = Native.GetDC(IntPtr.Zero);
+            try { return Native.BitBlt(dc, 0, 0, w, h, screen, r.Left, r.Top, Native.SRCCOPY); }
+            finally { Native.ReleaseDC(IntPtr.Zero, screen); }
         }
 
         /// <summary>Copie (avec une limite de temps : une appli bloquee ne doit pas tout figer).</summary>
@@ -215,7 +255,7 @@ namespace WaveIsland
             }
             c.View = new Border
             {
-                Background = shot != null ? new ImageBrush(shot) { Stretch = Stretch.Fill } : (Brush)new SolidColorBrush(Color.FromArgb(150, 40, 44, 54)),
+                Background = shot != null ? new ImageBrush(shot) { Stretch = Stretch.Fill } : (Brush)new SolidColorBrush(Color.FromArgb(120, 230, 236, 245)),
                 // Contour noir (ou blanc) au lieu d'une grosse ombre : bien plus leger pour les petits PC
                 BorderBrush = Settings.Current.WindowBorder == "white" ? new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)) : new SolidColorBrush(Color.FromArgb(230, 0, 0, 0)),
                 BorderThickness = new Thickness(Settings.Current.WindowBorder == "none" ? 0 : 1.5),
@@ -228,11 +268,24 @@ namespace WaveIsland
                 Text = c.Title, Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0,
                 Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Opacity = 0.5 }
             };
+            c.Icon = new Image { Source = appIcon ?? App.Taskbar?.IconFor(src) ?? IconFromExe(src), Opacity = 0, IsHitTestVisible = false, Stretch = Stretch.Uniform };
+            RenderOptions.SetBitmapScalingMode(c.Icon, BitmapScalingMode.HighQuality);
             _canvas.Children.Add(c.View);
             _canvas.Children.Add(c.Shade);
             _canvas.Children.Add(c.Label);
+            _canvas.Children.Add(c.Icon);
             _cards.Add(c);
             return c;
+        }
+
+        private static ImageSource IconFromExe(IntPtr src)
+        {
+            try
+            {
+                var exe = src != IntPtr.Zero ? TaskbarWindow.AppWindows().FirstOrDefault(w => w.h == src).exe : null;
+                return exe != null ? AppCatalog.LoadShellIcon(exe, 128) : null;
+            }
+            catch { return null; }
         }
 
         private void Render()
@@ -250,10 +303,17 @@ namespace WaveIsland
                 }
                 c.View.CornerRadius = new CornerRadius(rad);
                 c.Shade.CornerRadius = new CornerRadius(rad);
-                c.View.Opacity = op;
+                double mix = Math.Max(0, Math.Min(1, c.Mix.Value));
+                c.View.Opacity = op * (1 - mix);
+                c.Shade.Visibility = mix > 0.01 ? Visibility.Collapsed : Visibility.Visible;
                 Canvas.SetLeft(c.Label, x + 4); Canvas.SetTop(c.Label, y - 24);
                 c.Label.MaxWidth = Math.Max(10, w - 8);
-                c.Label.Opacity = Switcher ? op : 0;
+                c.Label.Opacity = Switcher ? op * (1 - mix) : 0;
+                // L'icone de l'appli apparait au centre quand l'apercu se change en icone
+                double isz = Math.Max(4, Math.Min(w, h));
+                Canvas.SetLeft(c.Icon, x + (w - isz) / 2); Canvas.SetTop(c.Icon, y + (h - isz) / 2);
+                c.Icon.Width = isz; c.Icon.Height = isz;
+                c.Icon.Opacity = op * mix;
             }
         }
 
@@ -261,6 +321,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
+            _frameClock.Restart();
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -268,13 +329,31 @@ namespace WaveIsland
         {
             if (!_gate.Ready()) return;
             bool moving = false;
+            double dt = Math.Min(0.05, _frameClock.Elapsed.TotalSeconds);
+            _frameClock.Restart();
+            if (_inertia)
+            {
+                // Defilement libre : la pile continue sur sa lancee et ralentit doucement (comme sur iPhone)
+                double v = _scroll.Value + _vel * dt;
+                _vel *= Math.Exp(-3.4 * dt);
+                double max = Math.Max(0, _cards.Count(c => !c.Leaving) - 1);
+                if (v < 0 || v > max)
+                {
+                    _inertia = false;
+                    _scroll.Set(v);
+                    _scroll.AnimateTo(v < 0 ? 0 : max, new Spring(0.85, 0.42));
+                }
+                else if (Math.Abs(_vel) < 0.04) { _inertia = false; _scroll.Set(v); }
+                else _scroll.Set(v);
+                moving = true;
+            }
             if (_layoutLive)
             {
                 _scroll.Tick();
                 moving |= _scroll.Moving;
                 Stack(_scroll.Value, animate: false);
             }
-            foreach (var c in _cards) { c.X.Tick(); c.Y.Tick(); c.W.Tick(); c.H.Tick(); c.Op.Tick(); moving |= c.X.Moving || c.Y.Moving || c.W.Moving || c.H.Moving || c.Op.Moving; }
+            foreach (var c in _cards) { c.X.Tick(); c.Y.Tick(); c.W.Tick(); c.H.Tick(); c.Op.Tick(); c.Mix.Tick(); moving |= c.X.Moving || c.Y.Moving || c.W.Moving || c.H.Moving || c.Op.Moving || c.Mix.Moving; }
             Render();
             if (!moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
         }
@@ -283,7 +362,7 @@ namespace WaveIsland
         {
             for (int i = 0; i < 90; i++)
             {
-                if (!_scroll.Moving && !_cards.Any(c => c.X.Moving || c.Y.Moving || c.W.Moving || c.H.Moving || c.Op.Moving)) return;
+                if (!_scroll.Moving && !_inertia && !_cards.Any(c => c.X.Moving || c.Y.Moving || c.W.Moving || c.H.Moving || c.Op.Moving || c.Mix.Moving)) return;
                 await Task.Delay(16);
             }
         }
@@ -403,32 +482,64 @@ namespace WaveIsland
 
         // ================== Toutes les applis ouvertes (pile facon iPhone) ==================
 
+        /// <summary>Depuis le bureau (glisser la petite barre vers le haut) : la pile s'ouvre directement.</summary>
+        public static void BeginSwitcher()
+        {
+            if (Current != null) return;
+            if (!TaskbarWindow.AppWindows().Any()) return;
+            var m = new AppMotion(IntPtr.Zero);
+            Current = m;
+            m.Place();
+            m.ShowSwitcher();
+        }
+
+        private List<Card> Live => _cards.Where(c => !c.Leaving).ToList();
+
         public void ShowSwitcher()
         {
             if (Switcher) return;
             Switcher = true;
             Log.I("Mode tablette : vue des applis ouvertes");
-            var first = _cards[0];
+            var first = _cards.FirstOrDefault();
             var others = TaskbarWindow.AppWindows().Select(w => w.h).Where(h => h != _app).ToList();
             // Les images manquantes arrivent en arriere-plan (la vue s'ouvre tout de suite)
             foreach (var h in others) if (!Shots.ContainsKey(h)) Refresh(h);
-            // Ordre d'affichage : la plus ancienne d'abord (au fond), la plus recente en dernier (devant)
-            for (int i = others.Count - 1; i >= 0; i--)
-            {
-                var c = NewCard(others[i], null);
-                var r = Slot(i + 1, 0);
-                c.X.Set(r.X - 160); c.Y.Set(r.Y); c.W.Set(r.Width); c.H.Set(r.Height); c.Op.Set(0);
-            }
-            // La carte de l'appli en cours passe devant toutes les autres
-            _canvas.Children.Remove(first.View); _canvas.Children.Remove(first.Shade); _canvas.Children.Remove(first.Label);
-            _canvas.Children.Add(first.View); _canvas.Children.Add(first.Shade); _canvas.Children.Add(first.Label);
+            var added = new List<Card>();
+            foreach (var h in others) added.Add(NewCard(h, null));
             // _cards : la plus recente en premier
-            var ordered = new List<Card> { first };
-            ordered.AddRange(_cards.Where(c => c != first).Reverse());
             _cards.Clear();
-            _cards.AddRange(ordered);
+            if (first != null) _cards.Add(first);
+            _cards.AddRange(added);
             _scroll.Set(0);
-            Stack(0, animate: true);
+            _layoutLive = false;
+            // Les cartes arrivent depuis la gauche, l'une apres l'autre, et se rangent avec un petit rebond
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                var c = _cards[i];
+                var r = Slot(i, 0);
+                if (c == first)
+                {
+                    var sp = new Spring(0.8, 0.42);
+                    c.X.AnimateTo(r.X, sp); c.Y.AnimateTo(r.Y, sp); c.W.AnimateTo(r.Width, sp); c.H.AnimateTo(r.Height, sp);
+                }
+                else
+                {
+                    c.X.Set(-r.Width - 60 - i * 40); c.Y.Set(r.Y); c.W.Set(r.Width); c.H.Set(r.Height); c.Op.Set(1);
+                    Arrive(c, r, 40 + (first == null ? i : i - 1) * 55);
+                }
+            }
+            Depth(0);
+            Render();
+            Kick();
+        }
+
+        private async void Arrive(Card c, Rect r, int delay)
+        {
+            await Task.Delay(delay);
+            if (_closing || c.Leaving || _gathered) return;
+            var bounce = new Spring(0.58, 0.46);
+            c.X.AnimateTo(r.X, bounce); c.Y.AnimateTo(r.Y, bounce); c.W.AnimateTo(r.Width, bounce); c.H.AnimateTo(r.Height, bounce);
+            Kick();
         }
 
         /// <summary>
@@ -455,90 +566,343 @@ namespace WaveIsland
             return new Rect(x + (cw - w) * 0.15, baseY + (ch - h) / 2, w, h);
         }
 
+        /// <summary>Voile et ordre d'affichage selon la profondeur.</summary>
+        private void Depth(double scroll)
+        {
+            var live = Live;
+            for (int i = 0; i < live.Count; i++)
+            {
+                var c = live[i];
+                double p = i - scroll;
+                c.Shade.Opacity = Math.Max(0, Math.Min(0.45, p * 0.16));
+                int z = 1000 - (int)Math.Round(p * 10);
+                Panel.SetZIndex(c.View, z); Panel.SetZIndex(c.Shade, z + 1); Panel.SetZIndex(c.Label, z + 2); Panel.SetZIndex(c.Icon, z + 3);
+            }
+        }
+
         /// <summary>Range les cartes selon le defilement (en nombre de cartes).</summary>
         private void Stack(double scroll, bool animate)
         {
             var sp = new Spring(0.8, 0.42);
-            for (int i = 0; i < _cards.Count; i++)
+            var live = Live;
+            for (int i = 0; i < live.Count; i++)
             {
                 double p = i - scroll;
                 var r = Slot(p, 0);
-                var c = _cards[i];
+                var c = live[i];
                 double op = p > 3.2 ? Math.Max(0, 1 - (p - 3.2)) : 1;
                 if (animate)
                 {
                     c.X.AnimateTo(r.X, sp); c.Y.AnimateTo(r.Y, sp); c.W.AnimateTo(r.Width, sp); c.H.AnimateTo(r.Height, sp); c.Op.AnimateTo(op, Spring.Soft);
+                    c.Mix.AnimateTo(0, new Spring(0.85, 0.3));
                 }
                 else
                 {
                     c.X.Set(r.X); c.Y.Set(r.Y); c.W.Set(r.Width); c.H.Set(r.Height); c.Op.Set(op);
                 }
-                c.Shade.Opacity = Math.Max(0, Math.Min(0.45, p * 0.16));
-                // L'ordre d'affichage suit la profondeur : la carte la plus devant est dessinee en dernier
-                Panel.SetZIndex(c.View, 1000 - (int)Math.Round(p * 10));
-                Panel.SetZIndex(c.Shade, 1001 - (int)Math.Round(p * 10));
-                Panel.SetZIndex(c.Label, 1002 - (int)Math.Round(p * 10));
             }
+            Depth(scroll);
             if (animate) Kick();
         }
 
+        /// <summary>Doigt leve apres l'ouverture de la pile : elle reste ou elle est (pas de recentrage force).</summary>
         public void SettleSwitcher()
         {
-            _layoutLive = true;
-            double target = Math.Max(0, Math.Min(_cards.Count - 1, Math.Round(_scroll.Value)));
-            _scroll.AnimateTo(target, new Spring(0.8, 0.4));
-            Kick();
+            double max = Math.Max(0, Live.Count - 1);
+            if (_scroll.Value < 0 || _scroll.Value > max)
+            {
+                _layoutLive = true;
+                _scroll.AnimateTo(Math.Max(0, Math.Min(max, _scroll.Value)), new Spring(0.85, 0.42));
+                Kick();
+            }
         }
 
-        private Point _pd, _pl;
-        private bool _pmoved;
+        // ================== Gestes dans la pile ==================
 
-        private void PDown(Point p) { _pd = _pl = p; _pmoved = false; }
+        private enum Mode { None, Scroll, Fling, Gather }
+        private Mode _mode;
+        private Point _pd, _pl;
+        private DateTime _pt;
+        private bool _pmoved, _stopped, _gathered;
+        private Card _fling;
+        private Rect _flingFrom;
+        private double _flingVel;
+
+        private Card HitCard(Point p)
+        {
+            // De la plus devant a la plus loin
+            var live = Live;
+            foreach (var c in live.OrderBy(c => Panel.GetZIndex(c.View) * -1))
+                if (new Rect(c.X.Value, c.Y.Value, c.W.Value, c.H.Value).Contains(p)) return c;
+            return null;
+        }
+
+        private void PDown(Point p)
+        {
+            _pd = _pl = p; _pt = DateTime.Now; _pmoved = false; _mode = Mode.None; _flingVel = 0;
+            // Toucher pendant que la pile file : elle s'arrete (sans ouvrir d'appli)
+            _stopped = _inertia || _scroll.Moving;
+            _inertia = false; _vel = 0;
+            if (_scroll.Moving) _scroll.Set(_scroll.Value);
+        }
 
         private void PMove(Point p)
         {
-            if (!Switcher || _cards.Count == 0) return;
-            double dx = p.X - _pl.X;
-            _pl = p;
-            if (Math.Abs(p.X - _pd.X) > 10 || Math.Abs(p.Y - _pd.Y) > 10) _pmoved = true;
-            if (Math.Abs(p.X - _pd.X) > Math.Abs(p.Y - _pd.Y))
+            if (!Switcher || Live.Count == 0) return;
+            double dt = Math.Max(0.001, (DateTime.Now - _pt).TotalSeconds);
+            double dx = p.X - _pl.X, dyStep = p.Y - _pl.Y;
+            _pl = p; _pt = DateTime.Now;
+            double tx = p.X - _pd.X, ty = p.Y - _pd.Y;
+            if (!_pmoved && (Math.Abs(tx) > 10 || Math.Abs(ty) > 10))
             {
-                // Glisser vers la droite : la carte de devant part vite, celle de derriere suit plus lentement
-                double unit = _sw * 0.64 * 0.95;
-                double v = _scroll.Value + dx / unit;
-                v = v < 0 ? v * 0.35 : v > _cards.Count - 1 ? _cards.Count - 1 + (v - (_cards.Count - 1)) * 0.35 : v;
-                _scroll.Set(v);
-                _layoutLive = false;
-                Stack(v, animate: false);
-                Render();
+                _pmoved = true;
+                if (Math.Abs(tx) > Math.Abs(ty)) _mode = Mode.Scroll;
+                else if (ty < 0) { _fling = HitCard(_pd); _mode = _fling != null ? Mode.Fling : Mode.None; if (_fling != null) _flingFrom = new Rect(_fling.X.Value, _fling.Y.Value, _fling.W.Value, _fling.H.Value); }
+                else _mode = Mode.Gather;
             }
-            else if (p.Y > _pd.Y)
+            switch (_mode)
             {
-                // Glisser vers le bas : la pile descend avec le doigt
-                double d = p.Y - _pd.Y;
-                for (int i = 0; i < _cards.Count; i++) { var r = Slot(i - _scroll.Value, 0); _cards[i].Y.Set(r.Y + d * 0.8); }
-                Render();
+                case Mode.Scroll:
+                {
+                    // Defilement libre : la carte de devant part vite, celle de derriere suit plus lentement
+                    double unit = _sw * 0.64 * 0.95;
+                    double max = Live.Count - 1;
+                    double v = _scroll.Value + dx / unit;
+                    double raw = v;
+                    if (v < 0 && dx < 0) v = _scroll.Value + dx / unit * 0.35;
+                    else if (v > max && dx > 0) v = _scroll.Value + dx / unit * 0.35;
+                    _vel = _vel * 0.6 + (raw - _scroll.Value) / dt * 0.4;
+                    _scroll.Set(v);
+                    _layoutLive = false;
+                    Stack(v, animate: false);
+                    Render();
+                    break;
+                }
+                case Mode.Fling:
+                {
+                    // La carte suit le doigt vers le haut
+                    _flingVel = _flingVel * 0.6 + dyStep / dt * 0.4;
+                    double up = Math.Min(0, ty);
+                    _fling.Y.Set(_flingFrom.Y + up + Math.Max(0, ty) * 0.2);
+                    _fling.X.Set(_flingFrom.X + tx * 0.25);
+                    Render();
+                    break;
+                }
+                case Mode.Gather:
+                    Gather(p, ty);
+                    break;
             }
         }
 
         private void PUp(Point p)
         {
             if (!Switcher) return;
-            double dy = p.Y - _pd.Y;
             if (!_pmoved)
             {
-                // Toucher une carte : on l'ouvre (de la plus devant a la plus loin)
-                foreach (var c in _cards.OrderBy(c => _cards.IndexOf(c) - _scroll.Value < 0 ? 99 : _cards.IndexOf(c) - _scroll.Value))
-                {
-                    var r = new Rect(c.X.Value, c.Y.Value, c.W.Value, c.H.Value);
-                    if (r.Contains(p)) { OpenCard(c); return; }
-                }
-                int front = (int)Math.Max(0, Math.Min(_cards.Count - 1, Math.Round(_scroll.Value)));
-                OpenCard(_cards[front]);
+                if (_stopped) return;
+                var hit = HitCard(p);
+                if (hit != null) OpenCard(hit);
+                else Finish();   // toucher le fond d'ecran : retour au bureau
                 return;
             }
-            if (dy > 120 && Math.Abs(dy) > Math.Abs(p.X - _pd.X)) { AllToDock(); return; }
-            SettleSwitcher();
+            switch (_mode)
+            {
+                case Mode.Scroll:
+                    _layoutLive = true;
+                    _vel = Math.Max(-14, Math.Min(14, _vel));
+                    _inertia = Math.Abs(_vel) > 0.15;
+                    if (!_inertia) SettleSwitcher();
+                    Kick();
+                    break;
+                case Mode.Fling:
+                {
+                    var c = _fling;
+                    _fling = null;
+                    if (p.Y - _pd.Y < -_sh * 0.16 || _flingVel < -1100) CloseCard(c);
+                    else { var sp = new Spring(0.7, 0.4); c.X.AnimateTo(_flingFrom.X, sp); c.Y.AnimateTo(_flingFrom.Y, sp); Kick(); }
+                    break;
+                }
+                case Mode.Gather:
+                    if (_gathered && p.Y > _sh * 0.5) IconsToDock();
+                    else { Ungather(); }
+                    break;
+                default:
+                    SettleSwitcher();
+                    break;
+            }
+            _mode = Mode.None;
+        }
+
+        // ---- Tout ranger : les apercus deviennent des icones regroupees sous le doigt ----
+
+        private const double IconSize = 64;
+
+        private void Gather(Point finger, double down)
+        {
+            var live = Live;
+            if (!_gathered && down > 90)
+            {
+                _gathered = true;
+                foreach (var c in live) c.Mix.AnimateTo(1, new Spring(0.8, 0.3));
+                Log.I("Mode tablette : apercus changes en icones");
+            }
+            else if (_gathered && down < 55)
+            {
+                Ungather();
+                return;
+            }
+            if (!_gathered)
+            {
+                // Avant le seuil : la pile descend un peu avec le doigt
+                for (int i = 0; i < live.Count; i++) { var r = Slot(i - _scroll.Value, 0); live[i].Y.Set(r.Y + down * 0.5); }
+                Render();
+                return;
+            }
+            // Les icones suivent le doigt en petit tas (la plus devant arrive la premiere, les autres un peu apres)
+            for (int i = 0; i < live.Count; i++)
+            {
+                var c = live[i];
+                int k = Math.Min(i, 5);
+                double ox = (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * 14, oy = -k * 6;
+                var follow = new Spring(0.85, 0.2 + 0.03 * k);
+                c.X.AnimateTo(finger.X - IconSize / 2 + ox, follow); c.Y.AnimateTo(finger.Y - IconSize / 2 + oy, follow);
+                c.W.AnimateTo(IconSize, follow); c.H.AnimateTo(IconSize, follow);
+                c.Op.AnimateTo(k < 5 ? 1 : 0, Spring.Soft);
+                Panel.SetZIndex(c.Icon, 3000 - i);
+            }
+            Kick();
+        }
+
+        private void Ungather()
+        {
+            _gathered = false;
+            _layoutLive = false;
+            Stack(_scroll.Value, animate: true);
+        }
+
+        /// <summary>Doigt lache assez bas : chaque icone vole a sa place dans le dock et y rebondit.</summary>
+        private async void IconsToDock()
+        {
+            Log.I("Mode tablette : toutes les applis rangees dans le dock");
+            _layoutLive = false;
+            App.Taskbar?.ShowDock(10);
+            var live = Live;
+            foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
+            await Task.Delay(60);
+            int i = 0;
+            foreach (var c in live) Fly(c, i++);
+            await Task.Delay(120 + live.Count * 50);
+            await Settled();
+            await Task.Delay(120);
+            Finish();
+        }
+
+        private async void Fly(Card c, int i)
+        {
+            await Task.Delay(i * 50);
+            var target = App.Taskbar?.IconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
+            double tx = target.X - Left, ty = target.Y - Top;
+            var fly = new Spring(0.55, 0.42);
+            c.Op.Set(1);
+            c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
+            Kick();
+            await Task.Delay(260);
+            App.Taskbar?.Splash(c.Src);
+            await Task.Delay(140);
+            c.Op.AnimateTo(0, new Spring(1, 0.3));
+            Kick();
+        }
+
+        // ---- Jeter une carte vers le haut : l'appli se ferme vraiment ----
+
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr h);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+        [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr h);
+        [DllImport("user32.dll")] private static extern IntPtr GetLastActivePopup(IntPtr h);
+
+        private static bool Gone(IntPtr h) => !IsWindow(h) || !IsWindowVisible(h);
+
+        /// <summary>Fenetre de dialogue de l'appli (« Voulez-vous enregistrer ? »...) ou zero.</summary>
+        private static IntPtr Dialog(IntPtr h)
+        {
+            var pop = GetLastActivePopup(h);
+            if (pop != IntPtr.Zero && pop != h && IsWindowVisible(pop)) return pop;
+            return IsWindowEnabled(h) ? IntPtr.Zero : (pop != h ? pop : IntPtr.Zero);
+        }
+
+        private async void CloseCard(Card c)
+        {
+            if (c == null || c.Leaving) return;
+            c.Leaving = true;
+            Log.I("Mode tablette : fermeture de « " + c.Title + " »");
+            // La carte file vers le haut ; les autres se resserrent
+            var off = new Spring(0.95, 0.24);
+            c.Y.AnimateTo(-c.H.Value - 60, off);
+            c.Op.AnimateTo(0.9, Spring.Soft);
+            CloseGap();
+            if (c.Src != IntPtr.Zero) PostMessage(c.Src, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
+            // On regarde ce que fait l'appli
+            bool parked = false;
+            var until = DateTime.Now.AddSeconds(1.6);
+            while (!_closing)
+            {
+                await Task.Delay(90);
+                if (c.Src == IntPtr.Zero || Gone(c.Src)) { Remove(c); return; }
+                var dlg = Dialog(c.Src);
+                if (dlg != IntPtr.Zero)
+                {
+                    if (!parked)
+                    {
+                        // L'appli demande quelque chose : la carte attend tout en haut, sa question passe devant
+                        parked = true;
+                        Log.I("Mode tablette : l'appli pose une question avant de se fermer");
+                        var sp = new Spring(0.7, 0.42);
+                        double w = _sw * 0.3, h = _sh * 0.3;
+                        c.W.AnimateTo(w, sp); c.H.AnimateTo(h, sp); c.X.AnimateTo((_sw - w) / 2, sp); c.Y.AnimateTo(-h * 0.55, sp);
+                        c.Op.AnimateTo(1, Spring.Soft);
+                        Panel.SetZIndex(c.View, 4000); Panel.SetZIndex(c.Icon, 4001);
+                        Kick();
+                    }
+                    Native.SetWindowPos(dlg, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_SHOWWINDOW);
+                    Native.SetForegroundWindow(dlg);
+                    until = DateTime.Now.AddSeconds(1.2);   // apres la reponse, on laisse le temps a l'appli de se fermer
+                    continue;
+                }
+                if (DateTime.Now > until)
+                {
+                    // L'appli ne s'est pas fermee (« Annuler ») : la carte reprend sa place dans la pile
+                    Log.I("Mode tablette : « " + c.Title + " » reste ouverte");
+                    c.Leaving = false;
+                    c.Op.AnimateTo(1, Spring.Soft);
+                    _layoutLive = false;
+                    Stack(_scroll.Value, animate: true);
+                    _layoutLive = false;
+                    var back = new Spring(0.6, 0.45);
+                    var live = Live;
+                    var r = Slot(live.IndexOf(c) - _scroll.Value, 0);
+                    c.X.AnimateTo(r.X, back); c.Y.AnimateTo(r.Y, back); c.W.AnimateTo(r.Width, back); c.H.AnimateTo(r.Height, back);
+                    Kick();
+                    return;
+                }
+            }
+        }
+
+        private void CloseGap()
+        {
+            double max = Math.Max(0, Live.Count - 1);
+            if (_scroll.Value > max) _scroll.Set(max);
+            _layoutLive = false;
+            Stack(_scroll.Value, animate: true);
+        }
+
+        private void Remove(Card c)
+        {
+            Shots.Remove(c.Src);
+            _cards.Remove(c);
+            foreach (var el in new UIElement[] { c.View, c.Shade, c.Label, c.Icon }) _canvas.Children.Remove(el);
+            if (Live.Count == 0 && !_cards.Any()) { Finish(); return; }
+            CloseGap();
         }
 
         private async void OpenCard(Card c)
@@ -546,6 +910,7 @@ namespace WaveIsland
             if (c == null) { Finish(); return; }
             Log.I("Mode tablette : ouverture de « " + c.Title + " »");
             _layoutLive = false;
+            _inertia = false;
             var sp = new Spring(0.78, 0.38);
             foreach (var o in _cards) if (o != c) o.Op.AnimateTo(0, Spring.Soft);
             Panel.SetZIndex(c.View, 5000); Panel.SetZIndex(c.Shade, 5001);
@@ -559,38 +924,16 @@ namespace WaveIsland
             Finish();
         }
 
-        /// <summary>Glisser vers le bas dans la vue des applis : elles tombent toutes en goutte dans le dock.</summary>
-        public async void AllToDock()
+        /// <summary>Pour les tests : tout ranger dans le dock d'un coup.</summary>
+        public void AllToDock()
         {
-            Log.I("Mode tablette : toutes les applis rangees dans le dock");
-            _layoutLive = false;
-            App.Taskbar?.ShowDock(10);
-            int i = 0;
-            foreach (var c in _cards)
-            {
-                var target = App.Taskbar?.IconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
-                double tx = target.X - Left, ty = target.Y - Top;
-                var form = new Spring(0.62, 0.24);
-                double w1 = c.W.Value * 0.62, h1 = c.H.Value * 1.1;
-                c.W.AnimateTo(w1, form); c.H.AnimateTo(h1, form); c.X.AnimateTo(c.X.Value + (c.W.Value - w1) / 2, form);
-                var fall = new Spring(0.8, 0.36 + 0.03 * i++);
-                DropLater(c, tx, ty, target, fall, 130 + i * 40);
-            }
-            Kick();
-            await Task.Delay(260);
-            foreach (var c in _cards) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
-            await Task.Delay(200);
-            await Settled();
-            Finish();
-        }
-
-        private async void DropLater(Card c, double tx, double ty, Rect target, Spring fall, int delay)
-        {
-            await Task.Delay(delay);
-            c.X.AnimateTo(tx + target.Width * 0.15, fall); c.Y.AnimateTo(ty, fall);
-            c.W.AnimateTo(target.Width * 0.7, fall); c.H.AnimateTo(target.Height * 1.25, fall);
-            c.Op.AnimateTo(0, new Spring(1, 0.42));
-            Kick();
+            var live = Live;
+            if (live.Count == 0) { Finish(); return; }
+            _gathered = true;
+            var f = new Point(_sw / 2, _sh * 0.62);
+            foreach (var c in live) c.Mix.AnimateTo(1, new Spring(0.8, 0.3));
+            Gather(f, 200);
+            Task.Delay(450).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(IconsToDock)));
         }
 
         // ================== Tests automatiques ==================
