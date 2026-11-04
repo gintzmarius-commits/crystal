@@ -408,14 +408,73 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
         body.addView(card)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(14), 0, 0) }
         buttons.addView(button("Refuser", primary = false) { r.answer(false); close() }, LinearLayout.LayoutParams(0, dp(50), 1f))
-        buttons.addView(button("Accepter", primary = true) {
+        val accept = {
             r.answer(true)
             buttons.visibility = View.GONE
             status.visibility = View.VISIBLE
             status.text = "Réception…"
             bar.visibility = View.VISIBLE
-        }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(10) })
+        }
+        val bio = biometricAvailable()
+        val ok = button("Accepter", primary = true) {
+            if (bio) askBiometric(r, accept, fromButton = true) else accept()
+        }
+        if (bio) {
+            ok.compoundDrawablePadding = dp(8)
+            ok.setCompoundDrawables(LineIcon(LineIcon.Kind.FINGERPRINT, Glass.ON_ACCENT, d).apply { setBounds(0, 0, dp(22), dp(22)) }, null, null, null)
+        }
+        buttons.addView(ok, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(10) })
         body.addView(buttons)
+        // Empreinte / visage disponible : on la demande tout de suite (plus besoin de toucher Accepter)
+        if (bio) panel.postDelayed({ if (request === r && !r.accepted && !closing) askBiometric(r, accept, fromButton = false) }, 450)
+    }
+
+    // ================== Biometrie : accepter avec l'empreinte ou le visage ==================
+
+    private var bioSignal: android.os.CancellationSignal? = null
+    private var bioBroken = false
+
+    /** Empreinte ou visage enregistre et utilisable (sinon : simple bouton Accepter). */
+    private fun biometricAvailable(): Boolean = try {
+        when {
+            Build.VERSION.SDK_INT >= 30 -> getSystemService(android.hardware.biometrics.BiometricManager::class.java)
+                .canAuthenticate(android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK) == android.hardware.biometrics.BiometricManager.BIOMETRIC_SUCCESS
+            Build.VERSION.SDK_INT == 29 -> @Suppress("DEPRECATION") getSystemService(android.hardware.biometrics.BiometricManager::class.java)
+                .canAuthenticate() == android.hardware.biometrics.BiometricManager.BIOMETRIC_SUCCESS
+            else -> false
+        }
+    } catch (e: Exception) { false }
+
+    private fun askBiometric(r: WaveDrop.Request, accept: () -> Unit, fromButton: Boolean) {
+        if (Build.VERSION.SDK_INT < 29 || bioBroken) { if (fromButton) accept(); return }
+        if (bioSignal != null) return
+        try {
+            val b = android.hardware.biometrics.BiometricPrompt.Builder(this)
+                .setTitle("Recevoir « ${r.offer.name} »")
+                .setSubtitle("De ${r.from} · ${size(r.offer.size)}")
+                .setDescription("Confirme avec ton empreinte ou ton visage pour accepter le fichier")
+                .setNegativeButton("Plus tard", mainExecutor) { _, _ -> bioSignal = null }
+            if (Build.VERSION.SDK_INT >= 30) b.setAllowedAuthenticators(android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            val sig = android.os.CancellationSignal()
+            bioSignal = sig
+            b.build().authenticate(sig, mainExecutor, object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult) {
+                    bioSignal = null
+                    Log.i("LiquidIsland", "Wave Drop : fichier accepte par biometrie")
+                    if (request === r && !r.accepted) accept()
+                }
+                override fun onAuthenticationError(code: Int, msg: CharSequence) {
+                    // Annule ou trop d'essais : les boutons Refuser / Accepter restent la
+                    bioSignal = null
+                }
+            })
+        } catch (e: Exception) {
+            bioSignal = null
+            bioBroken = true
+            Log.w("LiquidIsland", "Wave Drop : biometrie indisponible ($e)")
+            // Seulement si on a touche Accepter : jamais d'acceptation sans geste de l'utilisateur
+            if (fromButton) accept()
+        }
     }
 
     override fun request(r: WaveDrop.Request) { if (request == null && !closing) showRequest(r) }
@@ -469,6 +528,7 @@ class WaveDropActivity : Activity(), WaveDrop.Ui {
     override fun onDestroy() {
         WaveDrop.uis.remove(this)
         // Fenetre fermee sans repondre : on refuse
+        bioSignal?.cancel()
         request?.let { if (!it.accepted) it.answer(false) }
         if (Build.VERSION.SDK_INT >= 31) try { windowManager.removeCrossWindowBlurEnabledListener(blurListener) } catch (e: Exception) { }
         super.onDestroy()

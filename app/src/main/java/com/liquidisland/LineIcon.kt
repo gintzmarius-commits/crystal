@@ -16,7 +16,7 @@ class LineIcon(private val kind: Kind, private val color: Int, private val densi
 
     enum class Kind { FOLDER, IMAGE, VIDEO, MUSIC, DOCUMENT, APPS, PHONE, LAPTOP, CLOSE, SETTINGS, DROP, CHECK, SEND, DOWNLOAD, UPDATE,
         WIFI, BLUETOOTH, AIRPLANE, DATA, ROTATE, MOON, SUN, VOLUME, TORCH, SCREENSHOT, LOCK, CAMERA, CLOCK, CALCULATOR,
-        PLAY, PAUSE, PREV, NEXT, BELL, ISLAND }
+        PLAY, PAUSE, PREV, NEXT, BELL, ISLAND, FINGERPRINT }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -222,6 +222,14 @@ class LineIcon(private val kind: Kind, private val color: Int, private val densi
                 r.set(3f, 8f, 21f, 16f); c.drawRoundRect(r, 4f, 4f, p)
                 path.moveTo(7f, 12.5f); path.cubicTo(8.5f, 10.5f, 9.5f, 10.5f, 11f, 12.5f); path.cubicTo(12.5f, 14.5f, 13.5f, 14.5f, 15f, 12.5f)
                 c.drawPath(path, p)
+            }
+            Kind.FINGERPRINT -> {
+                r.set(4f, 3f, 20f, 19f); c.drawArc(r, 200f, 140f, false, p)
+                r.set(7f, 6.5f, 17f, 16.5f); c.drawArc(r, 180f, 180f, false, p)
+                c.drawLine(7f, 11.5f, 7f, 15f, p); c.drawLine(17f, 11.5f, 17f, 17f, p)
+                r.set(9.8f, 9.5f, 14.2f, 13.9f); c.drawArc(r, 180f, 180f, false, p)
+                c.drawLine(9.8f, 11.7f, 9.8f, 19f, p); c.drawLine(14.2f, 11.7f, 14.2f, 20.5f, p)
+                c.drawLine(12f, 12f, 12f, 21f, p)
             }
             Kind.UPDATE -> {
                 r.set(4.5f, 4.5f, 19.5f, 19.5f); c.drawArc(r, -60f, 300f, false, p)
