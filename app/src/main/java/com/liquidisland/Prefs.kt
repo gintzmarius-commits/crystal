@@ -73,4 +73,8 @@ object Prefs {
 
     fun offset(c: Context) = sp(c).getInt("y", 8)
     fun setOffset(c: Context, v: Int) = sp(c).edit().putInt("y", v).apply()
+
+    /** Centre de notifications (glisser depuis le haut a gauche) et de controle (a droite) facon Wave Island */
+    fun shade(c: Context) = sp(c).getBoolean("shade", true)
+    fun setShade(c: Context, v: Boolean) = sp(c).edit().putBoolean("shade", v).apply()
 }

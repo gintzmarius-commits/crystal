@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -110,6 +113,15 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity="com.liquidisland.wavedrop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Centres de notifications et de controle en verre liquide (tirer la barre d'etat) -->
+        <activity
+            android:name=".shade.ShadeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.liquidisland.shade"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Pastilles des reglages rapides (comme Tailscale ou Proton) -->

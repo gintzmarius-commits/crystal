@@ -216,6 +216,32 @@ class Rotator(ctx: Context, private val child: View, private val deg: Float) : F
     }
 }
 
+/**
+ * Bande invisible sur toute la barre d'etat : tirer vers le bas depuis la moitie gauche ouvre le centre
+ * de notifications Wave Island, depuis la moitie droite le centre de controle (comme sur iPhone / HyperOS).
+ * [stolen] = Android a pris le geste (son volet va s'ouvrir, il faudra le refermer).
+ */
+class EdgeStrip(ctx: Context, private val onPull: (left: Boolean, stolen: Boolean) -> Unit) : View(ctx) {
+    private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+    private var downX = 0f
+    private var downY = 0f
+    private var fired = true
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; fired = false }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = e.y - downY
+                if (!fired && dy > slop * 1.5f && dy > abs(e.x - downX)) { fired = true; onPull(downX < width / 2f, false) }
+            }
+            MotionEvent.ACTION_UP -> if (!fired && e.y - downY > slop * 2) { fired = true; onPull(downX < width / 2f, false) }
+            MotionEvent.ACTION_CANCEL -> if (!fired) { fired = true; onPull(downX < width / 2f, true) }
+        }
+        return true
+    }
+}
+
 /** Petite zone tactile invisible posee sur l'ilot replie (la grande fenetre, elle, laisse passer les touchers). */
 class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
     private val tracker = GestureTracker(this, { gestures }, { _, _ -> true })
@@ -236,6 +262,9 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private var view: IslandView? = null
     private lateinit var lp: WindowManager.LayoutParams
     private var pad: TouchPad? = null
+    /** Bande du haut (centres de notifications / de controle) */
+    private var strip: EdgeStrip? = null
+    private var lpStrip: WindowManager.LayoutParams? = null
     /** Indicateur de volume facon iPhone */
     private var hud: VolumeHud? = null
     private var rootView: View? = null
@@ -799,6 +828,20 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         val r = wrap(v, ew + 2 * side, winH())
         rootView = r
         wm.addView(r, lp)
+        if (acc != null) {
+            val ls = WindowManager.LayoutParams().apply {
+                copyFrom(lpPad)
+                gravity = Gravity.TOP or Gravity.LEFT
+                x = 0; y = 0
+                width = WindowManager.LayoutParams.MATCH_PARENT
+                height = statusBarHeight()
+            }
+            lpStrip = ls
+            val st = EdgeStrip(this) { left, stolen -> pullShade(left, stolen) }
+            strip = st
+            try { wm.addView(st, ls) } catch (e: Exception) { strip = null; Log.w(TAG, "Bande du haut : $e") }
+            updateStrip()
+        }
         val p = TouchPad(this, this)
         pad = p
         val rp = wrap(p, padW(), padH())
@@ -1105,6 +1148,32 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             rootView?.let { try { wm.updateViewLayout(it, lp) } catch (e: Exception) { } }
             rootPad?.let { try { wm.updateViewLayout(it, lpPad) } catch (e: Exception) { } }
         }
+        updateStrip()
+    }
+
+    /** La bande du haut n'ecoute qu'ilot replie, en portrait, hors plein ecran, et si l'option est active. */
+    fun updateStrip() {
+        val st = strip ?: return
+        val ls = lpStrip ?: return
+        val portrait = rotation == android.view.Surface.ROTATION_0 || rotation == android.view.Surface.ROTATION_180
+        val on = Prefs.shade(this) && !windowBig && !fullscreen && portrait
+        val noTouch = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        val f = if (on) ls.flags and noTouch.inv() else ls.flags or noTouch
+        val h = statusBarHeight()
+        if (f == ls.flags && h == ls.height) return
+        ls.flags = f
+        ls.height = h
+        try { wm.updateViewLayout(st, ls) } catch (e: Exception) { }
+    }
+
+    /** Tirer la barre d'etat : notifications (gauche) ou controle (droite), facon Wave Island. */
+    private fun pullShade(left: Boolean, stolen: Boolean) {
+        Log.i(TAG, "Bord du haut tire a ${if (left) "gauche" else "droite"} (intercepte par Android=$stolen)")
+        val open = {
+            com.liquidisland.shade.ShadeActivity.open(this,
+                if (left) com.liquidisland.shade.ShadeActivity.NOTIFS else com.liquidisland.shade.ShadeActivity.CONTROLS)
+        }
+        if (stolen) afterShade(open) else open()
     }
 
     /** Recree la fenetre (quand l'accessibilite s'active ou se coupe). */
@@ -1115,6 +1184,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             main.removeCallbacks(collapseRunnable)
             rootView?.let { try { wm.removeView(it) } catch (e: Exception) { } }
             rootPad?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            strip?.let { try { wm.removeView(it) } catch (e: Exception) { } }
+            strip = null
             rootView = null
             rootPad = null
             hud?.detach()
@@ -1607,21 +1678,30 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (mode != Mode.COLLAPSED || !com.liquidisland.drop.WaveDrop.enabled(this)) return
         // Le volet (ou le centre de controle de HyperOS) va s'ouvrir : des qu'il apparait on le referme
         // (retour), puis le panneau coule depuis l'ilot. Sans volet detecte, on ouvre quand meme.
-        shadePending = android.os.SystemClock.uptimeMillis()
-        main.removeCallbacks(shadeFallback)
-        main.postDelayed(shadeFallback, 1100)
+        afterShade { openWaveDrop() }
         // L'ilot s'etire deja : le geste est bien compris
         view?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
     }
 
     private var shadePending = 0L
+    private var shadeThen: (() -> Unit)? = null
+
+    /** Le volet d'Android va s'ouvrir a notre place : on le refermera, puis [then]. */
+    private fun afterShade(then: () -> Unit) {
+        shadePending = android.os.SystemClock.uptimeMillis()
+        shadeThen = then
+        main.removeCallbacks(shadeFallback)
+        main.postDelayed(shadeFallback, 1100)
+    }
+
     private val shadeFallback = Runnable {
         if (shadePending == 0L) return@Runnable
         shadePending = 0L
-        Log.i(TAG, "Wave Drop : aucun volet detecte, ouverture du panneau")
+        Log.i(TAG, "Aucun volet detecte, ouverture directe")
         if (Build.VERSION.SDK_INT >= 31) IslandAccessibility.instance?.performGlobalAction(
             android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
-        openWaveDrop()
+        shadeThen?.invoke()
+        shadeThen = null
     }
 
     /** Une fenetre du systeme (volet des notifications, centre de controle) vient de s'afficher. */
@@ -1630,10 +1710,12 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         if (t == 0L || android.os.SystemClock.uptimeMillis() - t > 2500) return
         shadePending = 0L
         main.removeCallbacks(shadeFallback)
-        Log.i(TAG, "Wave Drop : volet ouvert par Android, on le referme")
+        Log.i(TAG, "Volet ouvert par Android, on le referme")
         val acc = IslandAccessibility.instance
         acc?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-        main.postDelayed({ openWaveDrop() }, 280)
+        val then = shadeThen
+        shadeThen = null
+        main.postDelayed({ then?.invoke() }, 280)
     }
 
     override fun outside() {

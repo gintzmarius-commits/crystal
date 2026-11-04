@@ -155,6 +155,22 @@ shot 19b-wavedrop-panneau-bouton
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 
+# ---------- Centres de notifications (gauche) et de controle (droite) ----------
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+adb shell "cmd notification post -S bigtext -t 'Lea' chat3 'Photos du week-end envoyees !'"
+sleep 7
+adb shell input swipe 150 20 150 900 500
+sleep 2.5
+shot 24-centre-notifications
+adb shell input keyevent KEYCODE_BACK
+sleep 1.5
+adb shell input swipe 930 20 930 900 500
+sleep 2.5
+shot 25-centre-controle
+adb shell input keyevent KEYCODE_BACK
+sleep 1.5
+
 timeout 90 "$ADB_BIN" logcat -d > $OUT/logcat-complet.txt
 echo "::notice::logcat $(wc -l < $OUT/logcat-complet.txt) lignes"
 grep -E "LiquidIsland|AndroidRuntime|FATAL" $OUT/logcat-complet.txt > $OUT/log.txt
@@ -179,6 +195,8 @@ grep -q "Volume : " $OUT/log.txt || { echo "::error::Les boutons de volume ne so
 grep -q "Menu ouvert" $OUT/log.txt || { echo "::error::L'appui long n'a pas ouvert le menu"; fail=1; }
 grep -q "Wave Drop : demarrage" $OUT/log.txt || { echo "::error::Wave Drop ne s'est pas lance"; fail=1; }
 grep -q "panneau ouvert depuis l'ilot" $OUT/log.txt || echo "::warning::Glisser l'ilot n'a pas ouvert Wave Drop"
+grep -q "Centre Wave Island ouvert" $OUT/log.txt || echo "::warning::Tirer la barre d'etat n'a pas ouvert le centre Wave Island"
+grep "Bord du haut tire" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 

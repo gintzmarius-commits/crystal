@@ -15,6 +15,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        changed()
         IslandService.instance?.taskGone(sbn.key)
     }
 
@@ -54,6 +55,7 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        changed()
         if (sbn.packageName == packageName) return
         val n = sbn.notification ?: return
         if (asTask(sbn)) return
@@ -83,6 +85,10 @@ class NotifListener : NotificationListenerService() {
 
         // Option : supprime la notification systeme pour que seul l'ilot l'affiche
         if (Prefs.hideSystem(this)) {
+            // ... mais on la garde dans le centre de notifications de Wave Island
+            kept.removeAll { it.key == sbn.key }
+            kept.add(0, Kept(sbn.key, sbn.packageName, title, text, sbn.postTime, n.contentIntent, autoCancel))
+            while (kept.size > 60) kept.removeAt(kept.size - 1)
             try {
                 cancelNotification(sbn.key)
             } catch (e: Exception) {
@@ -91,9 +97,21 @@ class NotifListener : NotificationListenerService() {
         }
     }
 
+    /** Notification retiree du volet d'Android (option « seulement sur l'ilot ») mais gardee pour notre centre. */
+    data class Kept(val key: String, val pkg: String, val title: String, val text: String, val time: Long,
+                    val intent: android.app.PendingIntent?, val autoCancel: Boolean)
+
     companion object {
         @Volatile
-        private var instance: NotifListener? = null
+        var instance: NotifListener? = null
+            private set
+
+        val kept = java.util.concurrent.CopyOnWriteArrayList<Kept>()
+        /** Appeles (sur le fil principal) quand les notifications changent. */
+        val listeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+        private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+        private val notify = Runnable { listeners.forEach { try { it() } catch (e: Exception) { } } }
+        fun changed() { ui.removeCallbacks(notify); ui.postDelayed(notify, 120) }
 
         /** Renvoie a l'ilot les taches deja en cours (au demarrage de l'ilot). */
         fun replayTasks() {

@@ -112,6 +112,11 @@ class MainActivity : Activity() {
             text("Une barre de progression par téléchargement (navigateur, Play Store, envois...).", 13f, Glass.INK_SOFT),
             Prefs.liveDownloads(this)
         ) { Prefs.setLiveDownloads(this, it); IslandService.instance?.applySettings() })
+        live.addView(switchRow(
+            "Centres de notifications et de contrôle",
+            text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Glass.INK_SOFT),
+            Prefs.shade(this)
+        ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip() })
         col.addView(live)
 
         // Raccourcis du mini menu
@@ -246,6 +251,8 @@ class MainActivity : Activity() {
             "drop" -> selectTab(1)
             "dropon" -> { selectTab(1); enableDrop(true) }
             "dropsend" -> com.liquidisland.drop.WaveDropActivity.open(this)
+            "shade" -> com.liquidisland.shade.ShadeActivity.open(this, com.liquidisland.shade.ShadeActivity.NOTIFS)
+            "controls" -> com.liquidisland.shade.ShadeActivity.open(this, com.liquidisland.shade.ShadeActivity.CONTROLS)
             "test" -> sendTest()
             "notch" -> setNotch(true)
             "island" -> setNotch(false)

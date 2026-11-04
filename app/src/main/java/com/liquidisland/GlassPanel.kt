@@ -22,6 +22,12 @@ class GlassPanel(ctx: Context, radiusDp: Float) : LinearLayout(ctx) {
         lightY = -0.6f
     }
 
+    /** Teinte posee dans le verre (0 = aucune) : sombre pour la lisibilite, blanche pour un bouton actif. */
+    var fill = 0
+        set(v) { field = v; invalidate() }
+    private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val rr = android.graphics.RectF()
+
     init {
         orientation = VERTICAL
         setWillNotDraw(false)
@@ -30,6 +36,11 @@ class GlassPanel(ctx: Context, radiusDp: Float) : LinearLayout(ctx) {
     override fun dispatchDraw(canvas: Canvas) {
         glass.build(0f, 0f, width.toFloat(), height.toFloat())
         glass.drawBody(canvas)
+        if (fill != 0) {
+            fillPaint.color = fill
+            rr.set(0f, 0f, width.toFloat(), height.toFloat())
+            canvas.drawRoundRect(rr, glass.fixedRadius, glass.fixedRadius, fillPaint)
+        }
         super.dispatchDraw(canvas)
         glass.drawEdges(canvas)
     }
