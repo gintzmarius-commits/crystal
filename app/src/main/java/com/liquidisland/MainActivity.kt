@@ -419,6 +419,12 @@ class MainActivity : Activity() {
         val wd = com.liquidisland.drop.WaveDrop
         wd.setEnabled(this, on)
         if (on) { wd.restart(this); if (IslandService.instance == null) startIsland() } else wd.stop()
+        // Sans ca, Android (surtout HyperOS) endort l'appli : les fichiers arrivent en retard ou jamais
+        if (on && intent?.getStringExtra("ci") == null) try {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName))
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) { }
         if (::dropSwitch.isInitialized && dropSwitch.isChecked != on) dropSwitch.isChecked = on
         refreshDrop()
     }
