@@ -57,7 +57,6 @@ namespace WaveIsland
             _watch.Tick += (a, b) =>
             {
                 Apply();
-                if (Active) FullScreenArea(true);
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
                 if (Active && ++_tick % 2 == 0 && AppMotion.Current == null) AppMotion.Cache(AppInFront());
             };
@@ -89,7 +88,6 @@ namespace WaveIsland
             App.Taskbar.SetTablet(true);
             _edge ??= new EdgeWindow();
             _edge.Start();
-            FullScreenArea(true);
             MaximizeIfApp(GetForegroundWindow());
             EdgeSwipes.AskOnce();
         }
@@ -100,7 +98,6 @@ namespace WaveIsland
             Log.I("Mode tablette : desactive");
             App.Taskbar?.SetTablet(false);
             _edge?.Stop();
-            FullScreenArea(false);
         }
 
         public static void Stop()
@@ -120,36 +117,27 @@ namespace WaveIsland
 
         // ================== Toute la hauteur de l'ecran pour les applis ==================
 
-        [DllImport("user32.dll")] private static extern bool SystemParametersInfo(int a, int b, ref Native.RECT r, int c);
-        private static Native.RECT? _savedArea;
+        private static readonly HashSet<IntPtr> _extended = new HashSet<IntPtr>();
 
         /// <summary>
-        /// Mode tablette : les applis vont jusqu'en bas de l'ecran (plus de bande vide sous elles) ;
-        /// la petite barre et le dock passent par-dessus. L'ancienne zone est remise en quittant le mode.
+        /// Mode tablette : une appli agrandie descend jusqu'au bas de l'ecran (la petite barre passe par-dessus).
+        /// Une seule fois par fenetre et seulement s'il manque une bande en bas (jamais en boucle).
         /// </summary>
-        private static void FullScreenArea(bool on)
+        private static void ExtendToBottom(IntPtr h)
         {
             try
             {
-                var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-                var cur = new Native.RECT();
-                SystemParametersInfo(0x30 /* SPI_GETWORKAREA */, 0, ref cur, 0);
-                if (on)
-                {
-                    if (cur.Bottom >= sb.Bottom && cur.Top <= sb.Top) return;
-                    _savedArea ??= cur;
-                    var full = new Native.RECT { Left = sb.Left, Top = sb.Top, Right = sb.Right, Bottom = sb.Bottom };
-                    SystemParametersInfo(0x2F /* SPI_SETWORKAREA */, 0, ref full, 0x2 /* SPIF_SENDCHANGE */);
-                    Log.I("Mode tablette : les applis prennent toute la hauteur de l'ecran");
-                    // Les applis deja agrandies se remettent a la nouvelle taille
-                    var fg = GetForegroundWindow();
-                    if (IsZoomed(fg)) { Native.ShowWindow(fg, 9 /* SW_RESTORE */); Native.ShowWindow(fg, 3 /* SW_MAXIMIZE */); }
-                }
-                else if (_savedArea is Native.RECT old)
-                {
-                    _savedArea = null;
-                    SystemParametersInfo(0x2F, 0, ref old, 0x2);
-                }
+                if (h == IntPtr.Zero || !IsZoomed(h) || _extended.Contains(h)) return;
+                if (!Native.GetWindowRect(h, out var r)) return;
+                var sb = System.Windows.Forms.Screen.FromHandle(h).Bounds;
+                // Bas de la zone visible de la fenetre (Windows deborde de quelques pixels invisibles autour)
+                int border = Math.Max(0, sb.Left - r.Left);
+                int gap = sb.Bottom - (r.Bottom - border);
+                _extended.Add(h);
+                if (_extended.Count > 500) _extended.Clear();
+                if (gap <= 1 || gap > 120) return;
+                Native.SetWindowPos(h, IntPtr.Zero, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top + gap, 0x4 /* NOZORDER */ | 0x10 /* NOACTIVATE */);
+                Log.I("Mode tablette : appli agrandie jusqu'en bas (+" + gap + " px)");
             }
             catch { }
         }
@@ -174,6 +162,7 @@ namespace WaveIsland
             if (Active)
             {
                 MaximizeIfApp(hwnd);
+                ExtendToBottom(hwnd);
                 // Image de l'appli des qu'elle est affichee : son apercu est pret avant meme d'ouvrir la pile
                 var ui = System.Windows.Application.Current?.Dispatcher;
                 System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => ui?.BeginInvoke(new Action(() => AppMotion.Cache(hwnd))));
@@ -318,9 +307,11 @@ namespace WaveIsland
         private const double EH = 18;
         /// <summary>Place libre au-dessus de la zone tactile pour que la petite barre puisse monter avec le doigt.</summary>
         private const double Room = 16;
-        private readonly ScaleTransform _pillScale = new ScaleTransform(1, 1);
-        private readonly TranslateTransform _pillMove = new TranslateTransform();
-        private double _downY = double.NaN;
+        private const double PillW = 134, PillH = 5, Rest = 7, Hidden = -9;
+        /// <summary>Hauteur de sortie de la petite barre (Hidden = cachee sous l'ecran).</summary>
+        private readonly SpringValue _up = new SpringValue(Hidden);
+        private double _downY = double.NaN, _stretch;
+        private bool _ticking;
         private readonly Border _pill;
         private DispatcherTimer _t;
         private IntPtr _hwnd;
@@ -337,18 +328,14 @@ namespace WaveIsland
             var g = new Grid();
             // Seule la bande du bas est touchable (presque invisible) ; au-dessus, les clics passent a l'appli
             g.Children.Add(new Border { Height = EH, VerticalAlignment = VerticalAlignment.Bottom, Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) });
+            g.ClipToBounds = true;
             _pill = new Border
             {
-                Width = 134, Height = 5, CornerRadius = new CornerRadius(2.5), VerticalAlignment = VerticalAlignment.Bottom,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 7), IsHitTestVisible = false,
+                Width = PillW, Height = PillH, CornerRadius = new CornerRadius(PillH / 2), VerticalAlignment = VerticalAlignment.Bottom,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, Hidden), IsHitTestVisible = false,
                 Background = new SolidColorBrush(Color.FromArgb(225, 255, 255, 255)),
                 Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Opacity = 0.5 }
             };
-            _pill.RenderTransformOrigin = new Point(0.5, 1);
-            var tg = new TransformGroup();
-            tg.Children.Add(_pillScale);
-            tg.Children.Add(_pillMove);
-            _pill.RenderTransform = tg;
             g.Children.Add(_pill);
             Content = g;
             SourceInitialized += (a, b) =>
@@ -369,37 +356,52 @@ namespace WaveIsland
 
         private Point Screen(Point p) => new Point(Left + p.X, Top + p.Y);
 
-        // La petite barre suit le doigt sur ~3 mm en s'etirant comme une goutte, puis revient avec un rebond
+        // La petite barre est cachee sous le bord de l'ecran. Quand on glisse vers le haut, elle sort du bas
+        // en s'etirant (comme une goutte), suit le doigt sur ~3 mm, puis au lacher redescend et se cache.
+        // Ses bouts restent toujours ronds : on change sa taille (pas une deformation de l'image).
 
         private void PillDown(Point p)
         {
             _downY = p.Y;
-            _pillMove.BeginAnimation(TranslateTransform.YProperty, null);
-            _pillScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            _pillScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            _up.Set(_up.Value);
+            Layout();
         }
 
         private void PillMove(Point p)
         {
             if (double.IsNaN(_downY)) return;
             double dy = Math.Max(0, _downY - p.Y);
-            const double max = 12;   // ~3 mm
-            double t = max * (1 - Math.Exp(-dy / max));   // freine en approchant de la limite
-            double k = t / max;
-            _pillMove.Y = -t;
-            // Goutte : elle s'affine et s'etire vers le haut
-            _pillScale.ScaleX = 1 - 0.22 * k;
-            _pillScale.ScaleY = 1 + 1.3 * k;
+            const double travel = (Rest + 12) - Hidden;   // de cachee a ~3 mm au-dessus de sa place
+            double t = 1 - Math.Exp(-dy / 22);           // freine en approchant de la limite
+            _up.Set(Hidden + travel * t);
+            // Etirement de goutte : maximal pendant qu'elle sort, un peu moins une fois sortie
+            _stretch = Math.Min(1, 4 * t * (1 - t) + 0.35 * t);
+            Layout();
         }
 
         private void PillUp()
         {
             _downY = double.NaN;
-            var ease = new SpringEase();
-            var d = TimeSpan.FromMilliseconds(520);
-            _pillMove.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(0, d) { EasingFunction = ease });
-            _pillScale.BeginAnimation(ScaleTransform.ScaleXProperty, new System.Windows.Media.Animation.DoubleAnimation(1, d) { EasingFunction = ease });
-            _pillScale.BeginAnimation(ScaleTransform.ScaleYProperty, new System.Windows.Media.Animation.DoubleAnimation(1, d) { EasingFunction = ease });
+            _up.AnimateTo(Hidden, new Spring(0.8, 0.34));
+            if (_ticking) return;
+            _ticking = true;
+            CompositionTarget.Rendering += Tick;
+        }
+
+        private void Tick(object s, EventArgs e)
+        {
+            _up.Tick();
+            _stretch *= 0.85;
+            Layout();
+            if (!_up.Moving) { _stretch = 0; Layout(); CompositionTarget.Rendering -= Tick; _ticking = false; }
+        }
+
+        private void Layout()
+        {
+            double h = PillH + 5 * _stretch, w = PillW - 26 * _stretch;
+            _pill.Width = w; _pill.Height = h;
+            _pill.CornerRadius = new CornerRadius(h / 2);
+            _pill.Margin = new Thickness(0, 0, 0, _up.Value);
         }
 
         public void Start()
@@ -431,7 +433,6 @@ namespace WaveIsland
         /// </summary>
         private void Refresh()
         {
-            _pill.Opacity = 1;
             if (_hwnd == IntPtr.Zero) return;
             Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
             try
