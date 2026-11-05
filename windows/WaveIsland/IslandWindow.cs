@@ -23,7 +23,7 @@ namespace WaveIsland
     /// </summary>
     public sealed class IslandWindow : Window
     {
-        private enum Mode { Collapsed, Volume, Note, Menu, Live }
+        private enum Mode { Collapsed, Volume, Note, Menu, Live, Assist }
 
         /// <summary>Marge autour de l'ilot (pour que le verre puisse aller chercher le fond autour).</summary>
         private const double Pad = 26;
@@ -77,6 +77,16 @@ namespace WaveIsland
         private readonly Path _ringArc;
         private readonly RotateTransform _ringSpin = new RotateTransform(0, 11, 11);
         private readonly StackPanel _livePanel;
+
+        // Assistant IA (version finale)
+        private const double AssistW = 440;
+        private readonly Grid _assistPanel;
+        private readonly System.Windows.Shapes.Ellipse _orb;
+        private readonly ScaleTransform _orbScale = new ScaleTransform(1, 1, 13, 13);
+        private readonly RotateTransform _orbSpin = new RotateTransform(0, 13, 13);
+        private readonly TextBlock _aStatus, _aHeard, _aAnswer;
+        private readonly ScrollViewer _aScroll;
+        private Assistant.State _aState = Assistant.State.Idle;
 
         // Elements du lecteur (mis a jour sans tout reconstruire)
         private TextBlock _mTime, _mDur, _mPlay;
@@ -199,11 +209,49 @@ namespace WaveIsland
             // --- Activites en grand (au survol) ---
             _livePanel = new StackPanel { Width = LiveW, VerticalAlignment = VerticalAlignment.Top };
 
-            foreach (var p in new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel })
+            // --- Assistant IA : une bulle de couleur qui respire, ce qui a ete entendu, la reponse ---
+            _orb = new System.Windows.Shapes.Ellipse
+            {
+                Width = 26, Height = 26, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 12, 0),
+                Fill = new LinearGradientBrush(new GradientStopCollection
+                {
+                    new GradientStop(Color.FromRgb(0x5E, 0xE7, 0xFF), 0), new GradientStop(Color.FromRgb(0x7B, 0x6C, 0xFF), 0.55), new GradientStop(Color.FromRgb(0xFF, 0x7A, 0xC8), 1)
+                }, 45),
+                Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Opacity = 0.75, Color = Color.FromRgb(0x8A, 0x7C, 0xFF) }
+            };
+            var orbTg = new TransformGroup();
+            orbTg.Children.Add(_orbSpin);
+            orbTg.Children.Add(_orbScale);
+            _orb.RenderTransform = orbTg;
+            _aStatus = Text("", 13.5, FontWeights.SemiBold);
+            _aHeard = Text("", 12.5, FontWeights.Normal);
+            _aHeard.Opacity = 0.72;
+            _aHeard.FontStyle = FontStyles.Italic;
+            _aHeard.TextWrapping = TextWrapping.Wrap;
+            _aAnswer = Text("", 14, FontWeights.Normal);
+            _aAnswer.TextWrapping = TextWrapping.Wrap;
+            _aAnswer.LineHeight = 20;
+            _aScroll = new ScrollViewer { Content = _aAnswer, MaxHeight = 196, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Margin = new Thickness(0, 4, 0, 0) };
+            var aCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            aCol.Children.Add(_aStatus);
+            aCol.Children.Add(_aHeard);
+            aCol.Children.Add(_aScroll);
+            _assistPanel = new Grid { Width = AssistW, Margin = new Thickness(0, 14, 0, 14) };
+            _assistPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _assistPanel.ColumnDefinitions.Add(new ColumnDefinition());
+            var orbHost = new Grid { Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top };
+            orbHost.Children.Add(_orb);
+            _assistPanel.Children.Add(orbHost);
+            Grid.SetColumn(aCol, 1);
+            aCol.Margin = new Thickness(0, 0, 20, 0);
+            _assistPanel.Children.Add(aCol);
+
+            foreach (var p in new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel, _assistPanel })
             {
                 p.Opacity = 0;
                 if (p != _compact) p.HorizontalAlignment = HorizontalAlignment.Center;
-                if (p != _volPanel && p != _livePanel) p.VerticalAlignment = VerticalAlignment.Center;
+                if (p != _volPanel && p != _livePanel && p != _assistPanel) p.VerticalAlignment = VerticalAlignment.Center;
+                if (p == _assistPanel) p.VerticalAlignment = VerticalAlignment.Top;
                 _box.Children.Add(p);
             }
 
@@ -223,6 +271,7 @@ namespace WaveIsland
                 _hover = false;
                 _hoverTimer.Stop();
                 if (_mode == Mode.Collapsed) Resize();
+                else if (_mode == Mode.Assist) { if (_aState == Assistant.State.Done) RestartHide(6); }
                 else RestartHide(_mode == Mode.Menu || _mode == Mode.Live ? 0.5 : 2.5);
             };
             // Son : on glisse la souris sur l'ilot pour regler le volume
@@ -247,20 +296,33 @@ namespace WaveIsland
             MouseLeftButtonUp += (a, b) =>
             {
                 _hoverTimer.Stop();
-                if (_mode == Mode.Note) OpenNote();
+                if (_mode == Mode.Assist) Assistant.Trigger();   // clic : nouvelle question (ou envoyer / couper la voix)
+                else if (_mode == Mode.Note) OpenNote();
                 else if (_mode == Mode.Collapsed || _mode == Mode.Live) ShowMenu();
             };
             MouseRightButtonUp += (a, b) =>
             {
                 if (_mode == Mode.Collapsed) App.OpenSettings();
-                else Collapse();
+                else { if (_mode == Mode.Assist) Assistant.Close(); Collapse(); }
             };
-            MouseWheel += (a, b) => _volume?.Wheel(b.Delta);
+            MouseWheel += (a, b) =>
+            {
+                // Pendant une reponse longue, la molette fait defiler le texte
+                if (_mode == Mode.Assist) { _aScroll.ScrollToVerticalOffset(_aScroll.VerticalOffset - b.Delta * 0.4); return; }
+                _volume?.Wheel(b.Delta);
+            };
 
             _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
             _captureTimer.Tick += (a, b) => CaptureFrame();
             _hideTimer = new DispatcherTimer();
-            _hideTimer.Tick += (a, b) => { _hideTimer.Stop(); if (!_hover) Collapse(); };
+            _hideTimer.Tick += (a, b) =>
+            {
+                _hideTimer.Stop();
+                if (_hover) return;
+                if (_mode == Mode.Assist && _aState != Assistant.State.Done) return;
+                if (_mode == Mode.Assist) Assistant.Close();
+                Collapse();
+            };
             _watchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
             _watchTimer.Tick += (a, b) => Watch();
             _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
@@ -352,7 +414,7 @@ namespace WaveIsland
             var ink = Ink;
             bool light = DarkInk;
             var soft = new SolidColorBrush(light ? Color.FromArgb(55, 0, 0, 0) : Color.FromArgb(80, 255, 255, 255));
-            foreach (var panel in new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel })
+            foreach (var panel in new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel, _assistPanel })
             {
                 foreach (var t in Texts(panel)) if (t != _noteLetter) t.Foreground = ink;
                 panel.Effect = Settings.Current.Theme == "clear"
@@ -426,6 +488,51 @@ namespace WaveIsland
             RestartHide(6);
         }
 
+        /// <summary>
+        /// Assistant IA : l'ilot s'ouvre (meme en plein ecran) avec la bulle de couleur, ce qui a ete entendu et la reponse.
+        /// </summary>
+        public void ShowAssist(string status, string heard, string answer, Assistant.State state, bool done)
+        {
+            if (_hidden) { _root.Opacity = 1; _root.IsHitTestVisible = true; }
+            _aState = done ? Assistant.State.Done : state;
+            _aStatus.Text = status ?? "";
+            _aStatus.Visibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible;
+            _aHeard.Text = string.IsNullOrWhiteSpace(heard) ? "" : "« " + heard + " »";
+            _aHeard.Visibility = string.IsNullOrWhiteSpace(heard) ? Visibility.Collapsed : Visibility.Visible;
+            _aHeard.Margin = new Thickness(0, string.IsNullOrEmpty(status) ? 0 : 3, 0, 0);
+            bool newAnswer = _aAnswer.Text != (answer ?? "");
+            _aAnswer.Text = answer ?? "";
+            _aScroll.Visibility = string.IsNullOrWhiteSpace(answer) ? Visibility.Collapsed : Visibility.Visible;
+            if (newAnswer) _aScroll.ScrollToTop();
+            Orb(_aState);
+            Restyle();
+            Switch(Mode.Assist, _assistPanel);
+            Resize();
+            _hideTimer.Stop();
+            if (done) RestartHide(string.IsNullOrWhiteSpace(answer) ? 2.5 : Math.Min(20, 6 + (answer?.Length ?? 0) / 25.0));
+            BringToTop();
+        }
+
+        /// <summary>La bulle : respire en ecoutant, tourne en reflechissant, pulse vite en parlant.</summary>
+        private void Orb(Assistant.State st)
+        {
+            _orbScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            _orbScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            _orbSpin.BeginAnimation(RotateTransform.AngleProperty, null);
+            if (st == Assistant.State.Idle || st == Assistant.State.Done) { _orbScale.ScaleX = _orbScale.ScaleY = 1; return; }
+            double to = st == Assistant.State.Listening ? 1.22 : st == Assistant.State.Speaking ? 1.12 : 0.86;
+            var ms = st == Assistant.State.Listening ? 620 : st == Assistant.State.Speaking ? 260 : 480;
+            var pulse = new System.Windows.Media.Animation.DoubleAnimation(1, to, TimeSpan.FromMilliseconds(ms))
+            {
+                AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut }
+            };
+            _orbScale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+            _orbScale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
+            if (st == Assistant.State.Thinking)
+                _orbSpin.BeginAnimation(RotateTransform.AngleProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900)) { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
+        }
+
         /// <summary>Activites en grand : lecteur de musique et telechargements.</summary>
         public void ShowLive()
         {
@@ -438,6 +545,7 @@ namespace WaveIsland
         public void Collapse()
         {
             _hideTimer.Stop();
+            if (_mode == Mode.Assist) { _aState = Assistant.State.Idle; Orb(Assistant.State.Idle); if (_hidden) { _root.Opacity = 0; _root.IsHitTestVisible = false; } }
             if (_mode == Mode.Collapsed) return;
             _mode = Mode.Collapsed;
             SettleCollapsed();
@@ -488,6 +596,12 @@ namespace WaveIsland
                 case Mode.Volume: w = 290; h = Math.Max(s.Height, 40); sw = Spring.OpenW; sh = Spring.Open; break;
                 case Mode.Note: w = 400; h = 80; sw = Spring.OpenW; sh = Spring.Open; break;
                 case Mode.Menu: w = Math.Max(_menuRow.Children.Count * 62 + 18, s.Width); h = 84; sw = Spring.OpenW; sh = Spring.Open; break;
+                case Mode.Assist:
+                    w = AssistW;
+                    _assistPanel.Measure(new Size(AssistW, double.PositiveInfinity));
+                    h = Math.Min(MaxH, Math.Max(58, _assistPanel.DesiredSize.Height + 28));
+                    sw = Spring.OpenW; sh = Spring.Open;
+                    break;
                 case Mode.Live:
                     w = LiveW;
                     _livePanel.Measure(new Size(LiveW, double.PositiveInfinity));
@@ -912,7 +1026,9 @@ namespace WaveIsland
         private void BuildMenu()
         {
             _menuRow.Children.Clear();
-            int room = 6 - (Updater.Available ? 1 : 0) - (Settings.Current.DropEnabled ? 1 : 0);
+            int room = 5 - (Updater.Available ? 1 : 0) - (Settings.Current.DropEnabled ? 1 : 0);
+            // Assistant IA : bouton micro en premier
+            _menuRow.Children.Add(MenuItem("\uE720", null, "Assistant", () => { Collapse(); Assistant.Trigger(); }));
             var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(room).ToList();
             // Wave Drop : envoyer un fichier a un appareil proche
             if (Settings.Current.DropEnabled) _menuRow.Children.Add(MenuItem("\uE72D", null, "Wave Drop", () => App.Launcher.OpenDrop(null)));
@@ -1028,7 +1144,7 @@ namespace WaveIsland
             _box.Height = h;
             _clip.Rect = new Rect(0, 0, w, h);
             _clip.RadiusX = _clip.RadiusY = radius;
-            foreach (var p in new[] { _volPanel, _notePanel, (FrameworkElement)_menuPanel, _compact, _livePanel })
+            foreach (var p in new[] { _volPanel, _notePanel, (FrameworkElement)_menuPanel, _compact, _livePanel, _assistPanel })
             {
                 bool on = p == _panel;
                 p.Opacity = on ? Math.Max(0, Math.Min(1, _alpha.Value)) : 0;

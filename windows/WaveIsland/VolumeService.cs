@@ -17,6 +17,11 @@ namespace WaveIsland
         /// <summary>Dit si la touche Windows doit ouvrir le menu de l'ilot en ce moment.</summary>
         public Func<bool> WinAllowed;
         private bool _winDown, _winOther;
+        /// <summary>Touche Copilot ou Microsoft 365 : l'assistant IA de l'ilot.</summary>
+        public event Action AssistKey;
+        private bool _hyper, _assistCombo, _hyperUsed;
+        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
+        private static bool Held(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
         private IntPtr _hook;
         private Native.HookProc _proc; // garde une reference (sinon le ramasse-miettes la libere)
@@ -76,6 +81,38 @@ namespace WaveIsland
                 int m = wParam.ToInt32();
                 bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
+                if (!injected && k.vkCode != 0xE8 && Settings.Current.AiKeyEnabled)
+                {
+                    // Touche Copilot = Win + Maj + F23 : on avale F23 (Copilot ne s'ouvre pas) et l'assistant demarre
+                    if (k.vkCode == 0x86 /* VK_F23 */)
+                    {
+                        if (down && !_assistCombo) { _assistCombo = true; _ui.BeginInvoke(new Action(() => AssistKey?.Invoke())); }
+                        if (!down) _assistCombo = false;
+                        if (_winDown) _winOther = true;
+                        _hyperUsed = true;
+                        return new IntPtr(1);
+                    }
+                    // Touche Microsoft 365 / Office = Ctrl + Maj + Alt + Win appuyes ensemble
+                    if ((k.vkCode == Native.VK_LWIN || k.vkCode == Native.VK_RWIN) && down && !_winDown && Held(0x11) && Held(0x10) && Held(0x12))
+                    { _hyper = true; _hyperUsed = false; }
+                    else if (_hyper && down && k.vkCode != Native.VK_LWIN && k.vkCode != Native.VK_RWIN && k.vkCode != 0x10 && k.vkCode != 0x11 && k.vkCode != 0x12
+                             && k.vkCode != 0xA0 && k.vkCode != 0xA1 && k.vkCode != 0xA2 && k.vkCode != 0xA3 && k.vkCode != 0xA4 && k.vkCode != 0xA5)
+                        _hyperUsed = true;   // Office + W, Office + T... : raccourcis de Windows, on ne touche a rien
+                    if (_hyper && !down && (k.vkCode == Native.VK_LWIN || k.vkCode == Native.VK_RWIN))
+                    {
+                        _hyper = false;
+                        _winDown = false;
+                        if (!_hyperUsed)
+                        {
+                            // Relachee seule : l'assistant au lieu de l'appli Microsoft 365
+                            Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                            Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                            Native.keybd_event((byte)k.vkCode, 0, Native.KEYEVENTF_KEYUP | 0x1, UIntPtr.Zero);
+                            _ui.BeginInvoke(new Action(() => AssistKey?.Invoke()));
+                            return new IntPtr(1);
+                        }
+                    }
+                }
                 if (!injected && k.vkCode != 0xE8)
                 {
                     if (k.vkCode == Native.VK_LWIN || k.vkCode == Native.VK_RWIN)

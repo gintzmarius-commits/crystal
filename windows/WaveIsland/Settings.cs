@@ -27,6 +27,14 @@ namespace WaveIsland
         public bool LiveDownloads { get; set; } = true;
         /// <summary>Touche Windows : le menu des applis coule depuis l'ilot (a la place du menu Demarrer)</summary>
         public bool WinKeyMenu { get; set; } = true;
+        /// <summary>Assistant IA (Claude) : cle de l'API Anthropic (console.anthropic.com).</summary>
+        public string AiKey { get; set; } = "";
+        /// <summary>Modele Claude de l'assistant.</summary>
+        public string AiModel { get; set; } = "claude-haiku-5-5";
+        /// <summary>La reponse est lue a voix haute.</summary>
+        public bool AiVoice { get; set; } = true;
+        /// <summary>Touche Copilot / Microsoft 365 = assistant.</summary>
+        public bool AiKeyEnabled { get; set; } = true;
         /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
         public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
         /// <summary>Applis epinglees en haut du menu (comme le menu Demarrer)</summary>

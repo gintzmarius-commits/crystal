@@ -261,6 +261,35 @@ namespace WaveIsland
             fx.Children.Add(Button("Ouvrir « Ne pas déranger »", () => Shortcuts.Start("ms-settings:notifications")));
             _col.Children.Add(fx.Parent as FrameworkElement);
 
+            // --- Assistant IA (version finale) ---
+            Section("Assistant IA (Claude)");
+            var ai = CardPanel();
+            ai.Children.Add(T("Appuie sur la touche Copilot ou Microsoft 365 de ton clavier (ou sur « Assistant » dans le menu de l'îlot) : " +
+                "l'îlot t'écoute, Claude répond à voix haute et peut agir : chercher sur Firefox, ouvrir une appli ou un site, régler le son, " +
+                "la luminosité, le Wi-Fi, la musique, lancer un minuteur… Appuie de nouveau pour envoyer tout de suite, ou pour couper la voix et reposer une question.",
+                13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
+            ai.Children.Add(T("Clé Claude (console.anthropic.com > API Keys)", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 4, 0, 4)));
+            var keyBox = new PasswordBox
+            {
+                Password = S.AiKey ?? "", FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(10, 7, 10, 7),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)), BorderBrush = CardLine, BorderThickness = new Thickness(1)
+            };
+            keyBox.PasswordChanged += (a, b) => { S.AiKey = keyBox.Password.Trim(); S.Save(); };
+            ai.Children.Add(keyBox);
+            ai.Children.Add(Button("Créer une clé Claude", () => Shortcuts.Start("https://console.anthropic.com/settings/keys"), compact: true));
+            ai.Children.Add(T("Modèle", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            ai.Children.Add(Segmented(new[] { "Haiku (rapide)", "Sonnet (plus malin)" }, new[] { "claude-haiku-5-5", "claude-sonnet-5-5" },
+                () => S.AiModel, v => { S.AiModel = v; S.Save(); }));
+            ai.Children.Add(Toggle("Réponse à voix haute", "Une voix française lit la réponse (sinon elle s'affiche seulement dans l'îlot)",
+                () => S.AiVoice, v => { S.AiVoice = v; S.Save(); }));
+            ai.Children.Add(Toggle("Touche Copilot / Microsoft 365", "La touche lance l'assistant de l'îlot au lieu de Copilot ou de l'appli Microsoft 365",
+                () => S.AiKeyEnabled, v => { S.AiKeyEnabled = v; S.Save(); }));
+            ai.Children.Add(Button("Essayer maintenant", Assistant.Trigger));
+            ai.Children.Add(T("Si le micro ne marche pas : Paramètres > Confidentialité et sécurité > Voix (« Reconnaissance vocale en ligne ») et Microphone (« Autoriser les applis de bureau »).",
+                11.5, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 10, 2, 4)));
+            ai.Children.Add(Button("Ouvrir les réglages de voix", () => Shortcuts.Start("ms-settings:privacy-speech"), compact: true));
+            _col.Children.Add(ai.Parent as FrameworkElement);
+
             // --- Raccourcis ---
             Section("Raccourcis (clic sur l'îlot)");
             var sc = CardPanel();

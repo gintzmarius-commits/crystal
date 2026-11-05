@@ -44,6 +44,9 @@ namespace WaveIsland
             // Seul un jeu en plein ecran exclusif garde le menu Demarrer (rien ne peut s'afficher par-dessus).
             Volume.WinAllowed = () => !Island.ExclusiveFullscreen;
             Volume.WinTapped += () => Launcher.Toggle();
+            // Version finale : touche Copilot / Microsoft 365 = assistant IA dans l'ilot
+            Assistant.Init(Dispatcher);
+            Volume.AssistKey += Assistant.Trigger;
             // Wave Theme : la barre des taches de Windows remplacee par la notre (le menu monte de la bulle Windows)
             // (Pas de nettoyage dans ProcessExit : il tournait hors du fil de l'interface et bloquait la fermeture,
             // donc la mise a jour ne pouvait pas remplacer l'appli.)

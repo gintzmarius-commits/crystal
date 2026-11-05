@@ -199,6 +199,9 @@ namespace WaveIsland
                     TabletShell.Apply();
                     await Wait(1);
                 }
+                // Version finale : l'assistant IA dans l'ilot (sans micro ni reseau)
+                try { await Assistant.Demo(ScreenShot); Log.I("DEMO : assistant ok"); }
+                catch (Exception e) { Log.I("DEMO : assistant : " + e.Message); }
 
                 // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)
                 Native.keybd_event((byte)Native.VK_LWIN, 0, 0x1, UIntPtr.Zero);
