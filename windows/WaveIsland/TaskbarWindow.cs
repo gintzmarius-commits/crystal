@@ -392,7 +392,14 @@ namespace WaveIsland
                 if (Math.Abs(btn.Width - bw) > 0.05) btn.Width = bw;
                 var vis = bw < 0.5 ? Visibility.Collapsed : Visibility.Visible;
                 if (btn.Visibility != vis) btn.Visibility = vis;
-                if (btn is Grid gg && gg.Children.Count > 0) gg.Children[0].Opacity = Math.Max(0, Math.Min(1, f * 1.6 - 0.6));
+                if (btn is Grid gg && gg.Children.Count > 0 && f < 0.999)
+                {
+                    // Place qui s'ouvre / se ferme : l'icone apparait avec elle (on retire l'animation d'arrivee qui la garderait visible)
+                    var ic = gg.Children[0];
+                    if (ic.HasAnimatedProperties) ic.BeginAnimation(OpacityProperty, null);
+                    ic.Opacity = Math.Max(0, Math.Min(1, f * 1.6 - 0.6));
+                }
+                else if (btn is Grid g2 && g2.Children.Count > 0 && !g2.Children[0].HasAnimatedProperties && g2.Children[0].Opacity < 1) g2.Children[0].Opacity = 1;
                 sum += bw;
             }
             // Les icones restent centrees dans la barre pendant qu'elle s'elargit
