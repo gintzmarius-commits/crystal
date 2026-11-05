@@ -77,7 +77,7 @@ namespace WaveIsland
             _fx.Geo = new Point4D(W / 2, H / 2, W / 2 - rad, H / 2 - rad);
             _fx.Sizes = new Point4D(W, H, rad, 1.0 / (30 * k));
             _fx.Bend = new Point4D(strength / W, strength / H, 0.5 * (1 - mag), 0.5 * (1 - mag));
-            _fx.Tint = new Point4D(0.05, 0.06, 0.07, _tint);
+            _fx.Tint = WaveColor.Tint(new Point4D(0.05, 0.06, 0.07, _tint));
             _fx.Disp = new Point4D(1.12, 0.88, 0, 0);
             _fx.Light = new Point4D(-0.5, -0.866, 1, mag);
         }

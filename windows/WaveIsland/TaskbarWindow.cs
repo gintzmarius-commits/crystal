@@ -361,7 +361,7 @@ namespace WaveIsland
             b.Fx.Sizes = new Point4D(W, Hp, rad * k, 1.0 / (Math.Min(18, h * 0.42) * k));
             double strength = 14 * k;
             b.Fx.Bend = new Point4D(strength / W, strength / Hp, lx / W * (1 - mag), cy * k / Hp * (1 - mag));
-            b.Fx.Tint = new Point4D(0.05, 0.06, 0.08, 0);   // verre transparent : ni voile ni flou
+            b.Fx.Tint = WaveColor.Tint(new Point4D(0.05, 0.06, 0.08, 0));   // verre transparent (ou teinte choisie) : ni voile ni flou
             b.Fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             b.Fx.Light = new Point4D(-0.5, -0.866, b == _win && _bubbleHidden ? 0 : 1, mag);
             Canvas.SetLeft(b.Content, b.X);
@@ -949,8 +949,11 @@ namespace WaveIsland
         }
 
         /// <summary>L'appli qui volait vient de se poser : son icone du dock prend le relais et rebondit.</summary>
+        public void RefreshTint() => Layout();
+
         public void Land(IntPtr hwnd)
         {
+            WaveSound.Play(WaveSound.Kind.Land);
             var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
             if (it == null || !_awaiting.Remove(it.Key)) { Splash(hwnd); return; }
             ShowIcons();

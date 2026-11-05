@@ -42,6 +42,13 @@ namespace WaveIsland
         }
 
         /// <summary>Se branche sur la sortie audio par defaut (et la rebranche si elle change).</summary>
+        /// <summary>Niveau du son qui sort en ce moment (0..1), pour faire pulser l'ilot avec la musique.</summary>
+        public float Peak()
+        {
+            try { Endpoint(); return _device?.AudioMeterInformation?.MasterPeakValue ?? 0; }
+            catch { return 0; }
+        }
+
         private AudioEndpointVolume Endpoint()
         {
             try

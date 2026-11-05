@@ -83,6 +83,7 @@ namespace WaveIsland
             Now = State.Listening;
             _heard = "";
             Show("Je t'écoute…");
+            WaveSound.Play(WaveSound.Kind.Listen);
             string text;
             try
             {

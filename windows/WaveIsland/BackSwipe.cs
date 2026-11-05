@@ -253,4 +253,64 @@ namespace WaveIsland
             _arrow.RenderTransform = new ScaleTransform(0.6 + 0.4 * a, 0.6 + 0.4 * a);
         }
     }
+
+    /// <summary>
+    /// Lot 1 : centre de controle du mode tablette. Glisser vers le bas depuis le coin en haut a droite
+    /// (ou toucher ce coin) : le grand panneau de reglages en verre descend, comme sur iPad.
+    /// </summary>
+    public sealed class CornerEdge : Window
+    {
+        private IntPtr _hwnd;
+        private Point _down;
+        private bool _fired;
+
+        public CornerEdge()
+        {
+            WindowStyle = WindowStyle.None;
+            AllowsTransparency = true;
+            Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
+            ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false;
+            Topmost = true;
+            ShowActivated = false;
+            SourceInitialized += (a, b) =>
+            {
+                _hwnd = new WindowInteropHelper(this).Handle;
+                Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE) | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
+            };
+            TouchDown += (a, e) => { CaptureTouch(e.TouchDevice); _down = e.GetTouchPoint(this).Position; _fired = false; e.Handled = true; };
+            TouchMove += (a, e) => { Move(e.GetTouchPoint(this).Position); e.Handled = true; };
+            TouchUp += (a, e) => { ReleaseTouchCapture(e.TouchDevice); if (!_fired) Open(); e.Handled = true; };
+            MouseLeftButtonUp += (a, e) => { if (e.StylusDevice == null) Open(); };
+        }
+
+        private void Move(Point p)
+        {
+            if (_fired || p.Y - _down.Y < 18) return;
+            _fired = true;
+            Open();
+        }
+
+        private void Open()
+        {
+            Log.I("Mode tablette : centre de controle");
+            WaveSound.Play(WaveSound.Kind.Open);
+            // Ancre tout en haut a droite : le panneau s'ouvre en dessous
+            TaskbarPanel.Toggle("quick", new Rect(Left + Width - 392, Top, 380, 1));
+        }
+
+        public void Start()
+        {
+            var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            Show();
+            double k = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            Width = 150; Height = 14;
+            Left = sb.Right / k - Width;
+            Top = sb.Top / k;
+            if (_hwnd != IntPtr.Zero)
+                Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        }
+
+        public void Stop() => Hide();
+    }
 }

@@ -261,6 +261,22 @@ namespace WaveIsland
             fx.Children.Add(Button("Ouvrir « Ne pas déranger »", () => Shortcuts.Start("ms-settings:notifications")));
             _col.Children.Add(fx.Parent as FrameworkElement);
 
+            // --- Lot 1 : ambiance ---
+            Section("Ambiance");
+            var amb = CardPanel();
+            amb.Children.Add(T("Teinte du verre (îlot, dock, panneaux)", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 0, 0, 6)));
+            amb.Children.Add(Segmented(WaveColor.All.Select(c => c.name).ToArray(), WaveColor.All.Select(c => c.key).ToArray(),
+                () => WaveColor.Key, v => WaveColor.Set(v)));
+            amb.Children.Add(Toggle("Sons Wave", "Petits sons de goutte d'eau quand l'îlot s'ouvre, se ferme, pour les notifications et quand une appli rentre dans le dock",
+                () => S.Sounds, v => { S.Sounds = v; S.Save(); if (v) WaveSound.Play(WaveSound.Kind.Note); }));
+            amb.Children.Add(Toggle("L'îlot vit avec la musique", "Le bord de l'îlot s'illumine et ses barres bougent au rythme du son",
+                () => S.MusicPulse, v => { S.MusicPulse = v; S.Save(); }));
+            amb.Children.Add(Toggle("Mode concentration", "Les notifications n'apparaissent plus (elles attendent dans le centre de notifications). Aussi dans le menu de l'îlot",
+                () => S.FocusOn, v => { S.FocusOn = v; S.Save(); Focus.Check(); }));
+            amb.Children.Add(Toggle("Concentration automatique la nuit", "Tous les jours de " + S.FocusFrom + " h à " + S.FocusTo + " h",
+                () => S.FocusScheduled, v => { S.FocusScheduled = v; S.Save(); Focus.Check(); }));
+            _col.Children.Add(amb.Parent as FrameworkElement);
+
             // --- Assistant IA (version finale) ---
             Section("Assistant IA (Gemini)");
             var ai = CardPanel();

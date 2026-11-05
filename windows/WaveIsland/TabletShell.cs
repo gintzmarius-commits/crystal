@@ -31,6 +31,7 @@ namespace WaveIsland
         private static DispatcherTimer _watch;
         private static EdgeWindow _edge;
         private static BackEdge _back;
+        private static CornerEdge _corner;
         private static IntPtr _hook;
         private static WinEventProc _hookProc;
 
@@ -68,7 +69,7 @@ namespace WaveIsland
             _hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _hookProc, 0, 0, WINEVENT_OUTOFCONTEXT);
             // Ecran tourne (portrait / paysage) : la petite barre du bas se replace
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (a, b) =>
-                System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() => { if (Active) { _edge?.Start(); _back?.Start(); Log.I("Mode tablette : ecran tourne"); } }));
+                System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() => { if (Active) { _edge?.Start(); _back?.Start(); _corner?.Start(); Log.I("Mode tablette : ecran tourne"); } }));
             Apply();
             Border(GetForegroundWindow());
         }
@@ -92,6 +93,8 @@ namespace WaveIsland
             _edge.Start();
             _back ??= new BackEdge();
             _back.Start();
+            _corner ??= new CornerEdge();
+            _corner.Start();
             MaximizeIfApp(GetForegroundWindow());
             EdgeSwipes.AskOnce();
         }
@@ -103,6 +106,7 @@ namespace WaveIsland
             App.Taskbar?.SetTablet(false);
             _edge?.Stop();
             _back?.Stop();
+            _corner?.Stop();
             UnfillAll();
         }
 

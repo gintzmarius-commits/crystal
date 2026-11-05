@@ -465,6 +465,7 @@ namespace WaveIsland
 
         public void ShowNote(IslandNote n)
         {
+            WaveSound.Play(WaveSound.Kind.Note);
             if (_hidden && n.OnClick == null) return;
             _note = n;
             _noteApp.Text = n.App;
@@ -547,6 +548,7 @@ namespace WaveIsland
             _hideTimer.Stop();
             if (_mode == Mode.Assist) { _aState = Assistant.State.Idle; Orb(Assistant.State.Idle); if (_hidden) { _root.Opacity = 0; _root.IsHitTestVisible = false; } }
             if (_mode == Mode.Collapsed) return;
+            WaveSound.Play(WaveSound.Kind.Close);
             _mode = Mode.Collapsed;
             SettleCollapsed();
             Resize();
@@ -574,6 +576,7 @@ namespace WaveIsland
         private void Switch(Mode m, FrameworkElement panel)
         {
             bool fromCollapsed = _mode == Mode.Collapsed;
+            if (fromCollapsed && m != Mode.Note && m != Mode.Volume) WaveSound.Play(WaveSound.Kind.Open);
             if (_panel != panel || fromCollapsed)
             {
                 _panel = panel;
@@ -807,9 +810,20 @@ namespace WaveIsland
             else if (!need && _animTimer.IsEnabled) _animTimer.Stop();
         }
 
+        private double _beat;
+
+        /// <summary>Teinte du verre changee dans les reglages.</summary>
+        public void RefreshTint() => Render();
+
         private void AnimateLive()
         {
             _tick++;
+            // L'ilot pulse avec la musique (niveau reel du son)
+            bool pulse = Settings.Current.MusicPulse && _mediaInfo?.Playing == true && _mode == Mode.Collapsed;
+            double peak = pulse ? Math.Min(1, (App.Volume?.Peak() ?? 0) * 1.4) : 0;
+            double nb = peak > _beat ? _beat + (peak - _beat) * 0.7 : _beat * 0.82;
+            if (Math.Abs(nb - _beat) > 0.004) { _beat = nb; Render(); }
+            _animTimer.Interval = TimeSpan.FromMilliseconds(pulse ? 45 : 90);
             if (_mode == Mode.Collapsed)
             {
                 if (_eq.Visibility == Visibility.Visible)
@@ -818,7 +832,7 @@ namespace WaveIsland
                     for (int i = 0; i < _eq.Children.Count; i++)
                     {
                         var r = (Rectangle)_eq.Children[i];
-                        double target = playing ? 4 + 12 * Math.Abs(Math.Sin(_tick * (0.35 + i * 0.13) + i * 1.7)) * (0.6 + 0.4 * Rnd.NextDouble()) : 4;
+                        double target = playing ? 4 + 12 * Math.Abs(Math.Sin(_tick * (0.35 + i * 0.13) + i * 1.7)) * (0.35 + 0.65 * Math.Max(_beat, 0.25 * Rnd.NextDouble())) : 4;
                         r.Height = r.Height + (target - r.Height) * 0.6;
                     }
                 }
@@ -1029,6 +1043,9 @@ namespace WaveIsland
             int room = 5 - (Updater.Available ? 1 : 0) - (Settings.Current.DropEnabled ? 1 : 0);
             // Assistant IA : bouton micro en premier
             _menuRow.Children.Add(MenuItem("\uE720", null, "Assistant", () => { Collapse(); Assistant.Trigger(); }));
+            // Lot 1 : mode concentration
+            _menuRow.Children.Add(MenuItem("\uE708", null, Focus.On ? "Fin concentr." : "Concentration", () => { Collapse(); Focus.Toggle(); }));
+            room--;
             var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(room).ToList();
             // Wave Drop : envoyer un fichier a un appareil proche
             if (Settings.Current.DropEnabled) _menuRow.Children.Add(MenuItem("\uE72D", null, "Wave Drop", () => App.Launcher.OpenDrop(null)));
@@ -1131,10 +1148,11 @@ namespace WaveIsland
             // Loupe autour du centre de l'ilot : uv' = uv * mag + centre * (1 - mag)
             _fx.Bend = new Point4D(strength / aw, strength / ah, cx * k / aw * (1 - mag), (top + h / 2) * k / ah * (1 - mag));
             double tint = Math.Max(0, Math.Min(1, _tint.Value));
-            _fx.Tint = !LightTheme ? new Point4D(0.05, 0.06, 0.08, tint) : new Point4D(0.97, 0.98, 1.0, tint);
+            _fx.Tint = WaveColor.Tint(!LightTheme ? new Point4D(0.05, 0.06, 0.08, tint) : new Point4D(0.97, 0.98, 1.0, tint));
             _fx.Disp = new Point4D(1.14, 0.86, 0, 0);
             var l = _fx.Light;
-            _fx.Light = new Point4D(l.X, l.Y, 1, mag);
+            // Le bord de l'ilot s'illumine au rythme de la musique
+            _fx.Light = new Point4D(l.X, l.Y, 1 + _beat * 1.6, mag);
 
             if (!(s.Refraction && _excluded) && _glass.Source != FlatSource()) _glass.Source = FlatSource();
 

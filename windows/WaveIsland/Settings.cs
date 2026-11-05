@@ -35,6 +35,17 @@ namespace WaveIsland
         public bool AiVoice { get; set; } = true;
         /// <summary>Touche Copilot / Microsoft 365 = assistant.</summary>
         public bool AiKeyEnabled { get; set; } = true;
+        /// <summary>Lot 1 : teinte du verre ("" = transparent).</summary>
+        public string GlassColor { get; set; } = "";
+        /// <summary>Lot 1 : petits sons de goutte.</summary>
+        public bool Sounds { get; set; } = true;
+        /// <summary>Lot 1 : l'ilot pulse avec la musique.</summary>
+        public bool MusicPulse { get; set; } = true;
+        /// <summary>Lot 1 : mode concentration (manuel / par horaires).</summary>
+        public bool FocusOn { get; set; }
+        public bool FocusScheduled { get; set; }
+        public int FocusFrom { get; set; } = 22;
+        public int FocusTo { get; set; } = 7;
         /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
         public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
         /// <summary>Applis epinglees en haut du menu (comme le menu Demarrer)</summary>

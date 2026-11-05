@@ -65,12 +65,26 @@ namespace WaveIsland
             _notes = new NotificationWatcher(Dispatcher);
             _notes.Arrived += n =>
             {
+                // Lot 1 : concentration = la notification attend dans le centre de notifications
+                if (Focus.Swallow())
+                {
+                    NoteHistory.Insert(0, (n, DateTime.Now));
+                    if (NoteHistory.Count > 40) NoteHistory.RemoveAt(NoteHistory.Count - 1);
+                    return;
+                }
                 Island.ShowNote(n);
                 Demo.NoteArrived(n);
                 NoteHistory.Insert(0, (n, DateTime.Now));
                 if (NoteHistory.Count > 40) NoteHistory.RemoveAt(NoteHistory.Count - 1);
             };
             _notes.Start();
+
+            // Lot 1 : teinte du verre, concentration par horaires
+            WaveColor.Changed += () => { Island?.RefreshTint(); Taskbar?.RefreshTint(); };
+            var focusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            focusTimer.Tick += (a, b) => Focus.Check();
+            focusTimer.Start();
+            Focus.Check();
 
             // Activites en arriere-plan : musique et telechargements
             Media.Changed += m => Island.SetMedia(m);
