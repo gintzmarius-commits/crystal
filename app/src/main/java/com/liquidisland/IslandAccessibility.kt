@@ -70,7 +70,7 @@ class IslandAccessibility : AccessibilityService() {
     private fun readUrl(pkg: String) {
         val root = rootInActiveWindow ?: return
         try {
-            val node = root.findAccessibilityNodeInfosByViewId(URL_BARS[pkg]).firstOrNull() ?: return
+            val node = root.findAccessibilityNodeInfosByViewId(URL_BARS[pkg] ?: return).firstOrNull() ?: return
             val text = node.text?.toString()?.trim() ?: return
             if (text.isEmpty() || text.contains(' ') || !text.contains('.')) return
             com.liquidisland.drop.WaveLink.browserPage(text, null)
