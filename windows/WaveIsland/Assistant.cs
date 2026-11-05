@@ -17,7 +17,7 @@ using System.Windows.Threading;
 namespace WaveIsland
 {
     /// <summary>
-    /// Version finale : l'assistant vocal de la Wave Island (Claude).
+    /// Version finale : l'assistant vocal de la Wave Island (Gemini, gratuit).
     /// Touche Copilot / Microsoft 365 (ou bouton micro du menu de l'ilot) : l'ilot s'ouvre et ecoute,
     /// la question part a Claude, qui peut agir (sites, recherches, applis, son, luminosite, Wi-Fi, musique,
     /// minuteur) ; la reponse s'affiche dans l'ilot et est lue a voix haute.
@@ -75,7 +75,7 @@ namespace WaveIsland
             {
                 Now = State.Done;
                 _heard = "";
-                Show("Assistant à configurer", "Colle ta clé Claude (console.anthropic.com) dans les réglages de Wave Island, section « Assistant IA ».", done: true);
+                Show("Assistant à configurer", "Colle ta clé Gemini gratuite (aistudio.google.com/apikey) dans les réglages de Wave Island, section « Assistant IA ».", done: true);
                 return;
             }
             // Conversation oubliee apres 5 minutes de silence
@@ -147,12 +147,12 @@ namespace WaveIsland
             Show("", answer, done: true);
         }
 
-        private static string Model => string.IsNullOrWhiteSpace(Settings.Current.AiModel) ? "claude-haiku-5-5" : Settings.Current.AiModel;
+        private static string Model => string.IsNullOrWhiteSpace(Settings.Current.AiModel) || !Settings.Current.AiModel.StartsWith("gemini") ? "gemini-flash-latest" : Settings.Current.AiModel;
 
         private static string SystemPrompt()
         {
             var now = DateTime.Now;
-            return "Tu es Claude, l'assistant vocal intégré à Wave Island sur le PC Windows de l'utilisateur (un îlot en verre liquide en haut de l'écran). " +
+            return "Tu es l'assistant vocal intégré à Wave Island sur le PC Windows de l'utilisateur (un îlot en verre liquide en haut de l'écran). " +
                    "Tu réponds en français, à l'oral : une à trois phrases courtes et naturelles, sans markdown, sans listes, sans emojis, sans liens. " +
                    "Quand l'utilisateur demande d'agir (ouvrir un site, chercher quelque chose, lancer une appli, régler le son, la luminosité, le Wi-Fi, le Bluetooth, la musique, un minuteur), " +
                    "utilise directement l'outil adapté sans demander de confirmation, puis confirme en une courte phrase. " +
@@ -164,7 +164,6 @@ namespace WaveIsland
         private static JsonArray Tools()
         {
             var t = new JsonArray();
-            if (!_noWebSearch) t.Add(new JsonObject { ["type"] = "web_search_20250305", ["name"] = "web_search", ["max_uses"] = 3 });
             t.Add(Tool("open_url", "Ouvre une adresse web (ou une adresse ms-settings: pour une page des Paramètres de Windows) dans le navigateur.",
                 new JsonObject { ["url"] = Str("Adresse complète"), ["browser"] = Browser() }, "url"));
             t.Add(Tool("search_in_browser", "Lance une recherche dans le navigateur de l'utilisateur (Google par défaut, ou sur YouTube, Wikipédia, Amazon, Google Maps, Google Images).",
@@ -203,55 +202,58 @@ namespace WaveIsland
             return new JsonObject { ["name"] = name, ["description"] = desc, ["input_schema"] = schema };
         }
 
-        /// <summary>Conversation avec Claude, outils compris (jusqu'a 6 allers-retours).</summary>
+        /// <summary>Conversation avec Gemini, outils compris (jusqu'a 6 allers-retours).</summary>
         private static async Task<string> Run(string question, CancellationToken ct)
         {
-            var messages = new JsonArray();
-            foreach (var h in _history) messages.Add(h.DeepClone());
-            messages.Add(new JsonObject { ["role"] = "user", ["content"] = question });
+            var contents = new JsonArray();
+            foreach (var h in _history)
+                contents.Add(new JsonObject
+                {
+                    ["role"] = h["role"]?.GetValue<string>() == "assistant" ? "model" : "user",
+                    ["parts"] = new JsonArray(new JsonObject { ["text"] = h["content"]?.GetValue<string>() ?? "" })
+                });
+            contents.Add(new JsonObject { ["role"] = "user", ["parts"] = new JsonArray(new JsonObject { ["text"] = question }) });
             var text = new StringBuilder();
-            for (int round = 0; round < 6; round++)
+            for (int round = 0; round < 7; round++)
             {
+                var decls = new JsonArray();
+                foreach (var t in Tools())
+                {
+                    if (t?["input_schema"] == null) continue;
+                    decls.Add(new JsonObject { ["name"] = t["name"]!.GetValue<string>(), ["description"] = t["description"]!.GetValue<string>(), ["parameters"] = t["input_schema"]!.DeepClone() });
+                }
+                var tools = new JsonArray(new JsonObject { ["function_declarations"] = decls });
+                if (!_noWebSearch) tools.Add(new JsonObject { ["google_search"] = new JsonObject() });
                 var body = new JsonObject
                 {
-                    ["model"] = Model,
-                    ["max_tokens"] = 700,
-                    ["system"] = SystemPrompt(),
-                    ["tools"] = Tools(),
-                    ["messages"] = messages.DeepClone()
+                    ["system_instruction"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["text"] = SystemPrompt() }) },
+                    ["contents"] = contents.DeepClone(),
+                    ["tools"] = tools,
+                    ["generationConfig"] = new JsonObject { ["maxOutputTokens"] = 900 }
                 };
                 var res = await Post(body, ct);
-                if (res == null) continue;   // reessai sans la recherche web
-                var content = res["content"] as JsonArray ?? new JsonArray();
-                string stop = res["stop_reason"]?.GetValue<string>() ?? "";
-                var results = new JsonArray();
-                foreach (var block in content)
+                if (res == null) continue;   // reessai sans la recherche Google
+                var content = res["candidates"]?[0]?["content"] as JsonObject;
+                var parts = content?["parts"] as JsonArray ?? new JsonArray();
+                var replies = new JsonArray();
+                text.Clear();
+                foreach (var part in parts)
                 {
-                    string type = block?["type"]?.GetValue<string>();
-                    if (type == "text") text.Append(block["text"]?.GetValue<string>());
-                    else if (type == "tool_use")
-                    {
-                        string name = block["name"]?.GetValue<string>();
-                        var input = block["input"] as JsonObject ?? new JsonObject();
-                        string outcome;
-                        try { outcome = await RunTool(name, input); }
-                        catch (Exception e) { outcome = "Erreur : " + e.Message; }
-                        Log.I($"Assistant : outil {name} {input.ToJsonString()} -> {outcome}");
-                        results.Add(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = block["id"]?.GetValue<string>(), ["content"] = outcome });
-                    }
+                    if (part?["text"] != null && part["thought"]?.GetValue<bool>() != true) text.Append(part["text"]!.GetValue<string>());
+                    var call = part?["functionCall"] as JsonObject;
+                    if (call == null) continue;
+                    string name = call["name"]?.GetValue<string>();
+                    var input = call["args"] as JsonObject ?? new JsonObject();
+                    string outcome;
+                    try { outcome = await RunTool(name, input); }
+                    catch (Exception e) { outcome = "Erreur : " + e.Message; }
+                    Log.I($"Assistant : outil {name} {input.ToJsonString()} -> {outcome}");
+                    replies.Add(new JsonObject { ["functionResponse"] = new JsonObject { ["name"] = name, ["response"] = new JsonObject { ["result"] = outcome } } });
                 }
-                if (stop == "tool_use" && results.Count > 0)
+                if (replies.Count > 0)
                 {
-                    messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = content.DeepClone() });
-                    messages.Add(new JsonObject { ["role"] = "user", ["content"] = results });
-                    text.Clear();
-                    continue;
-                }
-                if (stop == "pause_turn")
-                {
-                    // Recherche web longue : on laisse Claude continuer
-                    messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = content.DeepClone() });
-                    text.Clear();
+                    contents.Add(new JsonObject { ["role"] = "model", ["parts"] = parts.DeepClone() });
+                    contents.Add(new JsonObject { ["role"] = "user", ["parts"] = replies });
                     continue;
                 }
                 break;
@@ -261,9 +263,8 @@ namespace WaveIsland
 
         private static async Task<JsonObject> Post(JsonObject body, CancellationToken ct)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
-            req.Headers.Add("x-api-key", Settings.Current.AiKey.Trim());
-            req.Headers.Add("anthropic-version", "2023-06-01");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent");
+            req.Headers.Add("x-goog-api-key", Settings.Current.AiKey.Trim());
             req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp = await Http.SendAsync(req, ct);
             string json = await resp.Content.ReadAsStringAsync(ct);
@@ -271,19 +272,21 @@ namespace WaveIsland
             string msg = "";
             try { msg = JsonNode.Parse(json)?["error"]?["message"]?.GetValue<string>() ?? ""; } catch { }
             Log.I($"Assistant : API {(int)resp.StatusCode} {msg}");
-            if ((int)resp.StatusCode == 400 && !_noWebSearch && msg.IndexOf("web_search", StringComparison.OrdinalIgnoreCase) >= 0)
+            int code = (int)resp.StatusCode;
+            if (code == 400 && !_noWebSearch && (msg.IndexOf("search", StringComparison.OrdinalIgnoreCase) >= 0 || msg.IndexOf("tool", StringComparison.OrdinalIgnoreCase) >= 0))
             {
-                _noWebSearch = true;   // recherche web non disponible pour ce compte : on continue sans
+                _noWebSearch = true;   // recherche Google + outils ensemble refuses : on continue sans
                 return null;
             }
-            throw new Exception((int)resp.StatusCode switch
+            bool badKey = msg.IndexOf("API key", StringComparison.OrdinalIgnoreCase) >= 0;
+            throw new Exception(code switch
             {
-                401 => "La clé Claude n'est pas valide. Vérifie-la dans les réglages de Wave Island.",
-                402 or 403 => "Le compte Claude n'a plus de crédit ou n'a pas accès à ce modèle.",
-                404 => "Modèle Claude introuvable : choisis-en un autre dans les réglages.",
-                429 => "Trop de questions d'un coup, réessaie dans quelques secondes.",
-                529 or 503 => "Claude est surchargé, réessaie dans un instant.",
-                _ => "Claude ne répond pas (" + (int)resp.StatusCode + ")."
+                _ when badKey => "La clé Gemini n'est pas valide. Vérifie-la dans les réglages de Wave Island.",
+                403 => "La clé Gemini n'a pas accès à ce modèle.",
+                404 => "Modèle Gemini introuvable : choisis-en un autre dans les réglages.",
+                429 => "Limite gratuite de Gemini atteinte pour le moment, réessaie un peu plus tard.",
+                500 or 503 => "Gemini est surchargé, réessaie dans un instant.",
+                _ => "Gemini ne répond pas (" + code + ")."
             });
         }
 

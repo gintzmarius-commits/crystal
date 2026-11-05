@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         col.addView(live)
 
         // Version finale : assistant IA (Claude)
-        col.addView(section("Assistant IA (Claude)"))
+        col.addView(section("Assistant IA (Gemini)"))
         col.addView(assistCard())
 
         // Raccourcis du mini menu
@@ -1086,13 +1086,13 @@ class MainActivity : Activity() {
 
     private fun assistCard(): View {
         val c = card()
-        c.addView(text("Appui long sur le bouton d'alimentation (comme pour Gemini) : la Wave Island t'écoute et Claude répond à voix haute. " +
+        c.addView(text("Appui long sur le bouton d'alimentation (comme pour Gemini) : la Wave Island t'écoute et Gemini répond à voix haute. " +
             "Il peut chercher sur Firefox, ouvrir une appli ou un site, régler le son, la luminosité, la lampe, la musique, un minuteur, une alarme, appeler ou envoyer un SMS. " +
             "Touche l'îlot pendant qu'il écoute pour envoyer tout de suite, ou pendant qu'il parle pour poser une autre question.", 13f, Glass.INK_SOFT))
-        c.addView(text("Clé Claude (console.anthropic.com > API Keys)", 14f, Glass.INK).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
+        c.addView(text("Clé Gemini gratuite (aistudio.google.com > Get API key)", 14f, Glass.INK).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
         val key = android.widget.EditText(this).apply {
             setText(Prefs.aiKey(this@MainActivity))
-            hint = "sk-ant-…"
+            hint = "AIza…"
             setSingleLine()
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             setTextColor(Glass.INK)
@@ -1107,13 +1107,13 @@ class MainActivity : Activity() {
             })
         }
         c.addView(key, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        c.addView(glassButton("Créer une clé Claude", primary = false) {
-            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.anthropic.com/settings/keys"))) } catch (e: Exception) { }
+        c.addView(glassButton("Créer une clé Gemini gratuite", primary = false) {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))) } catch (e: Exception) { }
         }, buttonLp(top = 8))
-        val sonnet = Prefs.aiModel(this).contains("sonnet")
-        c.addView(switchRow("Modèle plus malin (Sonnet)",
-            text("Sinon Haiku : plus rapide et moins cher.", 13f, Glass.INK_SOFT), sonnet
-        ) { Prefs.setAiModel(this, if (it) "claude-sonnet-5-5" else "claude-haiku-5-5") })
+        val sonnet = Prefs.aiModel(this).contains("pro")
+        c.addView(switchRow("Modèle plus malin (Gemini Pro)",
+            text("Sinon Flash : plus rapide, avec plus de questions gratuites par jour.", 13f, Glass.INK_SOFT), sonnet
+        ) { Prefs.setAiModel(this, if (it) "gemini-pro-latest" else "gemini-flash-latest") })
         c.addView(switchRow("Réponse à voix haute",
             text("Une voix française lit la réponse (sinon elle s'affiche seulement dans l'îlot).", 13f, Glass.INK_SOFT), Prefs.aiVoice(this)
         ) { Prefs.setAiVoice(this, it) })

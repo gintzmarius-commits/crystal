@@ -90,7 +90,7 @@ object Assistant {
         if (Prefs.aiKey(app).isBlank()) {
             state = State.DONE
             heard = ""
-            show("Assistant à configurer", "Ouvre Wave Island et colle ta clé Claude (console.anthropic.com) dans « Assistant IA ».", done = true)
+            show("Assistant à configurer", "Ouvre Wave Island et colle ta clé Gemini gratuite (aistudio.google.com/apikey) dans « Assistant IA ».", done = true)
             return
         }
         if (SystemClock.elapsedRealtime() - lastTurn > 5 * 60_000L) history.clear()
@@ -160,13 +160,13 @@ object Assistant {
         }
     }
 
-    private fun model() = Prefs.aiModel(app)
+    private fun model() = Prefs.aiModel(app).let { if (it.startsWith("gemini")) it else "gemini-flash-latest" }
 
     private fun systemPrompt(): String {
         val now = Date()
         val day = SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE).format(now)
         val time = SimpleDateFormat("HH:mm", Locale.FRANCE).format(now)
-        return "Tu es Claude, l'assistant vocal intégré à Wave Island sur le téléphone Android de l'utilisateur (un îlot en verre liquide en haut de l'écran). " +
+        return "Tu es l'assistant vocal intégré à Wave Island sur le téléphone Android de l'utilisateur (un îlot en verre liquide en haut de l'écran). " +
             "Tu réponds en français, à l'oral : une à trois phrases courtes et naturelles, sans markdown, sans listes, sans emojis, sans liens. " +
             "Quand on te demande d'agir (ouvrir un site, chercher quelque chose, lancer une appli, régler le son, la luminosité, la lampe, la musique, un minuteur, une alarme, appeler quelqu'un), " +
             "utilise directement l'outil adapté puis confirme en une courte phrase. " +
@@ -188,7 +188,6 @@ object Assistant {
 
     private fun tools(): JSONArray {
         val t = JSONArray()
-        if (!noWebSearch) t.put(JSONObject().put("type", "web_search_20250305").put("name", "web_search").put("max_uses", 3))
         t.put(tool("open_url", "Ouvre une adresse web dans le navigateur.", JSONObject().put("url", str("Adresse complète")).put("browser", browser()), "url"))
         t.put(tool("search_in_browser", "Lance une recherche dans le navigateur (Google par défaut, ou YouTube, Wikipédia, Amazon, Google Maps, Google Images).",
             JSONObject().put("query", str("Ce qu'il faut chercher")).put("site", en("google", "youtube", "wikipedia", "amazon", "maps", "images")).put("browser", browser()), "query"))
@@ -207,45 +206,47 @@ object Assistant {
         return t
     }
 
-    /** Conversation avec Claude, outils compris (jusqu'a 6 allers-retours). Hors du fil principal. */
+    /** Conversation avec Gemini, outils compris (jusqu'a 6 allers-retours). Hors du fil principal. */
     private fun run(q: String): String {
-        val messages = JSONArray()
-        history.forEach { messages.put(JSONObject(it.toString())) }
-        messages.put(JSONObject().put("role", "user").put("content", q))
+        val contents = JSONArray()
+        history.forEach {
+            contents.put(JSONObject().put("role", if (it.optString("role") == "assistant") "model" else "user")
+                .put("parts", JSONArray().put(JSONObject().put("text", it.optString("content")))))
+        }
+        contents.put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", q))))
         val text = StringBuilder()
         var round = 0
         while (round++ < 7) {
+            val decls = JSONArray()
+            val all = tools()
+            for (i in 0 until all.length()) {
+                val t = all.getJSONObject(i)
+                decls.put(JSONObject().put("name", t.getString("name")).put("description", t.getString("description")).put("parameters", t.getJSONObject("input_schema")))
+            }
+            val toolList = JSONArray().put(JSONObject().put("function_declarations", decls))
+            if (!noWebSearch) toolList.put(JSONObject().put("google_search", JSONObject()))
             val body = JSONObject()
-                .put("model", model())
-                .put("max_tokens", 700)
-                .put("system", systemPrompt())
-                .put("tools", tools())
-                .put("messages", messages)
+                .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt()))))
+                .put("contents", contents)
+                .put("tools", toolList)
+                .put("generationConfig", JSONObject().put("maxOutputTokens", 900))
             val res = post(body) ?: continue
-            val content = res.optJSONArray("content") ?: JSONArray()
-            val stop = res.optString("stop_reason")
-            val results = JSONArray()
+            val parts = res.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts") ?: JSONArray()
+            val replies = JSONArray()
             text.setLength(0)
-            for (i in 0 until content.length()) {
-                val b = content.getJSONObject(i)
-                when (b.optString("type")) {
-                    "text" -> text.append(b.optString("text"))
-                    "tool_use" -> {
-                        val name = b.optString("name")
-                        val input = b.optJSONObject("input") ?: JSONObject()
-                        val out = try { runTool(name, input) } catch (e: Exception) { "Erreur : ${e.message}" }
-                        Log.i(TAG, "Assistant : outil $name $input -> $out")
-                        results.put(JSONObject().put("type", "tool_result").put("tool_use_id", b.optString("id")).put("content", out))
-                    }
-                }
+            for (i in 0 until parts.length()) {
+                val p = parts.getJSONObject(i)
+                if (p.has("text") && !p.optBoolean("thought")) text.append(p.optString("text"))
+                val call = p.optJSONObject("functionCall") ?: continue
+                val name = call.optString("name")
+                val input = call.optJSONObject("args") ?: JSONObject()
+                val out = try { runTool(name, input) } catch (e: Exception) { "Erreur : ${e.message}" }
+                Log.i(TAG, "Assistant : outil $name $input -> $out")
+                replies.put(JSONObject().put("functionResponse", JSONObject().put("name", name).put("response", JSONObject().put("result", out))))
             }
-            if (stop == "tool_use" && results.length() > 0) {
-                messages.put(JSONObject().put("role", "assistant").put("content", content))
-                messages.put(JSONObject().put("role", "user").put("content", results))
-                continue
-            }
-            if (stop == "pause_turn") {
-                messages.put(JSONObject().put("role", "assistant").put("content", content))
+            if (replies.length() > 0) {
+                contents.put(JSONObject().put("role", "model").put("parts", parts))
+                contents.put(JSONObject().put("role", "user").put("parts", replies))
                 continue
             }
             break
@@ -254,15 +255,14 @@ object Assistant {
     }
 
     private fun post(body: JSONObject): JSONObject? {
-        val c = URL("https://api.anthropic.com/v1/messages").openConnection() as HttpURLConnection
+        val c = URL("https://generativelanguage.googleapis.com/v1beta/models/${model()}:generateContent").openConnection() as HttpURLConnection
         try {
             c.requestMethod = "POST"
             c.connectTimeout = 15000
             c.readTimeout = 60000
             c.doOutput = true
             c.setRequestProperty("content-type", "application/json")
-            c.setRequestProperty("x-api-key", Prefs.aiKey(app).trim())
-            c.setRequestProperty("anthropic-version", "2023-06-01")
+            c.setRequestProperty("x-goog-api-key", Prefs.aiKey(app).trim())
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
@@ -270,14 +270,14 @@ object Assistant {
             if (code in 200..299) return JSONObject(json)
             val msg = try { JSONObject(json).optJSONObject("error")?.optString("message") ?: "" } catch (e: Exception) { "" }
             Log.i(TAG, "Assistant : API $code $msg")
-            if (code == 400 && !noWebSearch && msg.contains("web_search", ignoreCase = true)) { noWebSearch = true; return null }
-            throw Exception(when (code) {
-                401 -> "La clé Claude n'est pas valide. Vérifie-la dans Wave Island."
-                402, 403 -> "Le compte Claude n'a plus de crédit ou n'a pas accès à ce modèle."
-                404 -> "Modèle Claude introuvable : choisis-en un autre dans Wave Island."
-                429 -> "Trop de questions d'un coup, réessaie dans quelques secondes."
-                503, 529 -> "Claude est surchargé, réessaie dans un instant."
-                else -> "Claude ne répond pas ($code)."
+            if (code == 400 && !noWebSearch && (msg.contains("search", true) || msg.contains("tool", true))) { noWebSearch = true; return null }
+            throw Exception(when {
+                msg.contains("API key", true) -> "La clé Gemini n'est pas valide. Vérifie-la dans Wave Island."
+                code == 403 -> "La clé Gemini n'a pas accès à ce modèle."
+                code == 404 -> "Modèle Gemini introuvable : choisis-en un autre dans Wave Island."
+                code == 429 -> "Limite gratuite de Gemini atteinte pour le moment, réessaie un peu plus tard."
+                code == 500 || code == 503 -> "Gemini est surchargé, réessaie dans un instant."
+                else -> "Gemini ne répond pas ($code)."
             })
         } catch (e: java.io.IOException) {
             throw Exception("Pas de connexion à Internet.")

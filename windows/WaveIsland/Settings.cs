@@ -27,10 +27,10 @@ namespace WaveIsland
         public bool LiveDownloads { get; set; } = true;
         /// <summary>Touche Windows : le menu des applis coule depuis l'ilot (a la place du menu Demarrer)</summary>
         public bool WinKeyMenu { get; set; } = true;
-        /// <summary>Assistant IA (Claude) : cle de l'API Anthropic (console.anthropic.com).</summary>
+        /// <summary>Assistant IA (Gemini) : cle gratuite (aistudio.google.com/apikey).</summary>
         public string AiKey { get; set; } = "";
         /// <summary>Modele Claude de l'assistant.</summary>
-        public string AiModel { get; set; } = "claude-haiku-5-5";
+        public string AiModel { get; set; } = "gemini-flash-latest";
         /// <summary>La reponse est lue a voix haute.</summary>
         public bool AiVoice { get; set; } = true;
         /// <summary>Touche Copilot / Microsoft 365 = assistant.</summary>
