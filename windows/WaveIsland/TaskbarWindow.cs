@@ -882,7 +882,7 @@ namespace WaveIsland
         private readonly HashSet<IntPtr> _hiddenWins = new HashSet<IntPtr>();
         private static readonly Spring SlotSpring = new Spring(0.62, 0.42);
 
-        private bool IsHidden(AppItem it) => !it.Pinned && it.Windows.Count > 0 && it.Windows.All(w => _hiddenWins.Contains(w));
+        private bool IsHidden(AppItem it) => it.Windows.Count > 0 && it.Windows.All(w => _hiddenWins.Contains(w));
 
         private double Target(AppItem it) => IsHidden(it) ? 0 : 1;
 
@@ -1301,8 +1301,46 @@ namespace WaveIsland
             Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
         }
 
+        private int _areaTick, _areaTries;
+        private DateTime _areaLast = DateTime.MinValue;
+
+        [DllImport("user32.dll")] private static extern bool SystemParametersInfo(int a, int b, ref Native.RECT r, int c);
+
+        /// <summary>
+        /// Comme sur Mac : les applis agrandies vont jusqu'en bas de l'ecran, la barre passe par-dessus.
+        /// Si la barre de Windows (cachee) reserve encore sa place, on la repasse en masquage automatique
+        /// et on rend la zone a l'ecran entier (quelques essais espaces, jamais en boucle).
+        /// </summary>
+        private void CheckWorkArea()
+        {
+            try
+            {
+                var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                var wa = new Native.RECT();
+                SystemParametersInfo(0x30 /* SPI_GETWORKAREA */, 0, ref wa, 0);
+                int gap = sb.Bottom - wa.Bottom;
+                if (gap <= 2) { _areaTries = 0; return; }
+                if (_areaTries >= 4 || (DateTime.Now - _areaLast).TotalSeconds < 20) return;
+                _areaTries++;
+                _areaLast = DateTime.Now;
+                var tray = FindWindow("Shell_TrayWnd", null);
+                int state = -1;
+                if (tray != IntPtr.Zero)
+                {
+                    var d = new APPBARDATA { cbSize = Marshal.SizeOf<APPBARDATA>(), hWnd = tray, lParam = new IntPtr(ABS_AUTOHIDE) };
+                    SHAppBarMessage(ABM_SETSTATE, ref d);
+                    state = (int)SHAppBarMessage(ABM_GETSTATE, ref d);
+                }
+                var full = new Native.RECT { Left = wa.Left, Top = wa.Top, Right = wa.Right, Bottom = sb.Bottom };
+                SystemParametersInfo(0x2F /* SPI_SETWORKAREA */, 0, ref full, 0x2 /* SPIF_SENDCHANGE */);
+                Log.I($"Wave Theme : la barre de Windows gardait {gap} px en bas (masquage auto = {(state & ABS_AUTOHIDE) != 0}) : zone rendue a l'ecran entier (essai {_areaTries})");
+            }
+            catch (Exception e) { Log.I("Wave Theme : zone de l'ecran : " + e.Message); }
+        }
+
         private void Tick()
         {
+            if (++_areaTick % 5 == 1) CheckWorkArea();
             var now = DateTime.Now;
             _time.Text = now.ToString("HH:mm");
             _date.Text = now.ToString("dd/MM/yyyy");

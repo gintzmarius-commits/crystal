@@ -59,7 +59,7 @@ namespace WaveIsland
             {
                 Apply();
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
-                if (Active) WatchTitle(AppInFront());
+                if (Active) { var fgApp = AppInFront(); WatchTitle(fgApp); ExtendToBottom(fgApp); }
                 if (Active && ++_tick % 2 == 0 && AppMotion.Current == null) AppMotion.Cache(AppInFront());
             };
             _watch.Start();
@@ -103,6 +103,7 @@ namespace WaveIsland
             App.Taskbar?.SetTablet(false);
             _edge?.Stop();
             _back?.Stop();
+            UnfillAll();
         }
 
         public static void Stop()
@@ -122,30 +123,45 @@ namespace WaveIsland
 
         // ================== Toute la hauteur de l'ecran pour les applis ==================
 
-        private static readonly HashSet<IntPtr> _extended = new HashSet<IntPtr>();
+        private static readonly HashSet<IntPtr> _filled = new HashSet<IntPtr>();
+        [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr h, int attr, out Native.RECT r, int size);
 
         /// <summary>
-        /// Mode tablette : une appli agrandie descend jusqu'au bas de l'ecran (la petite barre passe par-dessus).
-        /// Une seule fois par fenetre et seulement s'il manque une bande en bas (jamais en boucle).
+        /// Mode tablette : l'appli prend 100 % de l'ecran (la petite barre et le dock passent par-dessus).
+        /// Une fenetre agrandie par Windows s'arrete au-dessus de la place reservee a la barre de Windows :
+        /// on la remet en taille normale, exactement de la taille de l'ecran (une seule fois par fenetre).
         /// </summary>
         private static void ExtendToBottom(IntPtr h)
         {
             try
             {
-                if (h == IntPtr.Zero || !IsZoomed(h) || _extended.Contains(h)) return;
-                if (!Native.GetWindowRect(h, out var r)) return;
+                if (h == IntPtr.Zero || !IsZoomed(h) || Native.IsIconic(h)) return;
                 var sb = System.Windows.Forms.Screen.FromHandle(h).Bounds;
-                // Bas de la zone visible de la fenetre (Windows deborde de quelques pixels invisibles autour)
-                int border = Math.Max(0, sb.Left - r.Left);
-                int gap = sb.Bottom - (r.Bottom - border);
-                _extended.Add(h);
-                if (_extended.Count > 500) _extended.Clear();
-                if (gap <= 1 || gap > 120) return;
-                Native.SetWindowPos(h, IntPtr.Zero, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top + gap, 0x4 /* NOZORDER */ | 0x10 /* NOACTIVATE */);
-                Log.I("Mode tablette : appli agrandie jusqu'en bas (+" + gap + " px)");
+                if (DwmGetWindowAttribute(h, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, out var vis, Marshal.SizeOf<Native.RECT>()) != 0) return;
+                int gap = sb.Bottom - vis.Bottom;
+                if (gap <= 1) return;
+                // Taille normale, puis la partie visible de la fenetre = l'ecran entier (bords invisibles de Windows compris)
+                Native.ShowWindow(h, 9 /* SW_RESTORE */);
+                if (!Native.GetWindowRect(h, out var r) || DwmGetWindowAttribute(h, 9, out var v2, Marshal.SizeOf<Native.RECT>()) != 0) return;
+                int l = v2.Left - r.Left, t = v2.Top - r.Top, rr = r.Right - v2.Right, bb = r.Bottom - v2.Bottom;
+                Native.SetWindowPos(h, IntPtr.Zero, sb.Left - l, sb.Top - t, sb.Width + l + rr, sb.Height + t + bb, 0x4 /* NOZORDER */ | 0x10 /* NOACTIVATE */);
+                _filled.Add(h);
+                if (_filled.Count > 300) _filled.Clear();
+                Log.I("Mode tablette : appli sur tout l'ecran (il manquait " + gap + " px en bas)");
             }
             catch { }
         }
+
+        /// <summary>En quittant le mode tablette : ces fenetres redeviennent agrandies normalement.</summary>
+        private static void UnfillAll()
+        {
+            foreach (var h in _filled.ToList())
+                try { if (IsWindowVisible(h) && !Native.IsIconic(h)) Native.ShowWindow(h, 3 /* SW_MAXIMIZE */); } catch { }
+            _filled.Clear();
+        }
+
+        /// <summary>Fenetre deja mise sur tout l'ecran : pas besoin de l'agrandir.</summary>
+        private static bool Filled(IntPtr h) => _filled.Contains(h);
 
         // ================== Applis en plein ecran ==================
 
@@ -236,7 +252,7 @@ namespace WaveIsland
         /// <summary>Comme sur iPad : une vraie fenetre d'appli s'ouvre en plein ecran.</summary>
         private static void MaximizeIfApp(IntPtr h)
         {
-            if (h == IntPtr.Zero || !IsWindowVisible(h) || IsZoomed(h) || Native.IsIconic(h)) return;
+            if (h == IntPtr.Zero || !IsWindowVisible(h) || IsZoomed(h) || Native.IsIconic(h) || Filled(h)) return;
             if (GetWindow(h, 4 /* GW_OWNER */) != IntPtr.Zero) return;
             GetWindowThreadProcessId(h, out uint pid);
             if (pid == (uint)Environment.ProcessId) return;
