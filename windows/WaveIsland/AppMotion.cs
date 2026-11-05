@@ -268,6 +268,8 @@ namespace WaveIsland
             Show();
             // Le dock reste au-dessus (comme sur iPad). Windows remet parfois cette fenetre devant juste apres
             // son affichage : on repasse le dock devant plusieurs fois au debut, et des que l'image est dessinee
+            // L'appli en cours n'a pas d'icone dans le dock tant qu'elle est a l'ecran
+            if (_app != IntPtr.Zero) App.Taskbar?.HideWindows(new[] { _app });
             App.Taskbar?.ShowDock(30);
             DockOnTop();
             ContentRendered += (a, b) => DockOnTop();
@@ -422,6 +424,8 @@ namespace WaveIsland
             _closing = true;
             if (Current == this) Current = null;
             App.Taskbar?.WinAway(false);
+            // Les icones des applis encore en apercu reviennent dans le dock
+            App.Taskbar?.RevealAll(animate: !_openedApp);
             App.Taskbar?.ReleaseDock();
             // Retour au bureau : le dock reste la, sans disparaitre puis revenir
             if (!_openedApp) App.Taskbar?.ShowDock(1.5);
@@ -469,7 +473,9 @@ namespace WaveIsland
             if (wait > 0) await Task.Delay(wait);
             // 2) l'icone vole a sa place dans le dock et rebondit
             DockOnTop();
-            var target = App.Taskbar?.IconRect(_app) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
+            // Sa place s'ouvre dans le dock pendant que l'icone y vole
+            App.Taskbar?.RevealWindows(new[] { _app });
+            var target = App.Taskbar?.FinalIconRect(_app) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
             double tx = target.X - Left, ty = target.Y - Top;
             var fly = new Spring(0.55, 0.42);
             c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
@@ -555,6 +561,8 @@ namespace WaveIsland
             // Le dock reste affiche ; seule la bulle Windows descend
             App.Taskbar?.ShowDock(60);
             App.Taskbar?.WinAway(true);
+            // Les applis montrees en apercu sortent du dock (leurs places se referment)
+            App.Taskbar?.HideWindows(TaskbarWindow.AppWindows().Select(w => w.h));
             Log.I("Mode tablette : vue des applis ouvertes");
             var first = _cards.FirstOrDefault();
             var others = TaskbarWindow.AppWindows().Select(w => w.h).Where(h => h != _app).ToList();
@@ -860,6 +868,8 @@ namespace WaveIsland
             foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
             // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
             await Task.Delay(Math.Max(60, App.Taskbar?.DockSettleMs() ?? 0));
+            // Toutes les places s'ouvrent ; chaque icone vole vers la sienne
+            App.Taskbar?.RevealWindows(live.Select(c => c.Src));
             int i = 0;
             foreach (var c in live) Fly(c, i++);
             await Task.Delay(120 + live.Count * 50);
@@ -872,7 +882,7 @@ namespace WaveIsland
         {
             await Task.Delay(i * 50);
             DockOnTop();
-            var target = App.Taskbar?.IconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
+            var target = App.Taskbar?.FinalIconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
             double tx = target.X - Left, ty = target.Y - Top;
             var fly = new Spring(0.55, 0.42);
             c.Op.Set(1);

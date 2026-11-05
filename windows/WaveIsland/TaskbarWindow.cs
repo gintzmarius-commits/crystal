@@ -382,8 +382,21 @@ namespace WaveIsland
             _clock.W = 104; _clock.X = _w - 10 - _clock.W;
             _status.W = 122; _status.X = _clock.X - Gap - _status.W;
             foreach (var b in new[] { _win, _apps, _status, _clock }) Geo(b);
+            // Chaque icone a une place qui peut s'ouvrir ou se refermer (appli rangee / affichee en apercu)
+            double sum = 0;
+            foreach (var it in _items)
+            {
+                if (!_buttons.TryGetValue(it.Key, out var btn)) continue;
+                double f = _slots.TryGetValue(it.Key, out var sv) ? Math.Max(0, sv.Value) : 1;
+                double bw = Cell * f;
+                if (Math.Abs(btn.Width - bw) > 0.05) btn.Width = bw;
+                var vis = bw < 0.5 ? Visibility.Collapsed : Visibility.Visible;
+                if (btn.Visibility != vis) btn.Visibility = vis;
+                if (btn is Grid gg && gg.Children.Count > 0) gg.Children[0].Opacity = Math.Max(0, Math.Min(1, f * 1.6 - 0.6));
+                sum += bw;
+            }
             // Les icones restent centrees dans la barre pendant qu'elle s'elargit
-            Canvas.SetLeft(_appsPanel, Math.Round((appsW - _appsPanel.Children.Count * Cell) / 2));
+            Canvas.SetLeft(_appsPanel, Math.Round((appsW - sum) / 2));
         }
 
         private void Kick()
@@ -399,6 +412,7 @@ namespace WaveIsland
             if (!_gate.Ready()) return;
             _appsW.Tick();
             bool moving = _appsW.Moving;
+            foreach (var sv in _slots.Values) { sv.Tick(); moving |= sv.Moving; }
             foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
             Layout();
             if (!moving)
@@ -814,6 +828,8 @@ namespace WaveIsland
                 _sig = sig;
                 BuildApps();
             }
+            else UpdateSlots(animate: !_dropped);
+            _hiddenWins.RemoveWhere(h => !items.Any(i => i.Windows.Contains(h)));
             // Points sous les applis ouvertes (plus large pour celle au premier plan)
             foreach (var it in items)
             {
@@ -830,14 +846,98 @@ namespace WaveIsland
 
         private void BuildApps()
         {
+            // Les icones deja la gardent leur bouton (seules les nouvelles arrivent avec un rebond)
+            var old = new Dictionary<string, FrameworkElement>(_buttons);
+            var oldDots = new Dictionary<string, Border>(_dots);
             _appsPanel.Children.Clear();
             _dots.Clear();
             _buttons.Clear();
             if (!_apps.Content.Children.Contains(_appsPanel)) _apps.Content.Children.Add(_appsPanel);
             int i = 0;
-            foreach (var it in _items) _appsPanel.Children.Add(AppButton(it, i++));
-            _appsW.AnimateTo(Math.Max(1, _items.Count) * Cell + 16, Spring.Soft);
+            foreach (var it in _items)
+            {
+                if (old.TryGetValue(it.Key, out var b) && oldDots.TryGetValue(it.Key, out var d))
+                {
+                    _buttons[it.Key] = b; _dots[it.Key] = d;
+                    _appsPanel.Children.Add(b);
+                }
+                else _appsPanel.Children.Add(AppButton(it, i++));
+            }
+            foreach (var k in _slots.Keys.Where(k => !_items.Any(x => x.Key == k)).ToList()) _slots.Remove(k);
+            UpdateSlots(animate: true);
+        }
+
+        // ================== Places des icones (mode tablette) ==================
+        // Les applis montrees en apercu (vue des applis, appli en cours au 1er glissement) n'ont pas d'icone dans le dock :
+        // quand elles y sont rangees, leur place s'ouvre et l'icone vient s'y poser.
+
+        private readonly Dictionary<string, SpringValue> _slots = new Dictionary<string, SpringValue>();
+        private readonly HashSet<IntPtr> _hiddenWins = new HashSet<IntPtr>();
+        private static readonly Spring SlotSpring = new Spring(0.62, 0.42);
+
+        private bool IsHidden(AppItem it) => !it.Pinned && it.Windows.Count > 0 && it.Windows.All(w => _hiddenWins.Contains(w));
+
+        private double Target(AppItem it) => IsHidden(it) ? 0 : 1;
+
+        private void UpdateSlots(bool animate)
+        {
+            double total = 0;
+            foreach (var it in _items)
+            {
+                double t = Target(it);
+                total += t;
+                if (!_slots.TryGetValue(it.Key, out var sv)) { _slots[it.Key] = sv = new SpringValue(t); continue; }
+                if (Math.Abs(sv.Target - t) < 0.001) continue;
+                if (animate) sv.AnimateTo(t, SlotSpring); else sv.Set(t);
+            }
+            double w = Math.Max(1, total) * Cell + 16;
+            if (animate) _appsW.AnimateTo(w, Spring.Soft); else _appsW.Set(w);
             Kick();
+        }
+
+        /// <summary>Ces fenetres sont montrees en apercu : leurs icones sortent du dock (sans animation si le dock est cache).</summary>
+        public void HideWindows(IEnumerable<IntPtr> hs)
+        {
+            bool changed = false;
+            foreach (var h in hs) if (h != IntPtr.Zero && _hiddenWins.Add(h)) changed = true;
+            if (changed) UpdateSlots(animate: !_dropped);
+        }
+
+        /// <summary>Ces fenetres rentrent dans le dock : leur place s'ouvre avec un rebond.</summary>
+        public void RevealWindows(IEnumerable<IntPtr> hs)
+        {
+            bool changed = false;
+            foreach (var h in hs) if (_hiddenWins.Remove(h)) changed = true;
+            if (changed) UpdateSlots(animate: !_dropped);
+        }
+
+        /// <summary>Tout revient (fin de geste). Sans animation quand le dock est cache.</summary>
+        public void RevealAll(bool animate)
+        {
+            if (_hiddenWins.Count == 0) return;
+            _hiddenWins.Clear();
+            UpdateSlots(animate && !_dropped);
+        }
+
+        /// <summary>Position (ecran) ou l'icone de cette fenetre sera une fois les places ouvertes (pour y faire voler l'appli).</summary>
+        public Rect FinalIconRect(IntPtr hwnd)
+        {
+            var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
+            if (it == null) return IconRect(hwnd);
+            double before = 0, total = 0;
+            bool found = false;
+            foreach (var x in _items)
+            {
+                double t = Target(x);
+                if (x == it) found = true;
+                else if (!found) before += t;
+                total += t;
+            }
+            double appsW = Math.Max(1, total) * Cell + 16;
+            double gx = Math.Round((_w - (BarH + Gap + appsW)) / 2);
+            double appsX = gx + BarH + Gap;
+            double x0 = appsX + Math.Round((appsW - total * Cell) / 2) + before * Cell;
+            return new Rect(Left + x0 + 8, Top + EdgeY + 6, Cell - 16, Cell - 16);
         }
 
         private ImageSource IconOf(AppItem it)
@@ -1144,6 +1244,8 @@ namespace WaveIsland
             if (_dropped) return;
             _dropped = true;
             Log.I("Wave Theme : la barre descend en goutte");
+            // Dock cache : les icones retirees reviennent (sans animation, invisible)
+            if (_hiddenWins.Count > 0 && AppMotion.Current == null) { _hiddenWins.Clear(); UpdateSlots(animate: false); }
             foreach (var (b, i) in FromCenter()) DropOne(b, i * 55);
         }
 

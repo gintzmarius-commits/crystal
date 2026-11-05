@@ -290,7 +290,14 @@ namespace WaveIsland
             if (!g.DockWasVisible)
             {
                 // 1er glissement : le dock monte
-                if (!g.Fired && dy > 30) { g.Fired = true; App.Taskbar?.ShowDock(); Log.I("Mode tablette : dock affiche (1er glissement)"); }
+                if (!g.Fired && dy > 30)
+                {
+                    g.Fired = true;
+                    // Le dock monte sans l'icone de l'appli en cours (les autres applis ouvertes y sont)
+                    App.Taskbar?.HideWindows(new[] { g.App });
+                    App.Taskbar?.ShowDock();
+                    Log.I("Mode tablette : dock affiche (1er glissement)");
+                }
                 return;
             }
             // 2e glissement : l'appli suit le doigt
