@@ -167,6 +167,7 @@ namespace WaveIsland
             Shots[h] = b;
             // Image de la page actuelle (pour le geste retour), seulement si la page n'a pas change pendant la copie
             if (Title(h) == before) { var cur = Page.TryGetValue(h, out var p) ? p : default; if (cur.title == null || cur.title == before) Page[h] = (before, b); }
+            Remember(h, b);
         }
 
         // ---- Pages precedentes (geste retour) : chaque fois que le titre de la fenetre change, la page d'avant est gardee ----
@@ -205,9 +206,54 @@ namespace WaveIsland
             Task.Delay(800).ContinueWith(_ => ui?.BeginInvoke(new Action(() => Cache(h))));
         }
 
+        // ---- Images recentes (pour les applis dont le titre ne change pas d'une page a l'autre) ----
+
+        private static readonly Dictionary<IntPtr, List<(BitmapSource img, byte[] sig)>> Recent = new Dictionary<IntPtr, List<(BitmapSource, byte[])>>();
+
+        /// <summary>Petite empreinte de l'image (16 x 12 en gris) pour reconnaitre une autre page.</summary>
+        private static byte[] Sig(BitmapSource b)
+        {
+            try
+            {
+                var small = new TransformedBitmap(b, new ScaleTransform(16.0 / b.PixelWidth, 12.0 / b.PixelHeight));
+                var g = new FormatConvertedBitmap(small, PixelFormats.Gray8, null, 0);
+                var px = new byte[g.PixelWidth * g.PixelHeight];
+                g.CopyPixels(px, g.PixelWidth, 0);
+                return px;
+            }
+            catch { return null; }
+        }
+
+        private static double Diff(byte[] a, byte[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length) return 0;
+            double d = 0;
+            for (int i = 0; i < a.Length; i++) d += Math.Abs(a[i] - b[i]);
+            return d / a.Length;
+        }
+
+        private static void Remember(IntPtr h, BitmapSource b)
+        {
+            var sig = Sig(b);
+            if (sig == null) return;
+            if (!Recent.TryGetValue(h, out var list)) Recent[h] = list = new List<(BitmapSource, byte[])>();
+            // Meme page qu'avant (presque la meme image) : on remplace juste par la plus recente
+            if (list.Count > 0 && Diff(list[list.Count - 1].sig, sig) < 6) list[list.Count - 1] = (b, sig);
+            else { list.Add((b, sig)); if (list.Count > 8) list.RemoveAt(0); }
+            if (Recent.Count > 40) Recent.Clear();
+        }
+
         /// <summary>Image de la page precedente de cette fenetre (sinon null).</summary>
-        public static BitmapSource PreviousPage(IntPtr h)
-            => BackPages.TryGetValue(h, out var s) && s.Count > 0 ? s[s.Count - 1].img : null;
+        public static BitmapSource PreviousPage(IntPtr h, BitmapSource current = null)
+        {
+            if (BackPages.TryGetValue(h, out var s) && s.Count > 0 && s[s.Count - 1].img != null) return s[s.Count - 1].img;
+            // Sinon : la derniere image vraiment differente de la page actuelle
+            if (!Recent.TryGetValue(h, out var list) || list.Count == 0) return null;
+            var cur = current != null ? Sig(current) : list[list.Count - 1].sig;
+            for (int i = list.Count - 1; i >= 0; i--)
+                if (Diff(list[i].sig, cur) >= 12) return list[i].img;
+            return null;
+        }
 
         private AppMotion(IntPtr app)
         {

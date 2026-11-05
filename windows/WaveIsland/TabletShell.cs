@@ -60,7 +60,7 @@ namespace WaveIsland
                 Apply();
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
                 if (Active) { var fgApp = AppInFront(); WatchTitle(fgApp); ExtendToBottom(fgApp); }
-                if (Active && ++_tick % 2 == 0 && AppMotion.Current == null) AppMotion.Cache(AppInFront());
+                if (Active && AppMotion.Current == null) AppMotion.Cache(AppInFront());   // ~1 image / s : pages precedentes du geste retour
             };
             _watch.Start();
             // Contour et coins arrondis des fenetres : surveille l'appli au premier plan (dans tous les modes)

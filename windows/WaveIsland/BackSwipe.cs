@@ -119,7 +119,7 @@ namespace WaveIsland
             var shot = AppMotion.Fresh(app);
             var brush = shot != null ? (Brush)new ImageBrush(shot) { Stretch = Stretch.Fill } : new SolidColorBrush(Color.FromRgb(40, 44, 54));
             // En dessous : la vraie page precedente si on l'a gardee (sinon la page actuelle assombrie)
-            var prev = AppMotion.PreviousPage(app);
+            var prev = AppMotion.PreviousPage(app, shot);
             var underBrush = prev != null ? new ImageBrush(prev) { Stretch = Stretch.Fill } : brush;
             Log.I("Mode tablette : retour, page precedente " + (prev != null ? "connue" : "inconnue"));
             var canvas = new Canvas { ClipToBounds = true };
