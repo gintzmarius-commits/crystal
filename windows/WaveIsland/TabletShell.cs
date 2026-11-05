@@ -239,7 +239,6 @@ namespace WaveIsland
             _nameHook = SetWinEventHook(0x800C /* EVENT_OBJECT_NAMECHANGE */, 0x800C, IntPtr.Zero, _nameProc, pid, 0, WINEVENT_OUTOFCONTEXT);
         }
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
 
