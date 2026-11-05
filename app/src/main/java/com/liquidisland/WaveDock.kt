@@ -297,30 +297,84 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
-    /** Petite fenetre (juste le dock) une fois pose : le reste de l'ecran reste utilisable. */
+    /**
+     * La fenetre visible du dock ne change jamais de taille (sinon il sautait d'une image).
+     * Une fois pose, une 2e fenetre invisible, juste sur le dock, recoit les touchers.
+     */
+    private var hitRoot: View? = null
+
     private fun windowSmall(dv: DockView) {
-        val root = dockRoot ?: return
-        val lp = dockLp ?: return
-        (dv.row.layoutParams as FrameLayout.LayoutParams).bottomMargin = dp(6)
-        dv.row.requestLayout()
-        lp.width = dv.row.width + dp(24)
-        lp.height = rowH + dp(12)
-        lp.y = gestureHeight()
-        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        try { wm.updateViewLayout(root, lp) } catch (e: Exception) { }
+        removeHit()
+        val row = dv.row
+        val loc = IntArray(2)
+        row.getLocationOnScreen(loc)
+        var pressed: View? = null
+        var longDone = false
+        val longPress = Runnable { pressed?.let { longDone = true; it.performLongClick() } }
+        fun iconAt(rawX: Float, rawY: Float): View? {
+            val l = IntArray(2)
+            for (i in 0 until row.childCount) {
+                val c = row.getChildAt(i)
+                c.getLocationOnScreen(l)
+                if (rawX >= l[0] && rawX < l[0] + c.width && rawY >= l[1] - dp(8) && rawY < l[1] + c.height + dp(8)) return c
+            }
+            return null
+        }
+        val hit = object : View(ctx) {
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_OUTSIDE -> {
+                        // Toucher tout en bas pendant que le dock est la : c'est le 2e glissement (Android ferme l'appli)
+                        val bottom = e.rawY <= 0f || e.rawY > ctx.resources.displayMetrics.heightPixels - gestureHeight() - dp(40)
+                        if (bottom) { hide(pauseMs = 2500); leavingApp() } else hide()
+                    }
+                    MotionEvent.ACTION_DOWN -> {
+                        main.removeCallbacks(autoHide)
+                        longDone = false
+                        pressed = iconAt(e.rawX, e.rawY)
+                        pressed?.animate()?.scaleX(0.86f)?.scaleY(0.86f)?.setDuration(90)?.start()
+                        main.postDelayed(longPress, 500)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (pressed != null && iconAt(e.rawX, e.rawY) !== pressed) {
+                            main.removeCallbacks(longPress)
+                            pressed?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(120)?.start()
+                            pressed = null
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        main.removeCallbacks(longPress)
+                        val p = pressed
+                        pressed = null
+                        if (p != null && !longDone && e.actionMasked == MotionEvent.ACTION_UP) p.performClick()
+                        else {
+                            p?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(120)?.start()
+                            main.postDelayed(autoHide, 1500)
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        val lp = WindowManager.LayoutParams(
+            row.width, row.height, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = loc[0]; y = loc[1]
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            windowAnimations = 0
+        }
+        try { wm.addView(hit, lp); hitRoot = hit } catch (e: Exception) { Log.w(TAG, "Zone tactile du dock impossible : $e") }
     }
 
-    /** Grande fenetre non touchable pour l'animation de depart. */
-    private fun windowBig(dv: DockView) {
-        val root = dockRoot ?: return
-        val lp = dockLp ?: return
-        (dv.row.layoutParams as FrameLayout.LayoutParams).bottomMargin = gestureHeight() + dp(6)
-        dv.row.requestLayout()
-        lp.width = ViewGroup.LayoutParams.MATCH_PARENT
-        lp.height = fullH
-        lp.y = 0
-        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        try { wm.updateViewLayout(root, lp) } catch (e: Exception) { }
+    private fun removeHit() {
+        val h = hitRoot ?: return
+        hitRoot = null
+        try { wm.removeView(h) } catch (e: Exception) { }
     }
 
     /**
@@ -402,12 +456,12 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         // Apres un 2e glissement (fermer l'appli) le bas reste a Android un moment ; sinon il revient tout de suite
         pausedUntil = 0L
         pause(pauseMs)
-        if (!animated || dv == null) { remove(); return }
+        if (!animated || dv == null) { removeHit(); remove(); return }
         val row = dv.row
         val w = row.width.toFloat().coerceAtLeast(1f)
         val h = row.height.toFloat().coerceAtLeast(1f)
         val dia = h * 0.62f
-        dockRoot = root; windowBig(dv); dockRoot = null
+        removeHit()
         dv.anim?.cancel()
         if (!dv.settled) { dv.sw = dv.sw.coerceAtLeast(dia); dv.sh = dv.sh.coerceAtLeast(dia) } else { dv.sw = w; dv.sh = h; dv.offX = 0f; dv.offY = 0f }
         dv.settled = false
