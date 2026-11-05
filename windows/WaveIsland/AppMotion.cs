@@ -481,6 +481,7 @@ namespace WaveIsland
             c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
             Kick();
             Native.ShowWindow(_app, 7 /* SW_SHOWMINNOACTIVE */);
+            ToDesktop();
             await Task.Delay(270);
             App.Taskbar?.Splash(_app);
             await Task.Delay(130);
@@ -866,6 +867,7 @@ namespace WaveIsland
             DockOnTop();
             var live = Live;
             foreach (var c in live) if (c.Src != IntPtr.Zero) Native.ShowWindow(c.Src, 7 /* SW_SHOWMINNOACTIVE */);
+            ToDesktop();
             // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
             await Task.Delay(Math.Max(60, App.Taskbar?.DockSettleMs() ?? 0));
             // Toutes les places s'ouvrent ; chaque icone vole vers la sienne
@@ -1008,6 +1010,18 @@ namespace WaveIsland
         }
 
         private bool _openedApp;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string cls, string name);
+
+        /// <summary>
+        /// Les applis rangees : le bureau passe au premier plan (sinon Windows garde l'appli reduite « devant »
+        /// et un toucher sur son icone du dock ne la rouvrait pas).
+        /// </summary>
+        private static void ToDesktop()
+        {
+            var desk = FindWindow("Progman", null);
+            if (desk != IntPtr.Zero) Native.SetForegroundWindow(desk);
+        }
 
         /// <summary>Image a jour d'une fenetre (pour le geste retour), sinon la derniere connue.</summary>
         public static BitmapSource Fresh(IntPtr h)

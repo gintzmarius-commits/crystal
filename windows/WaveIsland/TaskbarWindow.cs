@@ -996,6 +996,8 @@ namespace WaveIsland
             if (TabletShell.Active && AppMotion.Current == null)
             {
                 var fg0 = GetForegroundWindow();
+                // Une appli rangee dans le dock (reduite) reste parfois « au premier plan » pour Windows : elle n'est pas a l'ecran
+                if (fg0 != IntPtr.Zero && Native.IsIconic(fg0)) fg0 = IntPtr.Zero;
                 if (live.Windows.Count == 0)
                 {
                     var r0 = _buttons.TryGetValue(live.Key, out var b0) ? IconRectOf(b0) : IconRect(IntPtr.Zero);
@@ -1019,8 +1021,8 @@ namespace WaveIsland
             if (live.Windows.Count == 1)
             {
                 h = live.Windows[0];
-                // Deja devant : on la reduit (comme la barre de Windows)
-                if (h == fg) { Native.ShowWindow(h, 6 /* SW_MINIMIZE */); return; }
+                // Deja devant : on la reduit (comme la barre de Windows) ; reduite : on la rouvre
+                if (h == fg && !Native.IsIconic(h)) { Native.ShowWindow(h, 6 /* SW_MINIMIZE */); return; }
             }
             else
             {
