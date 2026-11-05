@@ -150,7 +150,7 @@ namespace WaveIsland
         {
             try
             {
-                if (h == IntPtr.Zero || !IsZoomed(h) || Native.IsIconic(h)) return;
+                if (h == IntPtr.Zero || !IsZoomed(h) || Native.IsIconic(h) || TabletMulti.Owns(h)) return;
                 var sb = System.Windows.Forms.Screen.FromHandle(h).Bounds;
                 if (!Native.GetWindowRect(h, out var r)) return;
                 if (DwmGetWindowAttribute(h, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, out var vis, Marshal.SizeOf<Native.RECT>()) != 0) return;
@@ -298,7 +298,7 @@ namespace WaveIsland
         /// <summary>Comme sur iPad : une vraie fenetre d'appli s'ouvre en plein ecran.</summary>
         private static void MaximizeIfApp(IntPtr h)
         {
-            if (h == IntPtr.Zero || !IsWindowVisible(h) || IsZoomed(h) || Native.IsIconic(h) || Filled(h)) return;
+            if (h == IntPtr.Zero || !IsWindowVisible(h) || IsZoomed(h) || Native.IsIconic(h) || Filled(h) || TabletMulti.Owns(h)) return;
             if (GetWindow(h, 4 /* GW_OWNER */) != IntPtr.Zero) return;
             GetWindowThreadProcessId(h, out uint pid);
             if (pid == (uint)Environment.ProcessId) return;

@@ -1030,8 +1030,38 @@ namespace WaveIsland
             _buttons[it.Key] = g;
             g.MouseEnter += (a, b) => Pop(icon, 1.16);
             g.MouseLeave += (a, b) => Pop(icon, 1);
-            g.MouseLeftButtonDown += (a, b) => Pop(icon, 0.82);
-            g.MouseLeftButtonUp += (a, b) => { Pop(icon, 1.16); Click(it); };
+            g.MouseLeftButtonDown += (a, b) => { Pop(icon, 0.82); _pressAt = g.PointToScreen(b.GetPosition(g)); _dragging = false; };
+            // Lot 3 (mode tablette) : glisser une icone vers le haut = ecran partage (bords) ou Slide Over (milieu)
+            g.MouseMove += (a, b) =>
+            {
+                if (!Tablet || b.LeftButton != MouseButtonState.Pressed) return;
+                var p = g.PointToScreen(b.GetPosition(g));
+                if (!_dragging && _pressAt.Y - p.Y > 30 * _k)
+                {
+                    _dragging = true;
+                    g.CaptureMouse();
+                    Pop(icon, 1);
+                    _ghost = new DragGhost(IconOf(it));
+                    _ghost.Show();
+                    Log.I("Wave Theme : icone glissee hors du dock");
+                }
+                if (_dragging) _ghost?.MoveTo(p, _k);
+            };
+            g.MouseLeftButtonUp += (a, b) =>
+            {
+                if (_dragging)
+                {
+                    _dragging = false;
+                    g.ReleaseMouseCapture();
+                    var p = g.PointToScreen(b.GetPosition(g));
+                    _ghost?.Close(); _ghost = null;
+                    var live = _items.FirstOrDefault(x => x.Key == it.Key) ?? it;
+                    // Lache sur le dock : rien
+                    if (p.Y < Top * _k + EdgeY * _k - 10) TabletMulti.Dropped(p, live.Windows.FirstOrDefault(), () => Launch(live));
+                    return;
+                }
+                Pop(icon, 1.16); Click(it);
+            };
             g.MouseUp += (a, b) => { if (b.ChangedButton == MouseButton.Middle) Launch(it); };
             g.MouseRightButtonUp += (a, b) => { b.Handled = true; ShowMenu(it, g); };
             // Arrivee avec un rebond
@@ -1043,6 +1073,34 @@ namespace WaveIsland
             ((ScaleTransform)icon.RenderTransform).BeginAnimation(ScaleTransform.ScaleYProperty, sa);
             icon.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200)) { BeginTime = TimeSpan.FromMilliseconds(30 * index) });
             return g;
+        }
+
+        private Point _pressAt;
+        private bool _dragging;
+        private DragGhost _ghost;
+
+        /// <summary>L'icone qui suit le doigt quand on la sort du dock.</summary>
+        private sealed class DragGhost : Window
+        {
+            public DragGhost(ImageSource icon)
+            {
+                WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
+                ShowInTaskbar = false; Topmost = true; ShowActivated = false; IsHitTestVisible = false;
+                Width = 64; Height = 64;
+                Content = new Border
+                {
+                    CornerRadius = new CornerRadius(18), Background = new SolidColorBrush(Color.FromArgb(120, 255, 255, 255)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)), BorderThickness = new Thickness(1),
+                    Child = new Image { Source = icon, Width = 40, Height = 40 },
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Opacity = 0.35 }
+                };
+            }
+
+            public void MoveTo(Point px, double k)
+            {
+                Left = px.X / k - Width / 2;
+                Top = px.Y / k - Height / 2;
+            }
         }
 
         private void Click(AppItem it)
