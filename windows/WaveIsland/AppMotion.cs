@@ -550,6 +550,11 @@ namespace WaveIsland
             }
         }
 
+        private readonly DateTime _born = DateTime.Now;
+
+        /// <summary>Animation restee ouverte trop longtemps sans etre la vue des applis (bloquee) : on peut la fermer.</summary>
+        private bool Stale() => !IsVisible || (!Switcher && (DateTime.Now - _born).TotalSeconds > 12) || (DateTime.Now - _born).TotalMinutes > 10;
+
         private void Finish()
         {
             if (_closing) return;
@@ -670,6 +675,7 @@ namespace WaveIsland
         public static void BeginSwitcher()
         {
             Log.I("Vue des applis demandee");
+            if (Current != null && Current.Stale()) { Log.I("Vue des applis : animation precedente bloquee, fermee"); Current.Finish(); }
             if (Current != null) { Log.I("Vue des applis : une animation est deja en cours"); return; }
             if (!TaskbarWindow.AppWindows().Any()) { Log.I("Vue des applis : aucune appli ouverte"); return; }
             var m = new AppMotion(IntPtr.Zero);

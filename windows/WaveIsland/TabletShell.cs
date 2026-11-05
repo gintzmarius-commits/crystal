@@ -251,6 +251,11 @@ namespace WaveIsland
             if (!Settings.Current.OwnTaskView || AppMotion.Current != null) return false;
             var cls = new StringBuilder(64);
             GetClassName(hwnd, cls, 64);
+            if (cls.ToString().StartsWith("XamlExplorer") || cls.ToString().StartsWith("Multitasking") || cls.ToString() == "Windows.UI.Core.CoreWindow")
+            {
+                var tt = new StringBuilder(128); GetWindowText(hwnd, tt, 128);
+                Log.I($"Fenetre de Windows au premier plan : {cls} « {tt} »");
+            }
             if (cls.ToString() != "XamlExplorerHostIslandWindow" && cls.ToString() != "MultitaskingViewFrame") return false;
             if ((GetAsyncKeyState(0x12) & 0x8000) != 0) return false;   // Alt + Tab : on laisse
             var title = new StringBuilder(128);

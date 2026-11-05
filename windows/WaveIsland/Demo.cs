@@ -202,6 +202,7 @@ namespace WaveIsland
                 // Vue des applis Wave en mode ordinateur (Win + Tab)
                 try
                 {
+                    await Wait(3);
                     Native.keybd_event(0x5B, 0, 0, UIntPtr.Zero);
                     Native.keybd_event(0x09, 0, 0, UIntPtr.Zero);
                     Native.keybd_event(0x09, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
