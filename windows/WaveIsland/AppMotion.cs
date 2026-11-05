@@ -171,7 +171,6 @@ namespace WaveIsland
 
         // ---- Pages precedentes (geste retour) : chaque fois que le titre de la fenetre change, la page d'avant est gardee ----
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
         private static string Title(IntPtr h) { var sb = new StringBuilder(300); GetWindowText(h, sb, 300); return sb.ToString(); }
 
         private static readonly Dictionary<IntPtr, (string title, BitmapSource img)> Page = new Dictionary<IntPtr, (string, BitmapSource)>();
