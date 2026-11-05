@@ -200,6 +200,9 @@ object Assistant {
             JSONObject().put("panel", en("wifi", "bluetooth", "internet", "nfc", "volume", "son", "batterie", "affichage", "reglages")), "panel"))
         t.put(tool("set_timer", "Lance un minuteur.", JSONObject().put("seconds", int(1)).put("label", str("Nom (facultatif)")), "seconds"))
         t.put(tool("set_alarm", "Programme une alarme.", JSONObject().put("hour", int(0, 23)).put("minute", int(0, 59)).put("label", str("Nom (facultatif)")), "hour", "minute"))
+        t.put(tool("set_reminder", "Crée un rappel : dans N minutes, à une heure précise (HH:MM), ou à la prochaine ouverture du PC. Partagé avec le PC lié.",
+            JSONObject().put("text", str("Ce qu'il faut rappeler")).put("minutes", int(1)).put("time", str("Heure HH:MM (facultatif)")).put("when_pc_opens", JSONObject().put("type", "boolean")), "text"))
+        t.put(tool("ring_pc", "Fait sonner le PC lié (pour le retrouver).", JSONObject()))
         t.put(tool("find_contact", "Cherche un contact par son nom et renvoie ses numéros.", JSONObject().put("name", str("Nom ou surnom")), "name"))
         t.put(tool("call", "Appelle un numéro de téléphone.", JSONObject().put("number", str("Numéro")), "number"))
         t.put(tool("send_sms", "Envoie un SMS. Seulement après que l'utilisateur a confirmé le texte exact.", JSONObject().put("number", str("Numéro")).put("text", str("Texte du message")), "number", "text"))
@@ -408,6 +411,26 @@ object Assistant {
                     .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                 s("label")?.takeIf { it.isNotBlank() }?.let { i.putExtra(AlarmClock.EXTRA_MESSAGE, it) }
                 return if (start(i)) "Alarme programmée." else "Aucune appli Horloge pour l'alarme."
+            }
+            "set_reminder" -> {
+                val txt = s("text") ?: ""
+                if (a.optBoolean("when_pc_opens")) return if (com.liquidisland.drop.WaveLink.reminderOnPc(txt)) "Rappel à la prochaine ouverture du PC." else "Le PC n'est pas joignable."
+                val cal = java.util.Calendar.getInstance()
+                when {
+                    a.has("minutes") -> cal.add(java.util.Calendar.MINUTE, a.optInt("minutes"))
+                    s("time")?.matches(Regex("\\d{1,2}[:h]\\d{2}")) == true -> {
+                        val p = s("time")!!.split(':', 'h')
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, p[0].toInt()); cal.set(java.util.Calendar.MINUTE, p[1].toInt()); cal.set(java.util.Calendar.SECOND, 0)
+                        if (cal.timeInMillis < System.currentTimeMillis()) cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                    }
+                    else -> cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
+                }
+                com.liquidisland.drop.WaveLink.addReminder(txt, cal.timeInMillis)
+                return "Rappel programmé pour " + java.text.SimpleDateFormat("EEEE HH:mm", Locale.FRANCE).format(cal.time) + "."
+            }
+            "ring_pc" -> {
+                val n = com.liquidisland.drop.WaveLink.sendAll(com.liquidisland.drop.WaveLink.msg("ring"))
+                return if (n > 0) "Le PC sonne." else "Le PC n'est pas joignable."
             }
             "find_contact" -> {
                 if (app.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED)

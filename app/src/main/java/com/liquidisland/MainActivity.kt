@@ -129,6 +129,10 @@ class MainActivity : Activity() {
         ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip() })
         col.addView(live)
 
+        // Lot 4 : Wave Link (PC + telephone)
+        col.addView(section("Wave Link (téléphone + PC)"))
+        col.addView(linkCard())
+
         // Version finale : assistant IA (Claude)
         col.addView(section("Assistant IA (Gemini)"))
         col.addView(assistCard())
@@ -1083,6 +1087,47 @@ class MainActivity : Activity() {
         setTextColor(color)
         if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
     }
+
+    private fun linkCard(): View {
+        val c = card()
+        c.addView(text("Lie ton PC une seule fois (même Wi-Fi, Wave Drop allumé des deux côtés) : batterie du téléphone sur le PC, " +
+            "copier sur l'un et coller sur l'autre, faire sonner l'autre, continuité des pages web, rappels partagés et résumé du matin.", 13f, Glass.INK_SOFT))
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun refresh() {
+            list.removeAllViews()
+            com.liquidisland.drop.WaveDrop.init(this)
+            com.liquidisland.drop.WaveLink.start(this)
+            for (d in com.liquidisland.drop.WaveLink.linked()) {
+                val id = d.id
+                list.addView(glassButton("Délier ${d.name}", primary = false) { com.liquidisland.drop.WaveLink.unlink(id); refreshLink?.invoke() }, buttonLp(top = 8))
+            }
+            for (n in com.liquidisland.drop.WaveDrop.nearbyList().filter { it.beacon.isPc && !com.liquidisland.drop.WaveLink.isLinked(it.beacon.id) }) {
+                list.addView(glassButton("Lier ${n.label}", primary = true) {
+                    com.liquidisland.drop.WaveLink.pair(n) { msg -> android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show(); refreshLink?.invoke() }
+                }, buttonLp(top = 8))
+            }
+            if (list.childCount == 0) list.addView(text("Aucun PC proche : allume Wave Drop sur le PC (même Wi-Fi), puis touche « Actualiser ».", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, 0) })
+        }
+        refreshLink = { refresh() }
+        refresh()
+        c.addView(list)
+        c.addView(glassButton("Actualiser", primary = false) { refresh() }, buttonLp(top = 8))
+        c.addView(glassButton("Faire sonner mon PC", primary = false) {
+            com.liquidisland.drop.WaveLink.ringPc { android.widget.Toast.makeText(this, it, android.widget.Toast.LENGTH_SHORT).show() }
+        }, buttonLp(top = 8))
+        c.addView(glassButton("Envoyer le presse-papiers au PC", primary = false) {
+            startActivity(Intent(this, com.liquidisland.drop.ClipToPcActivity::class.java))
+        }, buttonLp(top = 8))
+        c.addView(switchRow("Presse-papiers partagé", text("Le texte copié sur le PC arrive ici. Pour l'autre sens : pastille « Copier vers le PC » ou Partager > Copier vers le PC.", 13f, Glass.INK_SOFT),
+            com.liquidisland.drop.WaveLink.clipSync()) { com.liquidisland.drop.WaveLink.setClipSync(it) })
+        c.addView(switchRow("Continuité", text("La page ouverte dans ton navigateur est proposée sur le PC (et l'inverse).", 13f, Glass.INK_SOFT),
+            com.liquidisland.drop.WaveLink.handoff()) { com.liquidisland.drop.WaveLink.setHandoff(it) })
+        c.addView(switchRow("Résumé du matin", text("Au premier déverrouillage de la journée : météo et rappels du jour.", 13f, Glass.INK_SOFT),
+            com.liquidisland.drop.WaveLink.morning()) { com.liquidisland.drop.WaveLink.setMorning(it) })
+        return c
+    }
+
+    private var refreshLink: (() -> Unit)? = null
 
     private fun assistCard(): View {
         val c = card()

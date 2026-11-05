@@ -322,9 +322,25 @@ object WaveDrop {
         }.start()
     }
 
-    private fun hello(offer: Boolean) = mapOf(
-        "name" to myName, "platform" to "android", "id" to myId.toString(), "offer" to if (offer) "1" else "0"
-    )
+    private fun hello(offer: Boolean, link: Boolean = false) = mapOf(
+        "name" to myName, "platform" to "android", "id" to myId.toString(), "offer" to if (offer) "1" else "0",
+        "port" to (server?.localPort ?: 0).toString()
+    ) + (if (link) mapOf("link" to "1") else emptyMap())
+
+    /** Lot 4 : petit message Wave Link (chiffre) a un appareil lie, par le Wi-Fi ; sa reponse (null = injoignable). */
+    fun sendLink(ip: String?, port: Int, msg: Map<String, String>): Map<String, String>? {
+        if (ip.isNullOrEmpty() || port <= 0) return null
+        return try {
+            Socket().use { s ->
+                s.connect(InetSocketAddress(ip, port), 2500)
+                s.soTimeout = 6000
+                val ses = WaveDropProtocol.Session(s.getInputStream(), s.getOutputStream(), connector = true)
+                ses.handshake(hello(offer = false, link = true))
+                ses.sendMap(msg + ("port" to (server?.localPort ?: 0).toString()))
+                ses.receiveMap()
+            }
+        } catch (e: Exception) { Log.i(TAG, "Wave Link : envoi impossible ($e)"); null }
+    }
 
     // ================== Serveurs (reception) ==================
 
@@ -337,7 +353,7 @@ object WaveDrop {
                     try {
                         val c = s.accept()
                         c.soTimeout = 120_000
-                        Thread { handle(c.getInputStream(), c.getOutputStream(), connector = false, "Wi-Fi") { c.close() } }.start()
+                        Thread { handle(c.getInputStream(), c.getOutputStream(), connector = false, "Wi-Fi", c.inetAddress?.hostAddress) { c.close() } }.start()
                     } catch (e: Exception) { if (running) Log.w(TAG, "Wave Drop : serveur Wi-Fi", e) }
                 }
             }, "wavedrop-wifi").start()
@@ -355,7 +371,7 @@ object WaveDrop {
                 while (running) {
                     try {
                         val c = s.accept()
-                        Thread { handle(c.inputStream, c.outputStream, connector = false, "Bluetooth") { c.close() } }.start()
+                        Thread { handle(c.inputStream, c.outputStream, connector = false, "Bluetooth", null) { c.close() } }.start()
                     } catch (e: Exception) { if (running) Log.w(TAG, "Wave Drop : serveur Bluetooth", e); break }
                 }
             }, "wavedrop-bt").start()
@@ -364,13 +380,19 @@ object WaveDrop {
     }
 
     /** Une connexion entrante (ou sortante pour aller chercher un fichier) : presentation, puis reception si offre. */
-    private fun handle(i: InputStream, o: OutputStream, connector: Boolean, via: String, close: () -> Unit) {
+    private fun handle(i: InputStream, o: OutputStream, connector: Boolean, via: String, remote: String? = null, close: () -> Unit) {
         val wake = wakeLock()
         try {
             val s = WaveDropProtocol.Session(i, o, connector)
             s.handshake(hello(offer = false))
             val peerName = s.peer["name"] ?: "Appareil"
             s.peer["id"]?.toIntOrNull()?.let { id -> nearby[id]?.let { if (it.name == null) { it.name = peerName; notifyNearby() } } }
+            // Lot 4 : message Wave Link
+            if (s.peer["link"] == "1") {
+                val m = s.receiveMap()
+                s.sendMap(WaveLink.receive(m, s.peer["id"]?.toIntOrNull() ?: 0, peerName, remote))
+                return
+            }
             if (s.peer["offer"] != "1") return // simple demande de nom
             receive(s, peerName, via)
         } catch (e: Exception) {
@@ -587,7 +609,7 @@ object WaveDrop {
         try {
             val n = nearby[b.id] ?: return
             val c = connect(n)
-            handle(c.first, c.second, connector = true, c.third) { c.fourth.close() }
+            handle(c.first, c.second, connector = true, c.third, null) { c.fourth.close() }
         } catch (e: Exception) {
             Log.w(TAG, "Wave Drop : recuperation impossible", e)
         } finally {

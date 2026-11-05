@@ -94,6 +94,31 @@
             </intent-filter>
         </activity>
 
+        <!-- Lot 4 : Wave Link - copier vers le PC (pastille, partage d'un texte) -->
+        <activity
+            android:name=".drop.ClipToPcActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=".clip"
+            android:label="Copier vers le PC"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".drop.ClipTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_drop"
+            android:label="Copier vers le PC"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- Version finale : Wave Island comme assistant du telephone (appui long, a la place de Gemini) -->
         <service
             android:name=".assist.WaveVoiceService"

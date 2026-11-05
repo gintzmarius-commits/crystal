@@ -46,12 +46,36 @@ class IslandAccessibility : AccessibilityService() {
                     event.contentChangeTypes and AccessibilityEvent.CONTENT_CHANGE_TYPE_PANE_APPEARED != 0)
             if (pane &&
                 event.packageName?.toString()?.contains("systemui") == true) IslandService.instance?.onShadeShown()
-            if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) event.packageName?.toString()?.let { IslandService.instance?.onForegroundApp(it) }
+            if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) event.packageName?.toString()?.let {
+                IslandService.instance?.onForegroundApp(it)
+                // Lot 4 (continuite) : on quitte le navigateur -> la page part vers le PC
+                if (it != lastBrowser && lastBrowser != null && it !in URL_BARS && !it.contains("systemui")) { com.liquidisland.drop.WaveLink.leftBrowser(); lastBrowser = null }
+            }
+            // Lot 4 (continuite) : adresse de la page du navigateur (au plus toutes les 3 s)
+            val pkg = event.packageName?.toString()
+            if (pkg != null && pkg in URL_BARS && android.os.SystemClock.uptimeMillis() - lastUrlRead > 3000) {
+                lastUrlRead = android.os.SystemClock.uptimeMillis()
+                lastBrowser = pkg
+                readUrl(pkg)
+            }
             // Les changements de contenu sont tres frequents : ils ne servent qu'a reperer le volet
             if (t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) IslandService.instance?.onScreenChanged()
         } catch (e: Exception) { Log.w("LiquidIsland", "Evenement : $e") }
     }
     override fun onInterrupt() {}
+
+    private var lastUrlRead = 0L
+    private var lastBrowser: String? = null
+
+    private fun readUrl(pkg: String) {
+        val root = rootInActiveWindow ?: return
+        try {
+            val node = root.findAccessibilityNodeInfosByViewId(URL_BARS[pkg]).firstOrNull() ?: return
+            val text = node.text?.toString()?.trim() ?: return
+            if (text.isEmpty() || text.contains(' ') || !text.contains('.')) return
+            com.liquidisland.drop.WaveLink.browserPage(text, null)
+        } catch (e: Exception) { }
+    }
 
     /** Boutons de volume : l'indicateur facon iPhone remplace celui du telephone. */
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean = try {
@@ -65,6 +89,16 @@ class IslandAccessibility : AccessibilityService() {
     }
 
     companion object {
+        /** Barre d'adresse des navigateurs (continuite). */
+        val URL_BARS = mapOf(
+            "com.android.chrome" to "com.android.chrome:id/url_bar",
+            "org.mozilla.firefox" to "org.mozilla.firefox:id/mozac_browser_toolbar_url_view",
+            "com.microsoft.emmx" to "com.microsoft.emmx:id/url_bar",
+            "com.brave.browser" to "com.brave.browser:id/url_bar",
+            "com.opera.browser" to "com.opera.browser:id/url_field",
+            "com.sec.android.app.sbrowser" to "com.sec.android.app.sbrowser:id/location_bar_edit_text",
+            "com.mi.globalbrowser" to "com.mi.globalbrowser:id/url"
+        )
         @Volatile
         var instance: IslandAccessibility? = null
             private set

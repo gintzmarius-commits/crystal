@@ -441,6 +441,8 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         com.liquidisland.drop.WaveDrop.init(this)
         com.liquidisland.drop.WaveDrop.uis.add(dropUi)
         try { com.liquidisland.drop.WaveDrop.start(this) } catch (e: Exception) { Log.w(TAG, "Wave Drop : demarrage impossible", e) }
+        // Lot 4 : Wave Link (batterie, presse-papiers, sonnerie, continuite, rappels, resume du matin)
+        try { com.liquidisland.drop.WaveLink.start(this) } catch (e: Exception) { Log.w(TAG, "Wave Link : demarrage impossible", e) }
         main.postDelayed(updateCheck, 15_000)
         NotifListener.replayTasks()
     }

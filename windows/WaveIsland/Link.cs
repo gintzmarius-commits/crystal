@@ -132,6 +132,9 @@ namespace WaveIsland
                 case "handoff":
                     _ui.BeginInvoke(new Action(() => Continuity.FromPhone(fromName, m.GetValueOrDefault("url"), m.GetValueOrDefault("title"))));
                     break;
+                case "remind-pc":
+                    _ui.BeginInvoke(new Action(() => Reminders.Add(m.GetValueOrDefault("text"), DateTime.Now, false, "pc")));
+                    break;
                 case "remind":
                     _ui.BeginInvoke(new Action(() => Reminders.Add(m.GetValueOrDefault("text"), long.TryParse(m.GetValueOrDefault("at"), out long at) ? DateTimeOffset.FromUnixTimeMilliseconds(at).LocalDateTime : DateTime.Now, false)));
                     break;
