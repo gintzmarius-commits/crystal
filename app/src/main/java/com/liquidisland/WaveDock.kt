@@ -311,14 +311,20 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         var pressed: View? = null
         var longDone = false
         val longPress = Runnable { pressed?.let { longDone = true; it.performLongClick() } }
-        fun iconAt(rawX: Float, rawY: Float): View? {
-            val l = IntArray(2)
+        val pad = dp(10)
+        // La zone tactile recouvre exactement la rangee (avec une petite marge) : on cherche l'icone par sa position dans la rangee
+        fun iconAt(x: Float, y: Float): View? {
+            val rx = x - pad
+            if (y < -pad || y > row.height + 3 * pad) return null
+            var best: View? = null
+            var bestD = Float.MAX_VALUE
             for (i in 0 until row.childCount) {
                 val c = row.getChildAt(i)
-                c.getLocationOnScreen(l)
-                if (rawX >= l[0] && rawX < l[0] + c.width && rawY >= l[1] - dp(8) && rawY < l[1] + c.height + dp(8)) return c
+                val cx = (c.left + c.right) / 2f
+                val d = kotlin.math.abs(rx - cx)
+                if (d < bestD) { bestD = d; best = c }
             }
-            return null
+            return if (best != null && bestD <= best.width * 0.75f) best else null
         }
         val hit = object : View(ctx) {
             override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -331,12 +337,12 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
                     MotionEvent.ACTION_DOWN -> {
                         main.removeCallbacks(autoHide)
                         longDone = false
-                        pressed = iconAt(e.rawX, e.rawY)
+                        pressed = iconAt(e.x, e.y)
                         pressed?.animate()?.scaleX(0.86f)?.scaleY(0.86f)?.setDuration(90)?.start()
                         main.postDelayed(longPress, 500)
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        if (pressed != null && iconAt(e.rawX, e.rawY) !== pressed) {
+                        if (pressed != null && iconAt(e.x, e.y) !== pressed) {
                             main.removeCallbacks(longPress)
                             pressed?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(120)?.start()
                             pressed = null
@@ -357,14 +363,14 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             }
         }
         val lp = WindowManager.LayoutParams(
-            row.width, row.height, type,
+            row.width + 2 * pad, row.height + 2 * pad, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = loc[0]; y = loc[1]
+            x = loc[0] - pad; y = loc[1] - pad
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             windowAnimations = 0
         }
