@@ -280,8 +280,11 @@ namespace WaveIsland
             };
             TouchDown += (a, e) => { CaptureTouch(e.TouchDevice); _down = e.GetTouchPoint(this).Position; _fired = false; e.Handled = true; };
             TouchMove += (a, e) => { Move(e.GetTouchPoint(this).Position); e.Handled = true; };
-            TouchUp += (a, e) => { ReleaseTouchCapture(e.TouchDevice); if (!_fired) Open(); e.Handled = true; };
-            MouseLeftButtonUp += (a, e) => { if (e.StylusDevice == null) Open(); };
+            TouchUp += (a, e) => { ReleaseTouchCapture(e.TouchDevice); e.Handled = true; };
+            // Seulement en glissant vers le bas (pas d'un simple clic), au doigt comme a la souris
+            MouseLeftButtonDown += (a, e) => { if (e.StylusDevice != null) return; CaptureMouse(); _down = e.GetPosition(this); _fired = false; };
+            MouseMove += (a, e) => { if (IsMouseCaptured) Move(e.GetPosition(this)); };
+            MouseLeftButtonUp += (a, e) => { if (IsMouseCaptured) ReleaseMouseCapture(); };
         }
 
         private void Move(Point p)

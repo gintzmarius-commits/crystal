@@ -261,7 +261,9 @@ namespace WaveIsland
             var title = new StringBuilder(128);
             GetWindowText(hwnd, title, 128);
             string t = title.ToString();
-            if (t.Length > 0 && !t.Contains("tâches") && !t.Contains("Task") && !t.Contains("Bureaux") && !t.Contains("Multitask")) return false;
+            // Affichage des taches : « Applications actives » (Windows 11 recent), « Affichage des tâches », « Task View »
+            // (« Changement de tâche » = Alt + Tab, on n'y touche pas)
+            if (!(t.Contains("Applications actives") || t.Contains("Affichage des tâches") || t.Contains("Task View") || t.Contains("Active applications"))) return false;
             Log.I("Affichage des taches de Windows remplace par la vue des applis (« " + t + " »)");
             Native.keybd_event(0x1B /* Echap */, 0, 0, UIntPtr.Zero);
             Native.keybd_event(0x1B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
