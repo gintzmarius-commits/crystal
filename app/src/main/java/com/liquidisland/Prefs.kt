@@ -87,4 +87,12 @@ object Prefs {
     fun setDockHeight(c: Context, v: Int) = sp(c).edit().putInt("dockH", v).apply()
     fun dockBottom(c: Context) = sp(c).getInt("dockY", 16)
     fun setDockBottom(c: Context, v: Int) = sp(c).edit().putInt("dockY", v).apply()
+
+    // ----- Version finale : assistant IA (Claude) -----
+    fun aiKey(c: Context) = sp(c).getString("aiKey", "") ?: ""
+    fun setAiKey(c: Context, v: String) = sp(c).edit().putString("aiKey", v.trim()).apply()
+    fun aiModel(c: Context) = sp(c).getString("aiModel", "claude-haiku-5-5") ?: "claude-haiku-5-5"
+    fun setAiModel(c: Context, v: String) = sp(c).edit().putString("aiModel", v).apply()
+    fun aiVoice(c: Context) = sp(c).getBoolean("aiVoice", true)
+    fun setAiVoice(c: Context, v: Boolean) = sp(c).edit().putBoolean("aiVoice", v).apply()
 }

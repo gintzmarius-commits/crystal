@@ -221,6 +221,15 @@ adb shell "cmd notification post -S bigtext -t 'Paul' chat2 'Match a 18h, tu ram
 sleep 2
 shot 8-encoche-notif
 
+# Version finale : l'assistant IA dans l'ilot (sans micro ni reseau)
+for n in 0 1 2; do
+  adb shell am start -W -n $P/.MainActivity --es ci assist$n
+  sleep 0.6
+  adb shell input keyevent KEYCODE_HOME
+  sleep 1.6
+  shot 3$((5 + n))-assistant-$n
+done
+
 timeout 60 "$ADB_BIN" logcat -d | grep -E "LiquidIsland|FATAL|AndroidRuntime" > $OUT/log-encoche.txt
 grep -q "forme=encoche" $OUT/log-encoche.txt || echo "::warning::Pas de trace du mode encoche"
 exit $fail

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.liquidisland.assist.WaveSessionService"
+    android:recognitionService="com.liquidisland.assist.WaveRecognitionService"
+    android:settingsActivity="com.liquidisland.MainActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />

@@ -129,6 +129,10 @@ class MainActivity : Activity() {
         ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip() })
         col.addView(live)
 
+        // Version finale : assistant IA (Claude)
+        col.addView(section("Assistant IA (Claude)"))
+        col.addView(assistCard())
+
         // Raccourcis du mini menu
         col.addView(section("Menu de l'îlot"))
         col.addView(shortcutsCard())
@@ -267,6 +271,9 @@ class MainActivity : Activity() {
             "notch" -> setNotch(true)
             "island" -> setNotch(false)
             "menu" -> IslandService.instance?.showMenu()
+            "assist0" -> com.liquidisland.assist.Assistant.demo(this, 0)
+            "assist1" -> com.liquidisland.assist.Assistant.demo(this, 1)
+            "assist2" -> com.liquidisland.assist.Assistant.demo(this, 2)
             "live" -> askLive()
             "stop" -> { Prefs.setEnabled(this, false); stopService(Intent(this, IslandService::class.java)) }
             "fullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
@@ -1075,6 +1082,65 @@ class MainActivity : Activity() {
         textSize = size
         setTextColor(color)
         if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+    }
+
+    private fun assistCard(): View {
+        val c = card()
+        c.addView(text("Appui long sur le bouton d'alimentation (comme pour Gemini) : la Wave Island t'écoute et Claude répond à voix haute. " +
+            "Il peut chercher sur Firefox, ouvrir une appli ou un site, régler le son, la luminosité, la lampe, la musique, un minuteur, une alarme, appeler ou envoyer un SMS. " +
+            "Touche l'îlot pendant qu'il écoute pour envoyer tout de suite, ou pendant qu'il parle pour poser une autre question.", 13f, Glass.INK_SOFT))
+        c.addView(text("Clé Claude (console.anthropic.com > API Keys)", 14f, Glass.INK).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
+        val key = android.widget.EditText(this).apply {
+            setText(Prefs.aiKey(this@MainActivity))
+            hint = "sk-ant-…"
+            setSingleLine()
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(Glass.INK)
+            setHintTextColor(Glass.INK_SOFT)
+            textSize = 15f
+            background = Glass.card(d, dpf(14), false)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { Prefs.setAiKey(this@MainActivity, s?.toString() ?: "") }
+            })
+        }
+        c.addView(key, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        c.addView(glassButton("Créer une clé Claude", primary = false) {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.anthropic.com/settings/keys"))) } catch (e: Exception) { }
+        }, buttonLp(top = 8))
+        val sonnet = Prefs.aiModel(this).contains("sonnet")
+        c.addView(switchRow("Modèle plus malin (Sonnet)",
+            text("Sinon Haiku : plus rapide et moins cher.", 13f, Glass.INK_SOFT), sonnet
+        ) { Prefs.setAiModel(this, if (it) "claude-sonnet-5-5" else "claude-haiku-5-5") })
+        c.addView(switchRow("Réponse à voix haute",
+            text("Une voix française lit la réponse (sinon elle s'affiche seulement dans l'îlot).", 13f, Glass.INK_SOFT), Prefs.aiVoice(this)
+        ) { Prefs.setAiVoice(this, it) })
+        c.addView(glassButton("Autoriser micro, contacts, appels et SMS", primary = false) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.READ_CONTACTS,
+                android.Manifest.permission.CALL_PHONE, android.Manifest.permission.SEND_SMS), 41)
+        }, buttonLp(top = 8))
+        c.addView(text("Pour que l'appui long ouvre Wave Island à la place de Gemini : choisis « Wave Island » comme application d'assistant numérique. " +
+            "Sur Xiaomi, vérifie aussi Réglages > Réglages supplémentaires > Raccourcis gestuels > « Lancer l'assistant » (appui long sur le bouton).", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
+        c.addView(glassButton("Choisir Wave Island comme assistant", primary = true) { openAssistantSettings() }, buttonLp(top = 8))
+        c.addView(glassButton("Essayer maintenant", primary = false) {
+            val island = IslandService.instance
+            if (island != null) island.startAssist() else com.liquidisland.assist.Assistant.trigger(this)
+        }, buttonLp(top = 8))
+        return c
+    }
+
+    /** Ecran « Assistant numerique » d'Android (selon les telephones, plusieurs chemins possibles). */
+    private fun openAssistantSettings() {
+        val tries = listOf(
+            Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+            Intent("android.settings.MANAGE_DEFAULT_APPS_SETTINGS"),
+            Intent(Settings.ACTION_SETTINGS)
+        )
+        for (i in tries) {
+            try { startActivity(i); return } catch (e: Exception) { }
+        }
     }
 
     private fun section(title: String) = text(title, 13f, Glass.INK_SOFT).apply {

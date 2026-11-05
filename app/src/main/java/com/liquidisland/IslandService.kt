@@ -15,6 +15,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RenderEffect
@@ -255,7 +256,7 @@ class TouchPad(ctx: Context, private val gestures: IslandGestures) : View(ctx) {
 
 class IslandService : Service(), IslandGestures, android.hardware.SensorEventListener {
 
-    private enum class Mode { COLLAPSED, NOTIF, MENU, LIVE }
+    private enum class Mode { COLLAPSED, NOTIF, MENU, LIVE, ASSIST }
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var wm: WindowManager
@@ -331,6 +332,15 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private lateinit var eq: EqualizerView
     private lateinit var ring: RingView
     private lateinit var livePanel: LinearLayout
+
+    // ---------- Assistant IA (version finale) ----------
+    private lateinit var assistPanel: LinearLayout
+    private lateinit var orb: OrbView
+    private lateinit var aStatus: TextView
+    private lateinit var aHeard: TextView
+    private lateinit var aAnswer: TextView
+    private lateinit var aScroll: MaxScroll
+    private var aState = com.liquidisland.assist.Assistant.State.IDLE
     private var liveTimes: Triple<TextView, BarView, TextView>? = null
     private var livePlay: ImageView? = null
     private val liveRows = mutableListOf<Triple<ProgressNow, TextView, BarView>>()
@@ -780,11 +790,13 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             visibility = View.GONE
         }
         createLiveViews()
+        createAssistViews()
         val v = IslandView(this)
         v.addView(compact, compactParams())
         v.addView(content, contentParams())
         v.addView(menu, menuParams())
         v.addView(livePanel, liveParams())
+        v.addView(assistPanel, liveParams())
         v.pw = restW().toFloat()
         v.ph = ch.toFloat()
         v.glass.notch = notch
@@ -1344,6 +1356,10 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     fun show(n: IslandNote) {
         val v = view ?: return
+        if (mode == Mode.ASSIST) {
+            if (aState != com.liquidisland.assist.Assistant.State.DONE) { Log.i(TAG, "Notification gardee pour plus tard (assistant en cours) : ${n.title}"); return }
+            leaveAssist()
+        }
         main.removeCallbacks(collapseRunnable)
         iconView.setImageDrawable(n.icon)
         titleView.text = n.title
@@ -1563,6 +1579,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         buildMenu()
         if (mode == Mode.NOTIF) disappear(content)
         if (mode == Mode.LIVE) disappear(livePanel, gone = true)
+        if (mode == Mode.ASSIST) leaveAssist()
         hideCompact()
         mode = Mode.MENU
         applyWindow(big = true)
@@ -1582,6 +1599,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         when (mode) {
             Mode.MENU -> disappear(menu, gone = true)
             Mode.LIVE -> { disappear(livePanel, gone = true); main.removeCallbacks(liveTicker) }
+            Mode.ASSIST -> leaveAssist()
             else -> disappear(content)
         }
         mode = Mode.COLLAPSED
@@ -1619,6 +1637,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             Mode.NOTIF -> openNote(floating = false)
             Mode.MENU -> collapse("toucher le menu")
             Mode.LIVE -> collapse("toucher les activites")
+            Mode.ASSIST -> com.liquidisland.assist.Assistant.trigger(this)
             Mode.COLLAPSED -> if (hasLive()) showLive()
         }
     }
@@ -1753,6 +1772,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     override fun outside() {
         Log.i(TAG, "Geste dehors mode=$mode")
         if (mode == Mode.MENU || mode == Mode.LIVE) collapse("toucher dehors")
+        if (mode == Mode.ASSIST && aState == com.liquidisland.assist.Assistant.State.DONE) collapse("toucher dehors")
     }
 
     override fun onDestroy() {
@@ -1959,6 +1979,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                     animateIsland(rw, rh, 0f, opening = rw > v.pw)
                 refreshCompact()
             }
+            Mode.ASSIST -> {}
             Mode.LIVE -> {
                 if (!has) collapse("plus d'activite")
                 else {
@@ -2038,9 +2059,108 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         return min(menuTop + livePanel.measuredHeight, winH() - bottomPad)
     }
 
+    // ---------- Assistant IA ----------
+
+    private fun createAssistViews() {
+        orb = OrbView(this)
+        aStatus = TextView(this).apply {
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(ink())
+            styleText(this)
+        }
+        aHeard = TextView(this).apply {
+            textSize = 13.5f
+            setTypeface(typeface, Typeface.ITALIC)
+            setTextColor(inkSoft())
+            styleText(this)
+        }
+        aAnswer = TextView(this).apply {
+            textSize = 15f
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setTextColor(ink())
+            styleText(this)
+        }
+        aScroll = MaxScroll(this, dp(230)).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(aAnswer)
+        }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(aStatus)
+            addView(aHeard)
+            addView(aScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        }
+        assistPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(18), dp(12), dp(20), dp(16))
+            addView(orb, LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(12); topMargin = dp(1) })
+            addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            visibility = View.GONE
+        }
+    }
+
+    private fun assistHeight(): Int {
+        val spec = View.MeasureSpec.makeMeasureSpec(ew, View.MeasureSpec.EXACTLY)
+        assistPanel.measure(spec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        return min(menuTop + assistPanel.measuredHeight, winH() - bottomPad)
+    }
+
+    /** Appui long sur le bouton (assistant du telephone) : l'ilot se reveille et ecoute. */
+    fun startAssist() = main.post { com.liquidisland.assist.Assistant.trigger(this) }
+
+    /** Toucher l'ecran pendant l'ecoute : l'ilot se referme. */
+    fun closeAssist() = main.post { if (mode == Mode.ASSIST) collapse("assistant annule") }
+
+    /**
+     * L'assistant dans l'ilot : une bulle de couleur qui respire (ecoute), tourne (reflexion) ou pulse (voix),
+     * ce qui a ete entendu, puis la reponse.
+     */
+    fun showAssist(status: String, heard: String, answer: String?, state: com.liquidisland.assist.Assistant.State, done: Boolean) = main.post {
+        val v = view ?: return@post
+        aState = if (done) com.liquidisland.assist.Assistant.State.DONE else state
+        aStatus.text = status
+        aStatus.visibility = if (status.isEmpty()) View.GONE else View.VISIBLE
+        aHeard.text = if (heard.isBlank()) "" else "« $heard »"
+        aHeard.visibility = if (heard.isBlank()) View.GONE else View.VISIBLE
+        val newAnswer = aAnswer.text.toString() != (answer ?: "")
+        aAnswer.text = answer ?: ""
+        aScroll.visibility = if (answer.isNullOrBlank()) View.GONE else View.VISIBLE
+        if (newAnswer) aScroll.scrollTo(0, 0)
+        for (t in listOf(aStatus, aAnswer)) { t.setTextColor(ink()); styleText(t) }
+        aHeard.setTextColor(inkSoft()); styleText(aHeard)
+        orb.state = aState
+        main.removeCallbacks(collapseRunnable)
+        if (mode != Mode.ASSIST) {
+            if (mode == Mode.MENU) disappear(menu, gone = true)
+            if (mode == Mode.LIVE) { disappear(livePanel, gone = true); main.removeCallbacks(liveTicker) }
+            if (mode == Mode.NOTIF) disappear(content)
+            hideCompact()
+            mode = Mode.ASSIST
+            applyWindow(big = true)
+            assistPanel.layoutParams = liveParams()
+            appear(assistPanel, if (notch) -dp(6).toFloat() else 0f)
+            v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            animateIsland(ew.toFloat(), assistHeight().toFloat(), 1f, opening = true)
+        } else {
+            val h = assistHeight().toFloat()
+            if (kotlin.math.abs(v.ph - h) > dp(3)) animateIsland(ew.toFloat(), h, 1f, opening = true)
+        }
+        if (done) main.postDelayed(collapseRunnable, min(20_000L, 6_000L + (answer?.length ?: 0) * 45L))
+    }
+
+    private fun leaveAssist() {
+        disappear(assistPanel, gone = true)
+        orb.state = com.liquidisland.assist.Assistant.State.IDLE
+        if (aState != com.liquidisland.assist.Assistant.State.IDLE) com.liquidisland.assist.Assistant.close()
+        aState = com.liquidisland.assist.Assistant.State.IDLE
+    }
+
     fun showLive() {
         val v = view ?: return
         if (!hasLive()) return
+        if (mode == Mode.ASSIST) leaveAssist()
         main.removeCallbacks(collapseRunnable)
         hideCompact()
         buildLive()
@@ -2251,5 +2371,47 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
                 Log.w(TAG, "Demarrage de l'ilot refuse", e)
             }
         }
+    }
+}
+
+
+/** Defilement limite en hauteur (longue reponse de l'assistant). */
+class MaxScroll(ctx: Context, private val maxH: Int) : android.widget.ScrollView(ctx) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST))
+    }
+}
+
+/** La bulle de l'assistant : degrade cyan / violet / rose qui respire, tourne ou pulse selon l'etat. */
+class OrbView(ctx: Context) : View(ctx) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var t0 = android.os.SystemClock.uptimeMillis()
+    var state = com.liquidisland.assist.Assistant.State.IDLE
+        set(v) { field = v; t0 = android.os.SystemClock.uptimeMillis(); invalidate() }
+
+    override fun onDraw(c: Canvas) {
+        val t = (android.os.SystemClock.uptimeMillis() - t0) / 1000f
+        val S = com.liquidisland.assist.Assistant.State
+        val (period, amp) = when (state) {
+            S.LISTENING -> 1.25f to 0.13f
+            S.SPEAKING -> 0.5f to 0.08f
+            S.THINKING -> 0.9f to 0.06f
+            else -> 1f to 0f
+        }
+        val k = 1f + amp * kotlin.math.sin(t * 2f * Math.PI.toFloat() / period)
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = min(width, height) / 2f * 0.78f * k
+        val angle = if (state == S.THINKING) t * 400f else t * 40f
+        c.save()
+        c.rotate(angle, cx, cy)
+        val colors = intArrayOf(Color.rgb(0x5E, 0xE7, 0xFF), Color.rgb(0x7B, 0x6C, 0xFF), Color.rgb(0xFF, 0x7A, 0xC8), Color.rgb(0x5E, 0xE7, 0xFF))
+        paint.shader = android.graphics.SweepGradient(cx, cy, colors, null)
+        glow.color = Color.argb(90, 0x8A, 0x7C, 0xFF)
+        c.drawCircle(cx, cy, r * 1.22f, glow)
+        c.drawCircle(cx, cy, r, paint)
+        c.restore()
+        if (state != S.IDLE && state != S.DONE) postInvalidateOnAnimation()
     }
 }
