@@ -26,6 +26,8 @@ namespace WaveIsland
     public sealed class TaskbarWindow : Window
     {
         private const double H = 64, BarH = 52, Gap = 8, Cell = 48;
+        /// <summary>Icone des applis : 28 px, centree dans sa case (pour que l'appli qui vole s'y pose exactement).</summary>
+        private const double IconSz = 28, IconPad = (Cell - IconSz) / 2;
         /// <summary>Marge invisible au-dessus des bulles : la place pour que la goutte s'etire vers le haut.</summary>
         private const double Pad = 54, WH = H + Pad, EdgeY = Pad + 6;
 
@@ -392,7 +394,14 @@ namespace WaveIsland
                 if (Math.Abs(btn.Width - bw) > 0.05) btn.Width = bw;
                 var vis = bw < 0.5 ? Visibility.Collapsed : Visibility.Visible;
                 if (btn.Visibility != vis) btn.Visibility = vis;
-                if (btn is Grid gg && gg.Children.Count > 0 && f < 0.999)
+                if (btn is Grid ga && ga.Children.Count > 0 && _awaiting.Contains(it.Key))
+                {
+                    // Place ouverte, mais l'icone attend l'appli qui vole vers elle
+                    var ic0 = ga.Children[0];
+                    if (ic0.HasAnimatedProperties) ic0.BeginAnimation(OpacityProperty, null);
+                    ic0.Opacity = 0;
+                }
+                else if (btn is Grid gg && gg.Children.Count > 0 && f < 0.999)
                 {
                     // Place qui s'ouvre / se ferme : l'icone apparait avec elle (on retire l'animation d'arrivee qui la garderait visible)
                     var ic = gg.Children[0];
@@ -880,6 +889,8 @@ namespace WaveIsland
 
         private readonly Dictionary<string, SpringValue> _slots = new Dictionary<string, SpringValue>();
         private readonly HashSet<IntPtr> _hiddenWins = new HashSet<IntPtr>();
+        /// <summary>Places ouvertes dont l'icone attend l'appli qui vole vers elle (sinon on voyait deux icones).</summary>
+        private readonly HashSet<string> _awaiting = new HashSet<string>();
         private static readonly Spring SlotSpring = new Spring(0.62, 0.42);
 
         private bool IsHidden(AppItem it) => it.Windows.Count > 0 && it.Windows.All(w => _hiddenWins.Contains(w));
@@ -910,17 +921,58 @@ namespace WaveIsland
             if (changed) UpdateSlots(animate: !_dropped);
         }
 
-        /// <summary>Ces fenetres rentrent dans le dock : leur place s'ouvre avec un rebond.</summary>
-        public void RevealWindows(IEnumerable<IntPtr> hs)
+        /// <summary>
+        /// Ces fenetres rentrent dans le dock : leur place s'ouvre avec un rebond.
+        /// holdIcon : la place reste vide jusqu'a ce que l'appli qui vole s'y pose (Land).
+        /// </summary>
+        public void RevealWindows(IEnumerable<IntPtr> hs, bool holdIcon = false)
         {
             bool changed = false;
-            foreach (var h in hs) if (_hiddenWins.Remove(h)) changed = true;
-            if (changed) UpdateSlots(animate: !_dropped);
+            foreach (var h in hs.ToList())
+            {
+                if (_hiddenWins.Remove(h)) changed = true;
+                if (holdIcon) { var it = _items.FirstOrDefault(i => i.Windows.Contains(h)); if (it != null) _awaiting.Add(it.Key); }
+            }
+            if (holdIcon)
+            {
+                // Securite : si l'appli n'arrive jamais, l'icone revient quand meme
+                var keys = _awaiting.ToList();
+                System.Threading.Tasks.Task.Delay(1800).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    bool any = false;
+                    foreach (var k in keys) any |= _awaiting.Remove(k);
+                    if (any) { Layout(); ShowIcons(); }
+                })));
+            }
+            if (changed || holdIcon) UpdateSlots(animate: !_dropped);
+        }
+
+        /// <summary>L'appli qui volait vient de se poser : son icone du dock prend le relais et rebondit.</summary>
+        public void Land(IntPtr hwnd)
+        {
+            var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
+            if (it == null || !_awaiting.Remove(it.Key)) { Splash(hwnd); return; }
+            ShowIcons();
+            Splash(hwnd);
+        }
+
+        private void ShowIcons()
+        {
+            foreach (var it in _items)
+            {
+                if (_awaiting.Contains(it.Key) || !_buttons.TryGetValue(it.Key, out var b) || !(b is Grid g) || g.Children.Count == 0) continue;
+                double f = _slots.TryGetValue(it.Key, out var sv) ? sv.Value : 1;
+                if (f < 0.999) continue;
+                var ic = g.Children[0];
+                if (ic.HasAnimatedProperties) ic.BeginAnimation(OpacityProperty, null);
+                ic.Opacity = 1;
+            }
         }
 
         /// <summary>Tout revient (fin de geste). Sans animation quand le dock est cache.</summary>
         public void RevealAll(bool animate)
         {
+            if (_awaiting.Count > 0) { _awaiting.Clear(); ShowIcons(); }
             if (_hiddenWins.Count == 0) return;
             _hiddenWins.Clear();
             UpdateSlots(animate && !_dropped);
@@ -944,7 +996,7 @@ namespace WaveIsland
             double gx = Math.Round((_w - (BarH + Gap + appsW)) / 2);
             double appsX = gx + BarH + Gap;
             double x0 = appsX + Math.Round((appsW - total * Cell) / 2) + before * Cell;
-            return new Rect(Left + x0 + 8, Top + EdgeY + 6, Cell - 16, Cell - 16);
+            return new Rect(Left + x0 + IconPad, Top + EdgeY + 10, IconSz, IconSz);
         }
 
         private ImageSource IconOf(AppItem it)
@@ -1166,7 +1218,7 @@ namespace WaveIsland
 
         private Rect IconRectOf(FrameworkElement b)
         {
-            try { var p = b.TranslatePoint(new Point(0, 0), _root); return new Rect(Left + p.X + 8, Top + EdgeY + 6, Cell - 16, Cell - 16); }
+            try { var p = b.TranslatePoint(new Point(0, 0), _root); return new Rect(Left + p.X + IconPad, Top + EdgeY + 10, IconSz, IconSz); }
             catch { return IconRect(IntPtr.Zero); }
         }
 
@@ -1179,7 +1231,7 @@ namespace WaveIsland
                 try
                 {
                     var p = b.TranslatePoint(new Point(0, 0), _root);
-                    return new Rect(Left + p.X + 8, Top + EdgeY + 6, Cell - 16, Cell - 16);
+                    return new Rect(Left + p.X + IconPad, Top + EdgeY + 10, IconSz, IconSz);
                 }
                 catch { }
             }

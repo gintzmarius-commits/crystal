@@ -126,10 +126,21 @@ namespace WaveIsland
         private static readonly HashSet<IntPtr> _filled = new HashSet<IntPtr>();
         [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr h, int attr, out Native.RECT r, int size);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WINDOWPLACEMENT
+        {
+            public int length, flags, showCmd;
+            public Native.POINT ptMin, ptMax;
+            public Native.RECT rcNormal;
+        }
+        [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
+        [DllImport("user32.dll")] private static extern bool SetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
+
         /// <summary>
         /// Mode tablette : l'appli prend 100 % de l'ecran (la petite barre et le dock passent par-dessus).
         /// Une fenetre agrandie par Windows s'arrete au-dessus de la place reservee a la barre de Windows :
-        /// on la remet en taille normale, exactement de la taille de l'ecran (une seule fois par fenetre).
+        /// elle passe directement (sans redevenir petite entre-temps) a la taille exacte de l'ecran,
+        /// sans coins arrondis ni contour (sinon elle paraissait un peu plus petite que l'ecran).
         /// </summary>
         private static void ExtendToBottom(IntPtr h)
         {
@@ -137,14 +148,29 @@ namespace WaveIsland
             {
                 if (h == IntPtr.Zero || !IsZoomed(h) || Native.IsIconic(h)) return;
                 var sb = System.Windows.Forms.Screen.FromHandle(h).Bounds;
+                if (!Native.GetWindowRect(h, out var r)) return;
                 if (DwmGetWindowAttribute(h, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, out var vis, Marshal.SizeOf<Native.RECT>()) != 0) return;
                 int gap = sb.Bottom - vis.Bottom;
                 if (gap <= 1) return;
-                // Taille normale, puis la partie visible de la fenetre = l'ecran entier (bords invisibles de Windows compris)
-                Native.ShowWindow(h, 9 /* SW_RESTORE */);
-                if (!Native.GetWindowRect(h, out var r) || DwmGetWindowAttribute(h, 9, out var v2, Marshal.SizeOf<Native.RECT>()) != 0) return;
-                int l = v2.Left - r.Left, t = v2.Top - r.Top, rr = r.Right - v2.Right, bb = r.Bottom - v2.Bottom;
-                Native.SetWindowPos(h, IntPtr.Zero, sb.Left - l, sb.Top - t, sb.Width + l + rr, sb.Height + t + bb, 0x4 /* NOZORDER */ | 0x10 /* NOACTIVATE */);
+                // Bords invisibles de Windows autour de la fenetre (gauche, droite, bas) ; en haut, la fine ligne de 1 px
+                int l = Math.Max(0, vis.Left - r.Left), rr = Math.Max(0, r.Right - vis.Right), bb = l;
+                Plain(h);
+                // Une seule operation : agrandie -> taille normale = l'ecran entier (pas de petit saut entre les deux)
+                var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+                GetWindowPlacement(h, ref wp);
+                var wa = System.Windows.Forms.Screen.FromHandle(h).WorkingArea;
+                // rcNormal est en coordonnees de la zone de travail (decalees de son coin haut-gauche)
+                wp.rcNormal = new Native.RECT { Left = sb.Left - l - (wa.Left - sb.Left), Top = sb.Top - 1 - (wa.Top - sb.Top), Right = sb.Right + rr - (wa.Left - sb.Left), Bottom = sb.Bottom + bb - (wa.Top - sb.Top) };
+                wp.showCmd = 1; // SW_SHOWNORMAL
+                wp.flags = 0;
+                SetWindowPlacement(h, ref wp);
+                // Petite correction si l'appli a arrondi sa taille
+                if (DwmGetWindowAttribute(h, 9, out var v2, Marshal.SizeOf<Native.RECT>()) == 0 && Native.GetWindowRect(h, out var r2) &&
+                    (v2.Left != sb.Left || v2.Right != sb.Right || v2.Bottom != sb.Bottom || v2.Top > sb.Top))
+                {
+                    int dl = v2.Left - r2.Left, dt = v2.Top - r2.Top, dr = r2.Right - v2.Right, db = r2.Bottom - v2.Bottom;
+                    Native.SetWindowPos(h, IntPtr.Zero, sb.Left - dl, sb.Top - Math.Max(dt, 1), sb.Width + dl + dr, sb.Height + Math.Max(dt, 1) + db, 0x4 /* NOZORDER */ | 0x10 /* NOACTIVATE */);
+                }
                 _filled.Add(h);
                 if (_filled.Count > 300) _filled.Clear();
                 Log.I("Mode tablette : appli sur tout l'ecran (il manquait " + gap + " px en bas)");
@@ -152,11 +178,27 @@ namespace WaveIsland
             catch { }
         }
 
+        /// <summary>Fenetre sur tout l'ecran : ni coins arrondis ni contour (comme une appli en plein ecran).</summary>
+        private static void Plain(IntPtr h)
+        {
+            int square = 1; // DWMWCP_DONOTROUND
+            DwmSetWindowAttribute(h, 33, ref square, 4);
+            int none = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE
+            DwmSetWindowAttribute(h, 34, ref none, 4);
+            _bordered.Add(h);
+        }
+
         /// <summary>En quittant le mode tablette : ces fenetres redeviennent agrandies normalement.</summary>
         private static void UnfillAll()
         {
             foreach (var h in _filled.ToList())
-                try { if (IsWindowVisible(h) && !Native.IsIconic(h)) Native.ShowWindow(h, 3 /* SW_MAXIMIZE */); } catch { }
+                try
+                {
+                    if (IsWindowVisible(h) && !Native.IsIconic(h)) Native.ShowWindow(h, 3 /* SW_MAXIMIZE */);
+                    _bordered.Remove(h);
+                    Border(h);
+                }
+                catch { }
             _filled.Clear();
         }
 

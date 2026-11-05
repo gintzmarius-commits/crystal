@@ -474,19 +474,11 @@ namespace WaveIsland
             // 2) l'icone vole a sa place dans le dock et rebondit
             DockOnTop();
             // Sa place s'ouvre dans le dock pendant que l'icone y vole
-            App.Taskbar?.RevealWindows(new[] { _app });
+            App.Taskbar?.RevealWindows(new[] { _app }, holdIcon: true);
             var target = App.Taskbar?.FinalIconRect(_app) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
-            double tx = target.X - Left, ty = target.Y - Top;
-            var fly = new Spring(0.55, 0.42);
-            c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
-            Kick();
             Native.ShowWindow(_app, 7 /* SW_SHOWMINNOACTIVE */);
             ToDesktop();
-            await Task.Delay(270);
-            App.Taskbar?.Splash(_app);
-            await Task.Delay(130);
-            c.Op.AnimateTo(0, new Spring(1, 0.3));
-            Kick();
+            await LandIn(c, _app, target);
             await Settled();
             Finish();
         }
@@ -871,7 +863,7 @@ namespace WaveIsland
             // On attend que le dock soit completement sorti (et ses icones en place) avant d'y envoyer les applis
             await Task.Delay(Math.Max(60, App.Taskbar?.DockSettleMs() ?? 0));
             // Toutes les places s'ouvrent ; chaque icone vole vers la sienne
-            App.Taskbar?.RevealWindows(live.Select(c => c.Src));
+            App.Taskbar?.RevealWindows(live.Select(c => c.Src), holdIcon: true);
             int i = 0;
             foreach (var c in live) Fly(c, i++);
             await Task.Delay(120 + live.Count * 50);
@@ -880,21 +872,35 @@ namespace WaveIsland
             Finish();
         }
 
+        /// <summary>
+        /// L'icone vole jusqu'a sa place du dock (sans depasser), puis passe le relais a l'icone du dock
+        /// qui rebondit : une seule icone visible a la fois.
+        /// </summary>
+        private async Task LandIn(Card c, IntPtr src, Rect target)
+        {
+            double tx = target.X - Left, ty = target.Y - Top;
+            var fly = new Spring(0.42, 0.86);
+            c.Op.Set(1);
+            c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
+            Kick();
+            var until = DateTime.Now.AddMilliseconds(650);
+            while (DateTime.Now < until && !_closing)
+            {
+                await Task.Delay(16);
+                if (Math.Abs(c.X.Value - tx) < 1.5 && Math.Abs(c.Y.Value - ty) < 1.5 && Math.Abs(c.W.Value - target.Width) < 1.5) break;
+            }
+            // Relais : l'icone du dock apparait a la meme place et rebondit, celle qui volait disparait
+            App.Taskbar?.Land(src);
+            c.Op.Set(0);
+            Render();
+        }
+
         private async void Fly(Card c, int i)
         {
             await Task.Delay(i * 50);
             DockOnTop();
             var target = App.Taskbar?.FinalIconRect(c.Src) ?? new Rect(_sw / 2 - 20, _sh - 60, 40, 40);
-            double tx = target.X - Left, ty = target.Y - Top;
-            var fly = new Spring(0.55, 0.42);
-            c.Op.Set(1);
-            c.X.AnimateTo(tx, fly); c.Y.AnimateTo(ty, fly); c.W.AnimateTo(target.Width, fly); c.H.AnimateTo(target.Height, fly);
-            Kick();
-            await Task.Delay(260);
-            App.Taskbar?.Splash(c.Src);
-            await Task.Delay(140);
-            c.Op.AnimateTo(0, new Spring(1, 0.3));
-            Kick();
+            await LandIn(c, c.Src, target);
         }
 
         // ---- Jeter une carte vers le haut : l'appli se ferme vraiment ----
