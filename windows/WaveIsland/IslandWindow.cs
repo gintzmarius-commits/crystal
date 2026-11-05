@@ -1044,7 +1044,7 @@ namespace WaveIsland
             // Assistant IA : bouton micro en premier
             _menuRow.Children.Add(MenuItem("\uE720", null, "Assistant", () => { Collapse(); Assistant.Trigger(); }));
             // Lot 1 : mode concentration
-            _menuRow.Children.Add(MenuItem("\uE708", null, Focus.On ? "Fin concentr." : "Concentration", () => { Collapse(); Focus.Toggle(); }));
+            _menuRow.Children.Add(MenuItem("\uE708", null, FocusMode.On ? "Fin concentr." : "Concentration", () => { Collapse(); FocusMode.Toggle(); }));
             room--;
             var items = Settings.Current.Shortcuts.Select(Shortcuts.Resolve).Where(i => i != null).Take(room).ToList();
             // Wave Drop : envoyer un fichier a un appareil proche

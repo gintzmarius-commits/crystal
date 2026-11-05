@@ -272,9 +272,9 @@ namespace WaveIsland
             amb.Children.Add(Toggle("L'îlot vit avec la musique", "Le bord de l'îlot s'illumine et ses barres bougent au rythme du son",
                 () => S.MusicPulse, v => { S.MusicPulse = v; S.Save(); }));
             amb.Children.Add(Toggle("Mode concentration", "Les notifications n'apparaissent plus (elles attendent dans le centre de notifications). Aussi dans le menu de l'îlot",
-                () => S.FocusOn, v => { S.FocusOn = v; S.Save(); Focus.Check(); }));
+                () => S.FocusOn, v => { S.FocusOn = v; S.Save(); FocusMode.Check(); }));
             amb.Children.Add(Toggle("Concentration automatique la nuit", "Tous les jours de " + S.FocusFrom + " h à " + S.FocusTo + " h",
-                () => S.FocusScheduled, v => { S.FocusScheduled = v; S.Save(); Focus.Check(); }));
+                () => S.FocusScheduled, v => { S.FocusScheduled = v; S.Save(); FocusMode.Check(); }));
             _col.Children.Add(amb.Parent as FrameworkElement);
 
             // --- Assistant IA (version finale) ---

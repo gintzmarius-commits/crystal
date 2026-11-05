@@ -124,7 +124,7 @@ namespace WaveIsland
     /// Lot 1 : mode concentration. Les notifications ne s'affichent plus (elles sont gardees dans le centre
     /// de notifications) et un resume apparait a la fin. Manuel ou par horaires.
     /// </summary>
-    public static class Focus
+    public static class FocusMode
     {
         public static event Action Changed;
         private static int _missed;
