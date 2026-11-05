@@ -199,6 +199,20 @@ namespace WaveIsland
                     TabletShell.Apply();
                     await Wait(1);
                 }
+                // Vue des applis Wave en mode ordinateur (Win + Tab)
+                try
+                {
+                    Native.keybd_event(0x5B, 0, 0, UIntPtr.Zero);
+                    Native.keybd_event(0x09, 0, 0, UIntPtr.Zero);
+                    Native.keybd_event(0x09, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    Native.keybd_event(0x5B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    await Wait(1.5);
+                    Log.I("DEMO : vue des applis ordinateur " + (AppMotion.Current != null ? "ouverte" : "PAS ouverte"));
+                    ScreenShot("35-vue-applis-ordi");
+                    AppMotion.CloseCurrent();
+                    await Wait(1);
+                }
+                catch (Exception e) { Log.I("DEMO : vue des applis : " + e.Message); }
                 // Version finale : l'assistant IA dans l'ilot (sans micro ni reseau)
                 try { await Assistant.Demo(n => App.Island.Snap(n, Folder)); Log.I("DEMO : assistant ok"); }
                 catch (Exception e) { Log.I("DEMO : assistant : " + e.Message); }

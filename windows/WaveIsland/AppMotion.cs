@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Windows.Media.Animation;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -808,7 +809,7 @@ namespace WaveIsland
 
         // ================== Gestes dans la pile ==================
 
-        private enum Mode { None, Scroll, Fling, Gather }
+        private enum Mode { None, Scroll, Fling, Gather, Hold }
         private Mode _mode;
         private Point _pd, _pl;
         private DateTime _pt;
@@ -839,6 +840,18 @@ namespace WaveIsland
         {
             DockOnTop();
             _pd = _pl = p; _pt = DateTime.Now; _pmoved = false; _mode = Mode.None; _flingVel = 0;
+            // Appui long sur un apercu : il retrecit et se glisse vers un bureau
+            _holdTimer?.Stop();
+            if (Switcher && _pills.Count > 0)
+            {
+                var hit = HitCard(p);
+                if (hit != null)
+                {
+                    _holdTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(420) };
+                    _holdTimer.Tick += (a, b) => { _holdTimer.Stop(); if (!_pmoved && _mode == Mode.None) StartHold(hit, _pl); };
+                    _holdTimer.Start();
+                }
+            }
             // Toucher pendant que la pile file : elle s'arrete (sans ouvrir d'appli)
             _stopped = _inertia || _scroll.Moving;
             _inertia = false; _vel = 0;
@@ -852,8 +865,10 @@ namespace WaveIsland
             double dx = p.X - _pl.X, dyStep = p.Y - _pl.Y;
             _pl = p; _pt = DateTime.Now;
             double tx = p.X - _pd.X, ty = p.Y - _pd.Y;
+            if (_mode == Mode.Hold) { HoldMove(p); return; }
             if (!_pmoved && (Math.Abs(tx) > 10 || Math.Abs(ty) > 10))
             {
+                _holdTimer?.Stop();
                 _pmoved = true;
                 if (Math.Abs(tx) > Math.Abs(ty)) _mode = Mode.Scroll;
                 else if (ty < 0) { _fling = HitCard(_pd); _mode = _fling != null ? Mode.Fling : Mode.None; if (_fling != null) _flingFrom = new Rect(_fling.X.Value, _fling.Y.Value, _fling.W.Value, _fling.H.Value); }
@@ -897,7 +912,9 @@ namespace WaveIsland
 
         private void PUp(Point p)
         {
+            _holdTimer?.Stop();
             if (!Switcher) return;
+            if (_mode == Mode.Hold) { HoldEnd(p); _mode = Mode.None; return; }
             if (!_pmoved)
             {
                 if (_stopped) return;
@@ -1185,6 +1202,82 @@ namespace WaveIsland
             _deskBar.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(220)));
         }
 
+        // ---- Appui long : l'apercu retrecit, suit le doigt et se depose sur un bureau ----
+
+        private DispatcherTimer _holdTimer;
+        private Card _held;
+        private Rect _heldFrom;
+        private Vector _heldGrab;
+
+        private void StartHold(Card c, Point p)
+        {
+            _mode = Mode.Hold;
+            _pmoved = true;
+            _held = c;
+            _heldFrom = new Rect(c.X.Value, c.Y.Value, c.W.Value, c.H.Value);
+            _layoutLive = false;
+            _inertia = false;
+            double w = c.W.Value * 0.42, h = c.H.Value * 0.42;
+            // Le point saisi reste sous le doigt pendant que l'apercu retrecit
+            double fx = (p.X - c.X.Value) / Math.Max(1, c.W.Value), fy = (p.Y - c.Y.Value) / Math.Max(1, c.H.Value);
+            _heldGrab = new Vector(fx * w, fy * h);
+            var sp = new Spring(0.75, 0.4);
+            c.W.AnimateTo(w, sp); c.H.AnimateTo(h, sp);
+            c.X.AnimateTo(p.X - _heldGrab.X, sp); c.Y.AnimateTo(p.Y - _heldGrab.Y, sp);
+            Panel.SetZIndex(c.View, 5500); Panel.SetZIndex(c.Label, 5501); Panel.SetZIndex(c.Shade, 5502);
+            c.Shade.Opacity = 0;
+            WaveSound.Play(WaveSound.Kind.Open);
+            Kick();
+            Log.I("Vue des applis : apercu saisi (bureaux)");
+        }
+
+        private void HoldMove(Point p)
+        {
+            if (_held == null) return;
+            var follow = new Spring(0.9, 0.16);
+            _held.X.AnimateTo(p.X - _heldGrab.X, follow); _held.Y.AnimateTo(p.Y - _heldGrab.Y, follow);
+            HighlightDesk(PillAt(p));
+            Kick();
+        }
+
+        private void HoldEnd(Point p)
+        {
+            var c = _held;
+            _held = null;
+            if (c == null) return;
+            int desk = PillAt(p);
+            HighlightDesk(-1);
+            if (desk >= 0 && desk != VDesk.Current())
+            {
+                // Il retrecit dans la bulle du bureau, puis l'appli part sur ce bureau
+                var pill = _pills.First(x => x.index == desk).pill;
+                var tl = pill.TranslatePoint(new Point(pill.ActualWidth / 2, pill.ActualHeight / 2), _canvas);
+                var sp = new Spring(0.7, 0.34);
+                c.W.AnimateTo(24, sp); c.H.AnimateTo(16, sp); c.X.AnimateTo(tl.X - 12, sp); c.Y.AnimateTo(tl.Y - 8, sp);
+                c.Op.AnimateTo(0, new Spring(0.9, 0.3));
+                Kick();
+                MoveHeld(c, desk);
+                return;
+            }
+            // Lache ailleurs : il reprend sa place dans la pile
+            var back = new Spring(0.65, 0.42);
+            c.X.AnimateTo(_heldFrom.X, back); c.Y.AnimateTo(_heldFrom.Y, back); c.W.AnimateTo(_heldFrom.Width, back); c.H.AnimateTo(_heldFrom.Height, back);
+            Kick();
+            Task.Delay(500).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => { if (Switcher && !_closing) Depth(_scroll.Value); })));
+        }
+
+        private async void MoveHeld(Card c, int desk)
+        {
+            await Task.Delay(330);
+            _openedApp = true;
+            WaveSound.Play(WaveSound.Kind.Land);
+            Finish();
+            await VDesk.Move(c.Src, desk);
+        }
+
+        /// <summary>Pour les tests et la touche : ferme la vue des applis en cours.</summary>
+        public static void CloseCurrent() => Current?.Finish();
+
         /// <summary>Bureau sous le doigt (pour y deposer une appli), sinon -1.</summary>
         private int PillAt(Point p)
         {
@@ -1196,12 +1289,27 @@ namespace WaveIsland
             return -1;
         }
 
+        private int _lastHover = -1;
+
         private void HighlightDesk(int idx)
         {
             int cur = VDesk.Current();
             foreach (var (pill, i) in _pills)
                 pill.BorderBrush = new SolidColorBrush(i == idx ? Color.FromRgb(0x5E, 0xE7, 0xFF) : Color.FromArgb(130, 255, 255, 255));
-            foreach (var (pill, i) in _pills) pill.BorderThickness = new Thickness(i == idx ? 2.5 : 1);
+            foreach (var (pill, i) in _pills)
+            {
+                pill.BorderThickness = new Thickness(i == idx ? 2.5 : 1);
+                // La bulle du bureau grossit pour accueillir l'appli
+                if (!(pill.RenderTransform is ScaleTransform st)) { st = new ScaleTransform(1, 1); pill.RenderTransform = st; pill.RenderTransformOrigin = new Point(0.5, 0.5); }
+                double to = i == idx ? 1.28 : 1;
+                if (Math.Abs(st.ScaleX - to) > 0.01 && !(_lastHover == i && i == idx))
+                {
+                    var a = new DoubleAnimation(to, TimeSpan.FromMilliseconds(260)) { EasingFunction = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseOut } };
+                    st.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+                    st.BeginAnimation(ScaleTransform.ScaleYProperty, a);
+                }
+            }
+            _lastHover = idx;
         }
 
         /// <summary>Appli deposee sur un autre bureau : elle y part (et on y va avec elle).</summary>

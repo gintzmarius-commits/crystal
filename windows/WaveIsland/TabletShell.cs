@@ -265,6 +265,23 @@ namespace WaveIsland
             return true;
         }
 
+        private static System.Windows.Threading.DispatcherTimer _tvPoll;
+        /// <summary>Le geste du pave tactile ne previent pas toujours : on regarde aussi toutes les 150 ms.</summary>
+        internal static void WatchTaskView()
+        {
+            if (_tvPoll != null) return;
+            IntPtr last = IntPtr.Zero;
+            _tvPoll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _tvPoll.Tick += (a, b) =>
+            {
+                var fg = GetForegroundWindow();
+                if (fg == last) return;
+                last = fg;
+                TaskViewOpened(fg);
+            };
+            _tvPoll.Start();
+        }
+
         private static void OnForeground(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
         {
             if (idObject != 0) return;

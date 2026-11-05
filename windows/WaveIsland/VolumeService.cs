@@ -92,7 +92,8 @@ namespace WaveIsland
                 int m = wParam.ToInt32();
                 bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
-                if (!injected && k.vkCode == 0x09 /* Tab */ && _winDown && Settings.Current.OwnTaskView)
+                // Win + Tab (aussi envoye par les gestes du pave tactile, d'ou les touches « injectees » acceptees ici)
+                if (k.vkCode == 0x09 /* Tab */ && (_winDown || Held(0x5B) || Held(0x5C)) && !Held(0x12) && Settings.Current.OwnTaskView)
                 {
                     if (down)
                     {
