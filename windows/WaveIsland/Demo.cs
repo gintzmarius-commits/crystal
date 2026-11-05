@@ -200,7 +200,7 @@ namespace WaveIsland
                     await Wait(1);
                 }
                 // Version finale : l'assistant IA dans l'ilot (sans micro ni reseau)
-                try { await Assistant.Demo(ScreenShot); Log.I("DEMO : assistant ok"); }
+                try { await Assistant.Demo(n => App.Island.Snap(n, Folder)); Log.I("DEMO : assistant ok"); }
                 catch (Exception e) { Log.I("DEMO : assistant : " + e.Message); }
 
                 // Touche Windows : le menu des applis coule depuis l'ilot (vraie touche simulee)
