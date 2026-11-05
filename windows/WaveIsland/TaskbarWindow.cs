@@ -418,6 +418,30 @@ namespace WaveIsland
             => (Left + _win.X + _win.W / 2, Top + EdgeY + _win.Hh / 2, _win.W, _win.Hh);
 
         /// <summary>Pendant l'animation, c'est le menu qui dessine la bulle (la goutte qui se detache).</summary>
+        private bool _winAway;
+
+        /// <summary>
+        /// Vue des applis ouvertes (mode tablette) : le dock reste, seule la bulle Windows descend en goutte ;
+        /// elle remonte quand on quitte la vue.
+        /// </summary>
+        public void WinAway(bool away)
+        {
+            if (_winAway == away) return;
+            _winAway = away;
+            if (away)
+            {
+                _win.St.AnimateTo(1.45, new Spring(0.62, 0.22));
+                _win.Off.AnimateTo(H + 40, new Spring(0.85, 0.38));
+            }
+            else if (!_dropped)
+            {
+                _win.St.Set(1.7);
+                _win.Off.AnimateTo(0, new Spring(0.5, 0.42));
+                _win.St.AnimateTo(1.0, new Spring(0.38, 0.5));
+            }
+            Kick();
+        }
+
         public void HideBubble(bool hide)
         {
             _bubbleHidden = hide;
@@ -1044,6 +1068,8 @@ namespace WaveIsland
         {
             var fg = GetForegroundWindow();
             if (fg == IntPtr.Zero || fg == _hwnd) return false;
+            // Une appli reduite (rangee dans le dock) peut rester « au premier plan » : on est sur le bureau
+            if (Native.IsIconic(fg)) return false;
             GetWindowThreadProcessId(fg, out uint pid);
             if (pid == (uint)Environment.ProcessId) return false;
             var cls = new StringBuilder(64);
@@ -1126,6 +1152,7 @@ namespace WaveIsland
         {
             if (delayMs > 0) await System.Threading.Tasks.Task.Delay(delayMs);
             if (_dropped) return;
+            if (b == _win && _winAway) return;   // la bulle Windows reste cachee pendant la vue des applis
             b.St.Set(1.7);
             b.Off.AnimateTo(0, new Spring(0.5, 0.42));
             b.St.AnimateTo(1.0, new Spring(0.38, 0.5));

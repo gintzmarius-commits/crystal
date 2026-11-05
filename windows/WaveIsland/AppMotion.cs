@@ -377,7 +377,10 @@ namespace WaveIsland
             if (_closing) return;
             _closing = true;
             if (Current == this) Current = null;
+            App.Taskbar?.WinAway(false);
             App.Taskbar?.ReleaseDock();
+            // Retour au bureau : le dock reste la, sans disparaitre puis revenir
+            if (!_openedApp) App.Taskbar?.ShowDock(1.5);
             CompositionTarget.Rendering -= OnFrame;
             try { Close(); } catch { }
         }
@@ -440,6 +443,7 @@ namespace WaveIsland
         /// <summary>Pas assez glisse : l'appli reprend tout l'ecran.</summary>
         public async void Cancel()
         {
+            _openedApp = true;
             if (_cards.Count == 0) { Finish(); return; }
             var c = _cards[0];
             var back = Spring.Pop;
@@ -456,6 +460,7 @@ namespace WaveIsland
         {
             if (Current != null) { reallyOpen(); return; }
             var m = new AppMotion(window);
+            m._openedApp = true;
             Current = m;
             m.Place();
             var c = m.NewCard(window, window != IntPtr.Zero && Shots.TryGetValue(window, out var s) ? s : null, appIcon);
@@ -503,6 +508,9 @@ namespace WaveIsland
         {
             if (Switcher) return;
             Switcher = true;
+            // Le dock reste affiche ; seule la bulle Windows descend
+            App.Taskbar?.ShowDock(60);
+            App.Taskbar?.WinAway(true);
             Log.I("Mode tablette : vue des applis ouvertes");
             var first = _cards.FirstOrDefault();
             var others = TaskbarWindow.AppWindows().Select(w => w.h).Where(h => h != _app).ToList();
@@ -940,8 +948,19 @@ namespace WaveIsland
             if (Native.IsIconic(c.Src)) Native.ShowWindow(c.Src, Native.SW_RESTORE);
             Native.SetForegroundWindow(c.Src);
             await Settled();
+            _openedApp = true;
             App.Taskbar?.HideDock();
             Finish();
+        }
+
+        private bool _openedApp;
+
+        /// <summary>Image a jour d'une fenetre (pour le geste retour), sinon la derniere connue.</summary>
+        public static BitmapSource Fresh(IntPtr h)
+        {
+            var t = Task.Run(() => Capture(h));
+            if (t.Wait(350) && t.Result != null) { Shots[h] = t.Result; return t.Result; }
+            return Shots.TryGetValue(h, out var b) ? b : null;
         }
 
         /// <summary>Pour les tests : tout ranger dans le dock d'un coup.</summary>
