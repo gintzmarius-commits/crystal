@@ -49,6 +49,7 @@ namespace WaveIsland
             Volume.AssistKey += Assistant.Trigger;
             // Lot 2 : recherche universelle, capture Wave, ecran de veille goutte
             Volume.SearchKey += SearchWindow.Toggle;
+            Volume.TaskViewKey += AppMotion.BeginSwitcher;
             Volume.ShotKey += WaveShot.Take;
             DropSaver.Start();
             // Lot 4 : Wave Link, continuite, rappels, resume du matin

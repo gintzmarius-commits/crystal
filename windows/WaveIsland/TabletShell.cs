@@ -239,9 +239,37 @@ namespace WaveIsland
             _nameHook = SetWinEventHook(0x800C /* EVENT_OBJECT_NAMECHANGE */, 0x800C, IntPtr.Zero, _nameProc, pid, 0, WINEVENT_OUTOFCONTEXT);
         }
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+
+        /// <summary>
+        /// Glissement a 3 doigts vers le haut sur le pave tactile : Windows ouvre lui-meme son affichage des taches.
+        /// On le referme aussitot et on ouvre la vue des applis de Wave Island (pas pendant Alt + Tab).
+        /// </summary>
+        private static bool TaskViewOpened(IntPtr hwnd)
+        {
+            if (!Settings.Current.OwnTaskView || AppMotion.Current != null) return false;
+            var cls = new StringBuilder(64);
+            GetClassName(hwnd, cls, 64);
+            if (cls.ToString() != "XamlExplorerHostIslandWindow" && cls.ToString() != "MultitaskingViewFrame") return false;
+            if ((GetAsyncKeyState(0x12) & 0x8000) != 0) return false;   // Alt + Tab : on laisse
+            var title = new StringBuilder(128);
+            GetWindowText(hwnd, title, 128);
+            string t = title.ToString();
+            if (t.Length > 0 && !t.Contains("tâches") && !t.Contains("Task") && !t.Contains("Bureaux") && !t.Contains("Multitask")) return false;
+            Log.I("Affichage des taches de Windows remplace par la vue des applis (« " + t + " »)");
+            Native.keybd_event(0x1B /* Echap */, 0, 0, UIntPtr.Zero);
+            Native.keybd_event(0x1B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            var ui = System.Windows.Application.Current?.Dispatcher;
+            System.Threading.Tasks.Task.Delay(180).ContinueWith(_ => ui?.BeginInvoke(new Action(AppMotion.BeginSwitcher)));
+            return true;
+        }
+
         private static void OnForeground(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
         {
             if (idObject != 0) return;
+            if (TaskViewOpened(hwnd)) return;
             Border(hwnd);
             if (Active && AppInFront() == hwnd) WatchTitle(hwnd);
             if (Active)

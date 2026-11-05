@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -41,6 +42,8 @@ namespace WaveIsland
             public Border View, Shade;
             public TextBlock Label;
             public Image Icon;
+            /// <summary>Croix de fermeture (mode ordinateur) en haut a gauche de l'apercu.</summary>
+            public Border Close;
             /// <summary>En train de se fermer (jetee vers le haut) : elle ne suit plus la pile.</summary>
             public bool Leaving;
         }
@@ -127,12 +130,70 @@ namespace WaveIsland
             finally { Native.ReleaseDC(IntPtr.Zero, screen); }
         }
 
+        // ---- Dernieres images gardees sur le disque (apercu meme pour une appli reduite depuis longtemps) ----
+
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        private static readonly Dictionary<string, DateTime> _savedAt = new Dictionary<string, DateTime>();
+        private static string ShotDir => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WaveIsland", "apercus");
+
+        private static string ShotKey(IntPtr h)
+        {
+            try
+            {
+                GetWindowThreadProcessId(h, out uint pid);
+                return System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Garde l'image en memoire et (au plus toutes les 20 s par appli) sur le disque.</summary>
+        private static void Keep(IntPtr h, BitmapSource b)
+        {
+            Shots[h] = b;
+            var key = ShotKey(h);
+            if (key == null || (_savedAt.TryGetValue(key, out var t) && (DateTime.Now - t).TotalSeconds < 20)) return;
+            _savedAt[key] = DateTime.Now;
+            var copy = b;
+            Task.Run(() =>
+            {
+                try
+                {
+                    Directory.CreateDirectory(ShotDir);
+                    BitmapSource small = copy.PixelWidth > 1280 ? new TransformedBitmap(copy, new ScaleTransform(1280.0 / copy.PixelWidth, 1280.0 / copy.PixelWidth)) : copy;
+                    var enc = new JpegBitmapEncoder { QualityLevel = 82 };
+                    enc.Frames.Add(BitmapFrame.Create(small));
+                    using var f = File.Create(System.IO.Path.Combine(ShotDir, key + ".jpg"));
+                    enc.Save(f);
+                }
+                catch { }
+            });
+        }
+
+        /// <summary>Derniere image connue de l'appli (disque), quand Windows ne donne pas d'image.</summary>
+        private static BitmapSource DiskShot(IntPtr h)
+        {
+            try
+            {
+                var key = ShotKey(h);
+                var path = key == null ? null : System.IO.Path.Combine(ShotDir, key + ".jpg");
+                if (path == null || !File.Exists(path)) return null;
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path);
+                bmp.EndInit();
+                bmp.Freeze();
+                return bmp;
+            }
+            catch { return null; }
+        }
+
         /// <summary>Copie (avec une limite de temps : une appli bloquee ne doit pas tout figer).</summary>
         private static BitmapSource Shot(IntPtr h)
         {
             var t = Task.Run(() => Capture(h));
-            if (t.Wait(400) && t.Result != null) { Shots[h] = t.Result; return t.Result; }
-            return Shots.TryGetValue(h, out var b) ? b : null;
+            if (t.Wait(400) && t.Result != null) { Keep(h, t.Result); return t.Result; }
+            return Shots.TryGetValue(h, out var b) ? b : DiskShot(h);
         }
 
         // ================== Fenetre de l'animation ==================
@@ -153,7 +214,7 @@ namespace WaveIsland
         {
             var b = await Task.Run(() => Capture(h));
             if (b == null || _closing) return;
-            Shots[h] = b;
+            Keep(h, b);
             foreach (var c in _cards.Where(c => c.Src == h)) { c.View.Background = new ImageBrush(b) { Stretch = Stretch.Fill }; c.View.Child = null; }
         }
 
@@ -164,7 +225,7 @@ namespace WaveIsland
             string before = Title(h);
             var b = await Task.Run(() => Capture(h));
             if (b == null) return;
-            Shots[h] = b;
+            Keep(h, b);
             // Image de la page actuelle (pour le geste retour), seulement si la page n'a pas change pendant la copie
             if (Title(h) == before) { var cur = Page.TryGetValue(h, out var p) ? p : default; if (cur.title == null || cur.title == before) Page[h] = (before, b); }
             Remember(h, b);
@@ -337,7 +398,7 @@ namespace WaveIsland
             var title = new StringBuilder(256);
             GetWindowText(src, title, 256);
             c.Title = title.ToString();
-            shot ??= Shots.TryGetValue(src, out var s) ? s : null;
+            shot ??= Shots.TryGetValue(src, out var s) ? s : DiskShot(src);
             UIElement inner;
             if (shot != null) inner = null;
             else
@@ -371,6 +432,21 @@ namespace WaveIsland
             _canvas.Children.Add(c.Shade);
             _canvas.Children.Add(c.Label);
             _canvas.Children.Add(c.Icon);
+            // Mode ordinateur : croix blanche en haut a gauche (rouge au survol) pour fermer l'appli
+            if (!TabletShell.Active && src != IntPtr.Zero)
+            {
+                var glyph = new TextBlock { Text = "\uE711", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 11, Foreground = Brushes.Black, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                c.Close = new Border
+                {
+                    Width = 28, Height = 28, CornerRadius = new CornerRadius(14), Background = Brushes.White, Child = glyph, Cursor = Cursors.Hand, Opacity = 0,
+                    Effect = new DropShadowEffect { BlurRadius = 8, ShadowDepth = 1, Opacity = 0.35 }
+                };
+                c.Close.MouseEnter += (a, b) => { c.Close.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0x3B, 0x3B)); glyph.Foreground = Brushes.White; };
+                c.Close.MouseLeave += (a, b) => { c.Close.Background = Brushes.White; glyph.Foreground = Brushes.Black; };
+                c.Close.MouseLeftButtonDown += (a, b) => b.Handled = true;
+                c.Close.MouseLeftButtonUp += (a, b) => { b.Handled = true; CloseCard(c); };
+                _canvas.Children.Add(c.Close);
+            }
             _cards.Add(c);
             return c;
         }
@@ -411,6 +487,15 @@ namespace WaveIsland
                 Canvas.SetLeft(c.Icon, x + (w - isz) / 2); Canvas.SetTop(c.Icon, y + (h - isz) / 2);
                 c.Icon.Width = isz; c.Icon.Height = isz;
                 c.Icon.Opacity = op * mix;
+                if (c.Close != null)
+                {
+                    Canvas.SetLeft(c.Close, x - 10); Canvas.SetTop(c.Close, y - 10);
+                    // Seulement sur les apercus bien visibles de la pile
+                    double depth = Panel.GetZIndex(c.View);
+                    c.Close.Opacity = Switcher && !c.Leaving ? op * (1 - mix) * (depth >= 985 ? 1 : 0) : 0;
+                    c.Close.IsHitTestVisible = c.Close.Opacity > 0.5;
+                    Panel.SetZIndex(c.Close, Panel.GetZIndex(c.View) + 5);
+                }
             }
         }
 
@@ -597,6 +682,7 @@ namespace WaveIsland
         {
             if (Switcher) return;
             Switcher = true;
+            BuildDesks();
             // Le dock reste affiche ; seule la bulle Windows descend
             App.Taskbar?.ShowDock(60);
             App.Taskbar?.WinAway(true);
@@ -793,10 +879,13 @@ namespace WaveIsland
                 }
                 case Mode.Fling:
                 {
-                    // La carte suit le doigt vers le haut
+                    // La carte suit le doigt vers le haut ; pres de la barre des bureaux, elle suit aussi sur le cote
                     _flingVel = _flingVel * 0.6 + dyStep / dt * 0.4;
                     double up = Math.Min(0, ty);
                     _fling.Y.Set(_flingFrom.Y + up + Math.Max(0, ty) * 0.2);
+                    bool nearBar = _deskBar != null && p.Y < DeskBarBottom + 80;
+                    _fling.X.Set(nearBar ? _flingFrom.X + tx : _flingFrom.X);
+                    HighlightDesk(PillAt(p));
                     Render();
                     break;
                 }
@@ -830,6 +919,9 @@ namespace WaveIsland
                 {
                     var c = _fling;
                     _fling = null;
+                    int desk = PillAt(p);
+                    HighlightDesk(-1);
+                    if (desk >= 0 && desk != VDesk.Current()) { MoveToDesk(c, desk); break; }
                     if (p.Y - _pd.Y < -_sh * 0.16 || _flingVel < -1100) CloseCard(c);
                     else { var sp = new Spring(0.7, 0.4); c.X.AnimateTo(_flingFrom.X, sp); c.Y.AnimateTo(_flingFrom.Y, sp); Kick(); }
                     break;
@@ -1032,11 +1124,104 @@ namespace WaveIsland
             Stack(_scroll.Value, animate: true);
         }
 
+        // ================== Bureaux (barre en haut de la vue des applis) ==================
+
+        private Border _deskBar;
+        private readonly List<(Border pill, int index)> _pills = new List<(Border, int)>();
+        private double DeskBarBottom => 24 + 46;
+
+        private void BuildDesks()
+        {
+            var desks = VDesk.List();
+            int cur = VDesk.Current();
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            _pills.Clear();
+            for (int i = 0; i < desks.Count; i++)
+            {
+                int idx = i;
+                var name = new TextBlock { Text = desks[i].name, Foreground = Brushes.White, FontSize = 13.5, FontWeight = i == cur ? FontWeights.SemiBold : FontWeights.Normal, VerticalAlignment = VerticalAlignment.Center };
+                var inner = new StackPanel { Orientation = Orientation.Horizontal };
+                inner.Children.Add(name);
+                if (desks.Count > 1)
+                {
+                    // Petite croix : fermer ce bureau (ses applis passent sur le bureau voisin)
+                    var x = new TextBlock { Text = "\uE711", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 9, Foreground = Brushes.White, Margin = new Thickness(10, 1, 0, 0), Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand };
+                    x.MouseLeftButtonDown += (a, b) => b.Handled = true;
+                    x.MouseLeftButtonUp += async (a, b) => { b.Handled = true; Finish(); await VDesk.Close(idx); };
+                    inner.Children.Add(x);
+                }
+                var pill = new Border
+                {
+                    CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 14, 8), Margin = new Thickness(4, 0, 4, 0), Child = inner, Cursor = Cursors.Hand,
+                    Background = new SolidColorBrush(i == cur ? Color.FromArgb(150, 255, 255, 255) : Color.FromArgb(60, 255, 255, 255)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(130, 255, 255, 255)), BorderThickness = new Thickness(1)
+                };
+                if (i == cur) name.Foreground = new SolidColorBrush(Color.FromRgb(20, 22, 28));
+                pill.MouseLeftButtonDown += (a, b) => b.Handled = true;
+                pill.MouseLeftButtonUp += async (a, b) => { b.Handled = true; Finish(); await VDesk.Switch(idx); };
+                pill.TouchDown += (a, b) => b.Handled = true;
+                pill.TouchUp += async (a, b) => { b.Handled = true; Finish(); await VDesk.Switch(idx); };
+                row.Children.Add(pill);
+                _pills.Add((pill, i));
+            }
+            var plus = new Border
+            {
+                CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(4, 0, 4, 0), Cursor = Cursors.Hand,
+                Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), BorderBrush = new SolidColorBrush(Color.FromArgb(130, 255, 255, 255)), BorderThickness = new Thickness(1),
+                Child = new TextBlock { Text = "\uE710", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 13, Foreground = Brushes.White }
+            };
+            plus.MouseLeftButtonDown += (a, b) => b.Handled = true;
+            plus.MouseLeftButtonUp += (a, b) => { b.Handled = true; Finish(); VDesk.New(); };
+            plus.TouchDown += (a, b) => b.Handled = true;
+            plus.TouchUp += (a, b) => { b.Handled = true; Finish(); VDesk.New(); };
+            row.Children.Add(plus);
+            _deskBar = new Border { Child = row };
+            _deskBar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(_deskBar, (_sw - _deskBar.DesiredSize.Width) / 2);
+            Canvas.SetTop(_deskBar, 24);
+            Panel.SetZIndex(_deskBar, 6000);
+            _deskBar.Opacity = 0;
+            _canvas.Children.Add(_deskBar);
+            _deskBar.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(220)));
+        }
+
+        /// <summary>Bureau sous le doigt (pour y deposer une appli), sinon -1.</summary>
+        private int PillAt(Point p)
+        {
+            foreach (var (pill, i) in _pills)
+            {
+                var tl = pill.TranslatePoint(new Point(0, 0), _canvas);
+                if (new Rect(tl.X - 6, tl.Y - 10, pill.ActualWidth + 12, pill.ActualHeight + 30).Contains(p)) return i;
+            }
+            return -1;
+        }
+
+        private void HighlightDesk(int idx)
+        {
+            int cur = VDesk.Current();
+            foreach (var (pill, i) in _pills)
+                pill.BorderBrush = new SolidColorBrush(i == idx ? Color.FromRgb(0x5E, 0xE7, 0xFF) : Color.FromArgb(130, 255, 255, 255));
+            foreach (var (pill, i) in _pills) pill.BorderThickness = new Thickness(i == idx ? 2.5 : 1);
+        }
+
+        /// <summary>Appli deposee sur un autre bureau : elle y part (et on y va avec elle).</summary>
+        private async void MoveToDesk(Card c, int desk)
+        {
+            var h = c.Src;
+            var sp = new Spring(0.8, 0.32);
+            c.W.AnimateTo(c.W.Value * 0.3, sp); c.H.AnimateTo(c.H.Value * 0.3, sp); c.Op.AnimateTo(0, Spring.Soft);
+            Kick();
+            await Task.Delay(220);
+            _openedApp = true;
+            Finish();
+            await VDesk.Move(h, desk);
+        }
+
         private void Remove(Card c)
         {
             Shots.Remove(c.Src);
             _cards.Remove(c);
-            foreach (var el in new UIElement[] { c.View, c.Shade, c.Label, c.Icon }) _canvas.Children.Remove(el);
+            foreach (var el in new UIElement[] { c.View, c.Shade, c.Label, c.Icon, c.Close }) if (el != null) _canvas.Children.Remove(el);
             if (Live.Count == 0 && !_cards.Any()) { Finish(); return; }
             CloseGap();
         }

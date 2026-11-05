@@ -21,6 +21,8 @@ namespace WaveIsland
         public event Action AssistKey;
         /// <summary>Lot 2 : Alt + Espace (recherche) et Impr. ecran (capture).</summary>
         public event Action SearchKey, ShotKey;
+        /// <summary>Win + Tab (et le glissement a 3 doigts vers le haut) : notre vue des applis.</summary>
+        public event Action TaskViewKey;
         private bool _hyper, _assistCombo, _hyperUsed;
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
         private static bool Held(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -90,6 +92,18 @@ namespace WaveIsland
                 int m = wParam.ToInt32();
                 bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
+                if (!injected && k.vkCode == 0x09 /* Tab */ && _winDown && Settings.Current.OwnTaskView)
+                {
+                    if (down)
+                    {
+                        _winOther = true;
+                        // Touche neutre : Windows ne verra pas « Win seul » au relachement (pas de menu Demarrer)
+                        Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                        _ui.BeginInvoke(new Action(() => TaskViewKey?.Invoke()));
+                    }
+                    return new IntPtr(1);
+                }
                 if (!injected && down && k.vkCode == 0x20 /* Espace */ && Settings.Current.SearchKey && Held(0x12) && !Held(0x11) && !_winDown)
                 {
                     // Alt + Espace : la recherche (une touche neutre evite que l'appli ouvre son menu au relachement d'Alt)

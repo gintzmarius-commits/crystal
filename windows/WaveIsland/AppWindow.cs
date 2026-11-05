@@ -282,6 +282,8 @@ namespace WaveIsland
             var tools = CardPanel();
             tools.Children.Add(Toggle("Recherche universelle (Alt + Espace)", "Applis, calculs, fichiers récents, Paramètres, web et assistant, dans une barre en verre",
                 () => S.SearchKey, v => { S.SearchKey = v; S.Save(); }));
+            tools.Children.Add(Toggle("Vue des applis Wave (Win + Tab, 3 doigts vers le haut)", "Remplace l'affichage des tâches de Windows : aperçus, croix pour fermer, bureaux (glisse un aperçu sur un bureau pour l'y déplacer)",
+                () => S.OwnTaskView, v => { S.OwnTaskView = v; S.Save(); }));
             tools.Children.Add(Toggle("Capture Wave (Impr. écran)", "L'écran est copié et enregistré dans Images > Captures Wave ; la capture tombe dans l'îlot (touche-la pour l'annoter)",
                 () => S.ShotKey, v => { S.ShotKey = v; S.Save(); }));
             tools.Children.Add(T("Écran de veille goutte", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));

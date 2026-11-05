@@ -54,6 +54,8 @@ namespace WaveIsland
         /// <summary>Lot 4 : Wave Link (appareils lies "id|nom|ip|port"), presse-papiers, continuite, rappels, resume du matin.</summary>
         public List<string> Linked { get; set; } = new List<string>();
         public bool ClipSync { get; set; } = true;
+        /// <summary>Win + Tab / 3 doigts vers le haut : la vue des applis de Wave Island au lieu de celle de Windows.</summary>
+        public bool OwnTaskView { get; set; } = true;
         public bool Handoff { get; set; } = true;
         public List<string> Reminders { get; set; } = new List<string>();
         public bool MorningBrief { get; set; } = true;
