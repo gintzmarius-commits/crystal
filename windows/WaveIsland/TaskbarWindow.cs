@@ -260,12 +260,36 @@ namespace WaveIsland
 
         private void SetFullscreen(bool full)
         {
+            // Nos propres animations plein ecran (vue des applis, fermeture, geste retour) ne doivent pas cacher le dock,
+            // et en mode tablette c'est le glissement du bas qui decide (le dock descend deja sur les applis)
+            if (full && (Tablet || AppMotion.Current != null || OwnWindowCovers()))
+            {
+                Log.I("Wave Theme : plein ecran ignore (animation de Wave Island ou mode tablette)");
+                if (_hiddenFull) { _hiddenFull = false; Visibility = Visibility.Visible; }
+                return;
+            }
             if (full == _hiddenFull) return;
             _hiddenFull = full;
             // Une appli en plein ecran (video, jeu) : la barre s'efface comme celle de Windows
             Visibility = full ? Visibility.Hidden : Visibility.Visible;
             if (!full && _hwnd != IntPtr.Zero)
                 Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        }
+
+        [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Native.POINT p);
+        [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr h, uint flags);
+
+        /// <summary>La fenetre plein ecran au milieu de l'ecran est-elle a Wave Island ?</summary>
+        private static bool OwnWindowCovers()
+        {
+            try
+            {
+                var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                var h = GetAncestor(WindowFromPoint(new Native.POINT { X = (sb.Left + sb.Right) / 2, Y = (sb.Top + sb.Bottom) / 2 }), 2 /* GA_ROOT */);
+                GetWindowThreadProcessId(h, out uint pid);
+                return pid == (uint)Environment.ProcessId;
+            }
+            catch { return false; }
         }
 
         // ================== Verre liquide ==================

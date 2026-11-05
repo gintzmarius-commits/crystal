@@ -59,6 +59,7 @@ namespace WaveIsland
             {
                 Apply();
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
+                if (Active) WatchTitle(AppInFront());
                 if (Active && ++_tick % 2 == 0 && AppMotion.Current == null) AppMotion.Cache(AppInFront());
             };
             _watch.Start();
@@ -159,10 +160,28 @@ namespace WaveIsland
         private const uint EVENT_SYSTEM_FOREGROUND = 3, WINEVENT_OUTOFCONTEXT = 0;
         private const int GWL_STYLE = -16, WS_MAXIMIZEBOX = 0x10000, WS_THICKFRAME = 0x40000;
 
+        private static IntPtr _nameHook;
+        private static WinEventProc _nameProc;
+        private static IntPtr _nameWnd;
+
+        /// <summary>Surveille le titre de l'appli au premier plan (chaque page a son titre) : historique du geste retour.</summary>
+        private static void WatchTitle(IntPtr hwnd)
+        {
+            if (hwnd == _nameWnd) return;
+            _nameWnd = hwnd;
+            if (_nameHook != IntPtr.Zero) { UnhookWinEvent(_nameHook); _nameHook = IntPtr.Zero; }
+            if (hwnd == IntPtr.Zero) return;
+            GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid == (uint)Environment.ProcessId) return;
+            _nameProc ??= (h, e, w, obj, child, th, t) => { if (obj == 0 && child == 0 && w == _nameWnd) AppMotion.TitleChanged(w); };
+            _nameHook = SetWinEventHook(0x800C /* EVENT_OBJECT_NAMECHANGE */, 0x800C, IntPtr.Zero, _nameProc, pid, 0, WINEVENT_OUTOFCONTEXT);
+        }
+
         private static void OnForeground(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
         {
             if (idObject != 0) return;
             Border(hwnd);
+            if (Active && AppInFront() == hwnd) WatchTitle(hwnd);
             if (Active)
             {
                 MaximizeIfApp(hwnd);

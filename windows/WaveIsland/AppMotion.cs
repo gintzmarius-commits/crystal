@@ -161,9 +161,54 @@ namespace WaveIsland
         public static async void Cache(IntPtr h)
         {
             if (h == IntPtr.Zero || Current != null) return;
+            string before = Title(h);
             var b = await Task.Run(() => Capture(h));
-            if (b != null) Shots[h] = b;
+            if (b == null) return;
+            Shots[h] = b;
+            // Image de la page actuelle (pour le geste retour), seulement si la page n'a pas change pendant la copie
+            if (Title(h) == before) { var cur = Page.TryGetValue(h, out var p) ? p : default; if (cur.title == null || cur.title == before) Page[h] = (before, b); }
         }
+
+        // ---- Pages precedentes (geste retour) : chaque fois que le titre de la fenetre change, la page d'avant est gardee ----
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+        private static string Title(IntPtr h) { var sb = new StringBuilder(300); GetWindowText(h, sb, 300); return sb.ToString(); }
+
+        private static readonly Dictionary<IntPtr, (string title, BitmapSource img)> Page = new Dictionary<IntPtr, (string, BitmapSource)>();
+        private static readonly Dictionary<IntPtr, List<(string title, BitmapSource img)>> BackPages = new Dictionary<IntPtr, List<(string, BitmapSource)>>();
+
+        /// <summary>Le titre de la fenetre a change : nouvelle page (on garde l'ancienne) ou retour a la page d'avant.</summary>
+        public static void TitleChanged(IntPtr h)
+        {
+            if (h == IntPtr.Zero) return;
+            string now = Title(h);
+            var cur = Page.TryGetValue(h, out var p) ? p : default;
+            if (cur.title == now) return;
+            if (!BackPages.TryGetValue(h, out var stack)) BackPages[h] = stack = new List<(string, BitmapSource)>();
+            if (stack.Count > 0 && stack[stack.Count - 1].title == now)
+            {
+                // Retour en arriere (geste, bouton du navigateur...) : la page d'avant redevient la page actuelle
+                Page[h] = stack[stack.Count - 1];
+                stack.RemoveAt(stack.Count - 1);
+            }
+            else
+            {
+                if (cur.img != null && !string.IsNullOrEmpty(cur.title))
+                {
+                    stack.Add(cur);
+                    if (stack.Count > 10) stack.RemoveAt(0);
+                }
+                Page[h] = (now, null);
+            }
+            if (BackPages.Count > 60) { BackPages.Clear(); Page.Clear(); }
+            // Image de la nouvelle page une fois affichee
+            var ui = Application.Current?.Dispatcher;
+            Task.Delay(800).ContinueWith(_ => ui?.BeginInvoke(new Action(() => Cache(h))));
+        }
+
+        /// <summary>Image de la page precedente de cette fenetre (sinon null).</summary>
+        public static BitmapSource PreviousPage(IntPtr h)
+            => BackPages.TryGetValue(h, out var s) && s.Count > 0 ? s[s.Count - 1].img : null;
 
         private AppMotion(IntPtr app)
         {
