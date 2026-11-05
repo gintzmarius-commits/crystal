@@ -2382,6 +2382,8 @@ class MaxScroll(ctx: Context, private val maxH: Int) : android.widget.ScrollView
     }
 }
 
+private typealias AState = com.liquidisland.assist.Assistant.State
+
 /** La bulle de l'assistant : degrade cyan / violet / rose qui respire, tourne ou pulse selon l'etat. */
 class OrbView(ctx: Context) : View(ctx) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -2392,18 +2394,17 @@ class OrbView(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         val t = (android.os.SystemClock.uptimeMillis() - t0) / 1000f
-        val S = com.liquidisland.assist.Assistant.State
         val (period, amp) = when (state) {
-            S.LISTENING -> 1.25f to 0.13f
-            S.SPEAKING -> 0.5f to 0.08f
-            S.THINKING -> 0.9f to 0.06f
+            AState.LISTENING -> 1.25f to 0.13f
+            AState.SPEAKING -> 0.5f to 0.08f
+            AState.THINKING -> 0.9f to 0.06f
             else -> 1f to 0f
         }
         val k = 1f + amp * kotlin.math.sin(t * 2f * Math.PI.toFloat() / period)
         val cx = width / 2f
         val cy = height / 2f
         val r = min(width, height) / 2f * 0.78f * k
-        val angle = if (state == S.THINKING) t * 400f else t * 40f
+        val angle = if (state == AState.THINKING) t * 400f else t * 40f
         c.save()
         c.rotate(angle, cx, cy)
         val colors = intArrayOf(Color.rgb(0x5E, 0xE7, 0xFF), Color.rgb(0x7B, 0x6C, 0xFF), Color.rgb(0xFF, 0x7A, 0xC8), Color.rgb(0x5E, 0xE7, 0xFF))
@@ -2412,6 +2413,6 @@ class OrbView(ctx: Context) : View(ctx) {
         c.drawCircle(cx, cy, r * 1.22f, glow)
         c.drawCircle(cx, cy, r, paint)
         c.restore()
-        if (state != S.IDLE && state != S.DONE) postInvalidateOnAnimation()
+        if (state != AState.IDLE && state != AState.DONE) postInvalidateOnAnimation()
     }
 }
