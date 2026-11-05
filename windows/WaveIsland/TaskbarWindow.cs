@@ -649,9 +649,10 @@ namespace WaveIsland
             if (it == null || !_buttons.TryGetValue(it.Key, out var b) || !(b is Grid g) || g.Children.Count == 0) return;
             if (!(g.Children[0] is FrameworkElement icon)) return;
             if (!(icon.RenderTransform is ScaleTransform st)) { st = new ScaleTransform(1, 1); icon.RenderTransform = st; icon.RenderTransformOrigin = new Point(0.5, 0.5); }
-            var a = new DoubleAnimation(1.35, 1, TimeSpan.FromMilliseconds(520)) { EasingFunction = new SpringEase() };
+            // Rebond leger : l'icone reste dans le dock
+            var a = new DoubleAnimation(1.1, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = new SpringEase() };
             st.BeginAnimation(ScaleTransform.ScaleXProperty, a);
-            st.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.75, 1, TimeSpan.FromMilliseconds(560)) { EasingFunction = new SpringEase() });
+            st.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1, TimeSpan.FromMilliseconds(440)) { EasingFunction = new SpringEase() });
         }
 
         private void DropPin(IDataObject d)
@@ -1271,6 +1272,16 @@ namespace WaveIsland
         {
             if (!Active) return;
             bool panelOpen = TaskbarPanel.Current != null || (App.Launcher?.IsOpen ?? false);
+            if (Tablet)
+            {
+                // Souris en mode tablette : tout en bas = le dock monte et reste tant que la souris est dessus
+                // (avant, il remontait puis redescendait en boucle)
+                Native.GetCursorPos(out var mp);
+                var msb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                bool mBottom = mp.Y >= msb.Bottom - 3 && mp.X >= msb.Left && mp.X < msb.Right;
+                bool mOver = mp.Y >= msb.Bottom - (int)((H + 20) * _k);
+                if (mBottom || (mOver && !_dropped)) _shownUntil = DateTime.Now.AddMilliseconds(700);
+            }
             // Mode tablette (4.0) : le dock disparait des qu'une appli est ouverte ; il revient d'un glissement du bas
             bool want = Tablet
                 ? !panelOpen && AppCovers() && DateTime.Now > _shownUntil
