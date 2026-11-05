@@ -47,9 +47,17 @@ namespace WaveIsland
 
         /// <summary>Se branche sur la sortie audio par defaut (et la rebranche si elle change).</summary>
         /// <summary>Niveau du son qui sort en ce moment (0..1), pour faire pulser l'ilot avec la musique.</summary>
+        private DateTime _peakRetry = DateTime.MinValue;
+
         public float Peak()
         {
-            try { Endpoint(); return _device?.AudioMeterInformation?.MasterPeakValue ?? 0; }
+            // Pas de sortie audio : on ne reessaie qu'une fois par minute (pas de journal rempli)
+            if (_device == null && DateTime.Now < _peakRetry) return 0;
+            try
+            {
+                if (_device == null) { _peakRetry = DateTime.Now.AddMinutes(1); Endpoint(); }
+                return _device?.AudioMeterInformation?.MasterPeakValue ?? 0;
+            }
             catch { return 0; }
         }
 
@@ -101,7 +109,7 @@ namespace WaveIsland
                         // Touche neutre : Windows ne verra pas « Win seul » au relachement (pas de menu Demarrer)
                         Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
                         Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
-                        _ui.BeginInvoke(new Action(() => TaskViewKey?.Invoke()));
+                        _ui.BeginInvoke(new Action(() => { Log.I("Win + Tab"); TaskViewKey?.Invoke(); }));
                     }
                     return new IntPtr(1);
                 }

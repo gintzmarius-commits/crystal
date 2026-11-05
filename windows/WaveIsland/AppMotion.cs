@@ -669,8 +669,9 @@ namespace WaveIsland
         /// <summary>Depuis le bureau (glisser la petite barre vers le haut) : la pile s'ouvre directement.</summary>
         public static void BeginSwitcher()
         {
-            if (Current != null) return;
-            if (!TaskbarWindow.AppWindows().Any()) return;
+            Log.I("Vue des applis demandee");
+            if (Current != null) { Log.I("Vue des applis : une animation est deja en cours"); return; }
+            if (!TaskbarWindow.AppWindows().Any()) { Log.I("Vue des applis : aucune appli ouverte"); return; }
             var m = new AppMotion(IntPtr.Zero);
             Current = m;
             m.Place();
