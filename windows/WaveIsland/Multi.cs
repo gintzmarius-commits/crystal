@@ -52,7 +52,7 @@ namespace WaveIsland
             if (Native.GetWindowRect(h, out var wr) && DwmGetWindowAttribute(h, 9, out var v, Marshal.SizeOf<Native.RECT>()) == 0)
             { l = v.Left - wr.Left; t = v.Top - wr.Top; r = wr.Right - v.Right; b = wr.Bottom - v.Bottom; }
             Native.SetWindowPos(h, topmost ? Native.HWND_TOPMOST : IntPtr.Zero, x - l, y - t, w + l + r, hh + t + b,
-                (topmost ? 0 : 0x4 /* NOZORDER */) | 0x10 /* NOACTIVATE */);
+                (uint)((topmost ? 0 : 0x4 /* NOZORDER */) | 0x10 /* NOACTIVATE */));
         }
 
         // ================== Depuis le dock ==================
@@ -210,7 +210,7 @@ namespace WaveIsland
             _handle?.Hide();
             _edge?.Hide();
             if (h == IntPtr.Zero || !IsWindow(h)) return;
-            Native.SetWindowPos(h, Native.HWND_NOTOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            Native.SetWindowPos(h, new IntPtr(-2) /* HWND_NOTOPMOST */, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
             if (keep) Native.ShowWindow(h, 3 /* SW_MAXIMIZE */);
         }
 
