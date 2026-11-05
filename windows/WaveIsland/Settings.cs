@@ -51,6 +51,14 @@ namespace WaveIsland
         /// <summary>Lot 2 : Alt + Espace = recherche, Impr. ecran = capture Wave.</summary>
         public bool SearchKey { get; set; } = true;
         public bool ShotKey { get; set; } = true;
+        /// <summary>Lot 4 : Wave Link (appareils lies "id|nom|ip|port"), presse-papiers, continuite, rappels, resume du matin.</summary>
+        public List<string> Linked { get; set; } = new List<string>();
+        public bool ClipSync { get; set; } = true;
+        public bool Handoff { get; set; } = true;
+        public List<string> Reminders { get; set; } = new List<string>();
+        public bool MorningBrief { get; set; } = true;
+        public bool MorningVoice { get; set; }
+        public string MorningDone { get; set; } = "";
         /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
         public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
         /// <summary>Applis epinglees en haut du menu (comme le menu Demarrer)</summary>

@@ -51,6 +51,11 @@ namespace WaveIsland
             Volume.SearchKey += SearchWindow.Toggle;
             Volume.ShotKey += WaveShot.Take;
             DropSaver.Start();
+            // Lot 4 : Wave Link, continuite, rappels, resume du matin
+            WaveLink.Start(Dispatcher);
+            Continuity.Start();
+            Reminders.Start();
+            System.Threading.Tasks.Task.Delay(25000).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => Morning.Maybe())));
             // Wave Theme : la barre des taches de Windows remplacee par la notre (le menu monte de la bulle Windows)
             // (Pas de nettoyage dans ProcessExit : il tournait hors du fil de l'interface et bloquait la fermeture,
             // donc la mise a jour ne pouvait pas remplacer l'appli.)

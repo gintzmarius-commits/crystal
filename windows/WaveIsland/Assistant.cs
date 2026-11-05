@@ -195,6 +195,15 @@ namespace WaveIsland
                 new JsonObject { ["level"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = 100 } }, "level"));
             t.Add(Tool("set_radio", "Active ou coupe le Wi-Fi ou le Bluetooth.",
                 new JsonObject { ["radio"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("wifi", "bluetooth") }, ["on"] = new JsonObject { ["type"] = "boolean" } }, "radio", "on"));
+            t.Add(Tool("set_reminder", "Crée un rappel : dans N minutes, à une heure précise (HH:MM, aujourd'hui ou demain), ou à la prochaine ouverture du PC. Le rappel arrive aussi sur le téléphone lié.",
+                new JsonObject
+                {
+                    ["text"] = Str("Ce qu'il faut rappeler"),
+                    ["minutes"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1 },
+                    ["time"] = Str("Heure HH:MM (facultatif)"),
+                    ["when_pc_opens"] = new JsonObject { ["type"] = "boolean" }
+                }, "text"));
+            t.Add(Tool("ring_phone", "Fait sonner le téléphone lié (pour le retrouver), même en silencieux.", new JsonObject()));
             t.Add(Tool("set_timer", "Lance un minuteur : l'îlot préviendra à la fin.",
                 new JsonObject { ["seconds"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1 }, ["label"] = Str("Nom du minuteur (facultatif)") }, "seconds"));
             return t;
@@ -375,6 +384,20 @@ namespace WaveIsland
                     return Task.FromResult(Brightness.Get() < 0 ? "Cet écran ne permet pas de régler la luminosité." : "Luminosité réglée.");
                 case "set_radio":
                     return SetRadio(S("radio"), a["on"]?.GetValue<bool>() ?? true);
+                case "set_reminder":
+                {
+                    string txt = S("text") ?? "";
+                    if (a["when_pc_opens"]?.GetValue<bool>() == true) { _ui.Invoke(() => Reminders.Add(txt, DateTime.Now, false, "pc")); return Task.FromResult("Rappel à la prochaine ouverture du PC."); }
+                    DateTime at;
+                    if (a["minutes"] != null) at = DateTime.Now.AddMinutes(a["minutes"].GetValue<int>());
+                    else if (TimeSpan.TryParse(S("time") ?? "", out var hm)) { at = DateTime.Today + hm; if (at < DateTime.Now) at = at.AddDays(1); }
+                    else at = DateTime.Now.AddHours(1);
+                    _ui.Invoke(() => Reminders.Add(txt, at));
+                    return Task.FromResult("Rappel programmé pour " + at.ToString("dddd HH:mm", new CultureInfo("fr-FR")) + ".");
+                }
+                case "ring_phone":
+                    _ui.Invoke(WaveLink.RingPhone);
+                    return Task.FromResult("Le téléphone sonne (s'il est joignable).");
                 case "set_timer":
                 {
                     int sec = a["seconds"]?.GetValue<int>() ?? 60;

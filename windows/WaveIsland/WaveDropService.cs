@@ -95,10 +95,29 @@ namespace WaveIsland
 
         public static string MyName => string.IsNullOrWhiteSpace(Settings.Current.DropName) ? Environment.MachineName : Settings.Current.DropName;
 
-        private Dictionary<string, string> Hello(bool offer) => new Dictionary<string, string>
+        private Dictionary<string, string> Hello(bool offer, bool link = false)
         {
-            ["name"] = MyName, ["platform"] = "windows", ["id"] = MyId.ToString(), ["offer"] = offer ? "1" : "0"
-        };
+            var h = new Dictionary<string, string>
+            {
+                ["name"] = MyName, ["platform"] = "windows", ["id"] = MyId.ToString(), ["offer"] = offer ? "1" : "0",
+                ["port"] = ((_tcp?.LocalEndpoint as IPEndPoint)?.Port ?? 0).ToString()
+            };
+            if (link) h["link"] = "1";
+            return h;
+        }
+
+        /// <summary>Lot 4 : petit message Wave Link (chiffre) a un appareil lie, par le Wi-Fi ; renvoie sa reponse.</summary>
+        public async Task<Dictionary<string, string>> SendLink(string ip, int port, Dictionary<string, string> msg)
+        {
+            using var tcp = new TcpClient();
+            using var c = new CancellationTokenSource(6000);
+            await tcp.ConnectAsync(ip, port, c.Token);
+            using var s = new WdProtocol.Session(tcp.GetStream(), true);
+            await s.HandshakeAsync(Hello(false, link: true), c.Token);
+            msg["port"] = ((_tcp?.LocalEndpoint as IPEndPoint)?.Port ?? 0).ToString();
+            await s.SendMapAsync(msg, c.Token);
+            return await s.ReceiveMapAsync(c.Token);
+        }
 
         // ================== Demarrage ==================
 
@@ -304,6 +323,16 @@ namespace WaveIsland
                     return Hello(sending);
                 }, ct);
                 string from = s.Peer.TryGetValue("name", out var nm) ? nm : "Appareil";
+                // Lot 4 : message Wave Link (batterie, presse-papiers, sonnerie, continuite, rappel)
+                if (s.Peer.TryGetValue("link", out var lk) && lk == "1")
+                {
+                    var m = await s.ReceiveMapAsync(ct);
+                    int pid = s.Peer.TryGetValue("id", out var ids) && int.TryParse(ids, out int pidv) ? pidv : 0;
+                    string ip = ((owner as TcpClient)?.Client?.RemoteEndPoint as IPEndPoint)?.Address.ToString();
+                    var reply = WaveLink.Receive(m, pid, from, ip);
+                    await s.SendMapAsync(reply, ct);
+                    return;
+                }
                 if (s.Peer.TryGetValue("offer", out var o) && o == "1") await Receive(s, from, via, ct);
                 else if (sending) await SendOver(s, from, via, ct);
             }

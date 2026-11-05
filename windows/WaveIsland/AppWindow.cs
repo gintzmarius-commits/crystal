@@ -364,6 +364,44 @@ namespace WaveIsland
             tab.Children.Add(Button("Remettre les glissements des bords de Windows", () => EdgeSwipes.Set(true)));
             _col.Children.Add(tab.Parent as FrameworkElement);
 
+            // --- Lot 4 : Wave Link ---
+            Section("Wave Link (PC + téléphone)");
+            var wl = CardPanel();
+            wl.Children.Add(T("Lie ton téléphone une seule fois (même Wi-Fi, Wave Drop allumé des deux côtés) : batterie du téléphone ici, " +
+                "copier sur l'un et coller sur l'autre, faire sonner l'autre, continuité des pages web et rappels partagés.", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 0, 2, 8)));
+            var linkedBox = new StackPanel();
+            void RefreshLinked()
+            {
+                linkedBox.Children.Clear();
+                foreach (var d in WaveLink.Linked())
+                {
+                    var id = d.Id;
+                    linkedBox.Children.Add(Button("Délier " + d.Name, () => { WaveLink.Unlink(id); RefreshLinked(); }, compact: true));
+                }
+                foreach (var n in App.Drop?.NearbyList().Where(x => !x.Beacon.IsPc && !WaveLink.IsLinked(x.Beacon.Id)) ?? Enumerable.Empty<WaveDropService.Nearby>())
+                {
+                    var nn = n;
+                    linkedBox.Children.Add(Button("Lier " + n.Label, () => WaveLink.Pair(nn)));
+                }
+                if (linkedBox.Children.Count == 0)
+                    linkedBox.Children.Add(T("Aucun téléphone proche : ouvre Wave Island sur le téléphone (Wave Drop activé, même Wi-Fi), puis touche « Actualiser ».", 12, FontWeights.Normal, InkSoft));
+            }
+            RefreshLinked();
+            WaveLink.Changed += () => Dispatcher.BeginInvoke(new Action(RefreshLinked));
+            wl.Children.Add(linkedBox);
+            wl.Children.Add(Button("Actualiser", RefreshLinked, compact: true));
+            wl.Children.Add(Button("Faire sonner mon téléphone", WaveLink.RingPhone));
+            wl.Children.Add(Toggle("Presse-papiers partagé", "Le texte copié sur le PC arrive dans le presse-papiers du téléphone",
+                () => S.ClipSync, v => { S.ClipSync = v; S.Save(); }));
+            wl.Children.Add(Toggle("Continuité", "La page web ouverte sur un appareil est proposée sur l'autre",
+                () => S.Handoff, v => { S.Handoff = v; S.Save(); }));
+            wl.Children.Add(Toggle("Résumé du matin", "Au premier déverrouillage de la journée : météo, batterie du téléphone, rappels, notifications",
+                () => S.MorningBrief, v => { S.MorningBrief = v; S.Save(); }));
+            wl.Children.Add(Toggle("Lire le résumé à voix haute", "Avec la voix de l'assistant",
+                () => S.MorningVoice, v => { S.MorningVoice = v; S.Save(); }));
+            wl.Children.Add(Button("Voir le résumé maintenant", () => Morning.Maybe(force: true), compact: true));
+            _col.Children.Add(wl.Parent as FrameworkElement);
+
             // --- Wave Drop ---
             Section("Wave Drop");
             var wd = CardPanel();

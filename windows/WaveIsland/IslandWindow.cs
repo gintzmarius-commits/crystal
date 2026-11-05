@@ -1047,6 +1047,13 @@ namespace WaveIsland
             _menuRow.Children.Add(MenuItem("\uE721", null, "Rechercher", () => { Collapse(); SearchWindow.Toggle(); }));
             _menuRow.Children.Add(MenuItem("\uE722", null, "Capture", () => { Collapse(); Dispatcher.BeginInvoke(new Action(WaveShot.Take), DispatcherPriority.Background); }));
             room -= 2;
+            // Lot 4 : faire sonner le telephone lie
+            if (WaveLink.Linked().Count > 0)
+            {
+                string bat = WaveLink.Battery >= 0 && (DateTime.Now - WaveLink.BatteryAt).TotalHours < 2 ? " " + WaveLink.Battery + " %" : "";
+                _menuRow.Children.Add(MenuItem("\uE8EA", null, "Tél." + bat, () => { Collapse(); WaveLink.RingPhone(); }));
+                room--;
+            }
             // Lot 1 : mode concentration
             _menuRow.Children.Add(MenuItem("\uE708", null, FocusMode.On ? "Fin concentr." : "Concentration", () => { Collapse(); FocusMode.Toggle(); }));
             room--;

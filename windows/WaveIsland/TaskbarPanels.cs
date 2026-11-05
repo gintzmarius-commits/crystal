@@ -293,6 +293,14 @@ namespace WaveIsland
                 if (t.Result >= 0) Dispatcher.Invoke(() => { briSlider.Value = t.Result; briSlider.Visibility = Visibility.Visible; });
             });
 
+            // Lot 4 : batterie du telephone lie
+            if (WaveLink.Battery >= 0 && (DateTime.Now - WaveLink.BatteryAt).TotalHours < 3)
+                _col.Children.Add(new TextBlock
+                {
+                    Text = "\uE8EA  " + (WaveLink.PhoneName ?? "Téléphone") + " : " + WaveLink.Battery + " %" + (WaveLink.Charging ? " (en charge)" : ""),
+                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe UI"), FontSize = 13, Margin = new Thickness(4, 12, 0, 0), Opacity = 0.9
+                });
+
             // Batterie + raccourcis
             var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
             var ps = System.Windows.Forms.SystemInformation.PowerStatus;
