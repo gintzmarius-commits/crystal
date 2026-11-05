@@ -46,6 +46,11 @@ namespace WaveIsland
         public bool FocusScheduled { get; set; }
         public int FocusFrom { get; set; } = 22;
         public int FocusTo { get; set; } = 7;
+        /// <summary>Lot 2 : ecran de veille goutte apres N minutes (0 = jamais).</summary>
+        public int SaverMinutes { get; set; } = 5;
+        /// <summary>Lot 2 : Alt + Espace = recherche, Impr. ecran = capture Wave.</summary>
+        public bool SearchKey { get; set; } = true;
+        public bool ShotKey { get; set; } = true;
         /// <summary>Nombre d'ouvertures de chaque appli depuis l'ilot (pour « les plus utilisees »)</summary>
         public Dictionary<string, int> LaunchCounts { get; set; } = new Dictionary<string, int>();
         /// <summary>Applis epinglees en haut du menu (comme le menu Demarrer)</summary>

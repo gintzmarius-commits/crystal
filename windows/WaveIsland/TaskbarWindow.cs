@@ -687,7 +687,7 @@ namespace WaveIsland
         [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 
         private static readonly Dictionary<string, string> TargetCache = new Dictionary<string, string>();
-        private static string LinkTarget(string lnk)
+        internal static string LinkTarget(string lnk)
         {
             if (TargetCache.TryGetValue(lnk, out var t)) return t;
             try

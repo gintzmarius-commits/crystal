@@ -19,6 +19,8 @@ namespace WaveIsland
         private bool _winDown, _winOther;
         /// <summary>Touche Copilot ou Microsoft 365 : l'assistant IA de l'ilot.</summary>
         public event Action AssistKey;
+        /// <summary>Lot 2 : Alt + Espace (recherche) et Impr. ecran (capture).</summary>
+        public event Action SearchKey, ShotKey;
         private bool _hyper, _assistCombo, _hyperUsed;
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
         private static bool Held(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -88,6 +90,19 @@ namespace WaveIsland
                 int m = wParam.ToInt32();
                 bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
+                if (!injected && down && k.vkCode == 0x20 /* Espace */ && Settings.Current.SearchKey && Held(0x12) && !Held(0x11) && !_winDown)
+                {
+                    // Alt + Espace : la recherche (une touche neutre evite que l'appli ouvre son menu au relachement d'Alt)
+                    Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                    Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    _ui.BeginInvoke(new Action(() => SearchKey?.Invoke()));
+                    return new IntPtr(1);
+                }
+                if (!injected && k.vkCode == 0x2C /* Impr. ecran */ && Settings.Current.ShotKey && !Held(0x12))
+                {
+                    if (down) _ui.BeginInvoke(new Action(() => ShotKey?.Invoke()));
+                    return new IntPtr(1);
+                }
                 if (!injected && k.vkCode != 0xE8 && Settings.Current.AiKeyEnabled)
                 {
                     // Touche Copilot = Win + Maj + F23 : on avale F23 (Copilot ne s'ouvre pas) et l'assistant demarre

@@ -55,6 +55,17 @@ namespace WaveIsland
             }
         }
 
+        /// <summary>Question tapee (recherche universelle) : meme reponse, sans micro.</summary>
+        public static async void AskText(string q)
+        {
+            if (string.IsNullOrWhiteSpace(q) || Now == State.Thinking) return;
+            Voice.StopListening();
+            Voice.StopSpeaking();
+            if ((DateTime.Now - _lastTurn).TotalMinutes > 5) _history.Clear();
+            _heard = q.Trim();
+            await Ask(_heard);
+        }
+
         /// <summary>Ilot ferme (clic droit) : on arrete tout.</summary>
         public static void Close()
         {

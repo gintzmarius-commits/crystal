@@ -47,6 +47,10 @@ namespace WaveIsland
             // Version finale : touche Copilot / Microsoft 365 = assistant IA dans l'ilot
             Assistant.Init(Dispatcher);
             Volume.AssistKey += Assistant.Trigger;
+            // Lot 2 : recherche universelle, capture Wave, ecran de veille goutte
+            Volume.SearchKey += SearchWindow.Toggle;
+            Volume.ShotKey += WaveShot.Take;
+            DropSaver.Start();
             // Wave Theme : la barre des taches de Windows remplacee par la notre (le menu monte de la bulle Windows)
             // (Pas de nettoyage dans ProcessExit : il tournait hors du fil de l'interface et bloquait la fermeture,
             // donc la mise a jour ne pouvait pas remplacer l'appli.)

@@ -277,6 +277,19 @@ namespace WaveIsland
                 () => S.FocusScheduled, v => { S.FocusScheduled = v; S.Save(); FocusMode.Check(); }));
             _col.Children.Add(amb.Parent as FrameworkElement);
 
+            // --- Lot 2 : outils ---
+            Section("Outils");
+            var tools = CardPanel();
+            tools.Children.Add(Toggle("Recherche universelle (Alt + Espace)", "Applis, calculs, fichiers récents, Paramètres, web et assistant, dans une barre en verre",
+                () => S.SearchKey, v => { S.SearchKey = v; S.Save(); }));
+            tools.Children.Add(Toggle("Capture Wave (Impr. écran)", "L'écran est copié et enregistré dans Images > Captures Wave ; la capture tombe dans l'îlot (touche-la pour l'annoter)",
+                () => S.ShotKey, v => { S.ShotKey = v; S.Save(); }));
+            tools.Children.Add(T("Écran de veille goutte", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
+            tools.Children.Add(Segmented(new[] { "Jamais", "2 min", "5 min", "10 min", "20 min" }, new[] { "0", "2", "5", "10", "20" },
+                () => S.SaverMinutes.ToString(), v => { S.SaverMinutes = int.Parse(v); S.Save(); }));
+            tools.Children.Add(Button("Voir l'écran de veille", DropSaver.Show2, compact: true));
+            _col.Children.Add(tools.Parent as FrameworkElement);
+
             // --- Assistant IA (version finale) ---
             Section("Assistant IA (Gemini)");
             var ai = CardPanel();

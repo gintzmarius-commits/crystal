@@ -1043,6 +1043,10 @@ namespace WaveIsland
             int room = 5 - (Updater.Available ? 1 : 0) - (Settings.Current.DropEnabled ? 1 : 0);
             // Assistant IA : bouton micro en premier
             _menuRow.Children.Add(MenuItem("\uE720", null, "Assistant", () => { Collapse(); Assistant.Trigger(); }));
+            // Lot 2 : recherche et capture
+            _menuRow.Children.Add(MenuItem("\uE721", null, "Rechercher", () => { Collapse(); SearchWindow.Toggle(); }));
+            _menuRow.Children.Add(MenuItem("\uE722", null, "Capture", () => { Collapse(); Dispatcher.BeginInvoke(new Action(WaveShot.Take), DispatcherPriority.Background); }));
+            room -= 2;
             // Lot 1 : mode concentration
             _menuRow.Children.Add(MenuItem("\uE708", null, FocusMode.On ? "Fin concentr." : "Concentration", () => { Collapse(); FocusMode.Toggle(); }));
             room--;
