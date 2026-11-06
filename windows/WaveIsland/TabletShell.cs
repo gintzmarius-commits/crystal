@@ -265,11 +265,46 @@ namespace WaveIsland
             // (« Changement de tâche » = Alt + Tab, on n'y touche pas)
             if (!(t.Contains("Applications actives") || t.Contains("Affichage des tâches") || t.Contains("Task View") || t.Contains("Active applications"))) return false;
             Log.I("Affichage des taches de Windows remplace par la vue des applis (« " + t + " »)");
-            Native.keybd_event(0x1B /* Echap */, 0, 0, UIntPtr.Zero);
-            Native.keybd_event(0x1B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
-            var ui = System.Windows.Application.Current?.Dispatcher;
-            System.Threading.Tasks.Task.Delay(180).ContinueWith(_ => ui?.BeginInvoke(new Action(AppMotion.BeginSwitcher)));
+            CloseTaskView(hwnd);
             return true;
+        }
+
+        private static bool _closingTv;
+
+        /// <summary>
+        /// Referme l'affichage des taches de Windows : Echap, puis Win + Tab (qui le ferme aussi) s'il est encore la ;
+        /// la vue de Wave Island ne s'ouvre qu'une fois celui de Windows vraiment parti (sinon elle etait cachee dessous).
+        /// </summary>
+        private static async void CloseTaskView(IntPtr tv)
+        {
+            if (_closingTv) return;
+            _closingTv = true;
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(120);   // qu'il soit pret a recevoir les touches
+                for (int attempt = 0; attempt < 4 && GetForegroundWindow() == tv && IsWindowVisible(tv); attempt++)
+                {
+                    if (attempt % 2 == 0)
+                    {
+                        Native.SetForegroundWindow(tv);
+                        Native.keybd_event(0x1B /* Echap */, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x1B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    }
+                    else
+                    {
+                        VolumeService.PassNextWinTab = true;   // notre propre Win + Tab : le laisser passer a Windows
+                        Native.keybd_event(0x5B, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x09, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x09, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                        Native.keybd_event(0x5B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    }
+                    await System.Threading.Tasks.Task.Delay(220);
+                }
+                bool gone = GetForegroundWindow() != tv || !IsWindowVisible(tv);
+                Log.I("Affichage des taches de Windows " + (gone ? "ferme" : "toujours ouvert"));
+                AppMotion.BeginSwitcher();
+            }
+            finally { _closingTv = false; }
         }
 
         private static System.Windows.Threading.DispatcherTimer _tvPoll;

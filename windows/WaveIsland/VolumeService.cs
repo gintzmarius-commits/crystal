@@ -23,6 +23,8 @@ namespace WaveIsland
         public event Action SearchKey, ShotKey;
         /// <summary>Win + Tab (et le glissement a 3 doigts vers le haut) : notre vue des applis.</summary>
         public event Action TaskViewKey;
+        /// <summary>Win + Tab envoye par Wave Island lui-meme pour fermer l'affichage des taches de Windows.</summary>
+        public static volatile bool PassNextWinTab;
         private bool _hyper, _assistCombo, _hyperUsed;
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
         private static bool Held(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -101,7 +103,8 @@ namespace WaveIsland
                 bool down = m == Native.WM_KEYDOWN || m == Native.WM_SYSKEYDOWN;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && !Program.Demo;
                 // Win + Tab (aussi envoye par les gestes du pave tactile, d'ou les touches « injectees » acceptees ici)
-                if (k.vkCode == 0x09 /* Tab */ && (_winDown || Held(0x5B) || Held(0x5C)) && !Held(0x12) && Settings.Current.OwnTaskView)
+                if (k.vkCode == 0x09 && PassNextWinTab && injected) { if (!down) PassNextWinTab = false; }
+                else if (k.vkCode == 0x09 /* Tab */ && (_winDown || Held(0x5B) || Held(0x5C)) && !Held(0x12) && Settings.Current.OwnTaskView)
                 {
                     if (down)
                     {
