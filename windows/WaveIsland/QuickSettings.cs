@@ -131,7 +131,8 @@ namespace WaveIsland
                 CornerRadius = new CornerRadius(14), Background = Plate, BorderBrush = PlateLine, BorderThickness = new Thickness(1), Child = g,
                 Margin = new Thickness(4), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1)
             };
-            var text = new TextBlock { Text = label, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 6), MaxWidth = 100 };
+            var text = new TextBlock { Text = label, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 6), MaxWidth = 100,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Opacity = 0.6 } };
             var cell = new StackPanel();
             cell.Children.Add(box);
             cell.Children.Add(text);
