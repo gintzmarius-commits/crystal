@@ -1383,6 +1383,52 @@ namespace WaveIsland
             return Shots.TryGetValue(h, out var b) ? b : null;
         }
 
+        /// <summary>
+        /// 3 doigts vers le bas (Win + D) : chaque appli a l'ecran se change en son icone, la ou elle est,
+        /// puis vole a sa place dans le dock. Faux s'il n'y a aucune appli visible (Windows fait alors son Win + D).
+        /// </summary>
+        public static bool SendAllToDock()
+        {
+            if (Current != null && Current.Stale()) Current.Finish();
+            if (Current != null) return true;
+            var wins = TaskbarWindow.AppWindows().Select(w => w.h).Where(h => !Native.IsIconic(h) && IsWindowVisible(h)).ToList();
+            if (wins.Count == 0) return false;
+            Log.I("3 doigts vers le bas : " + wins.Count + " appli(s) rangee(s) dans le dock");
+            var m = new AppMotion(IntPtr.Zero);
+            Current = m;
+            m.Place();
+            double k = App.Island != null ? VisualTreeHelper.GetDpi(App.Island).DpiScaleX : 1;
+            // Du fond vers l'avant : l'appli au premier plan reste dessus
+            var order = wins.AsEnumerable().Reverse().ToList();
+            foreach (var h in order)
+            {
+                Native.GetWindowRect(h, out var r);
+                var c = m.NewCard(h, Shots.TryGetValue(h, out var b) ? b : null);
+                c.X.Set(r.Left / k - m.Left); c.Y.Set(r.Top / k - m.Top);
+                c.W.Set(Math.Max(80, (r.Right - r.Left) / k)); c.H.Set(Math.Max(60, (r.Bottom - r.Top) / k));
+            }
+            m.Render();
+            App.Taskbar?.HideWindows(wins);
+            m.MorphAllToDock();
+            return true;
+        }
+
+        private async void MorphAllToDock()
+        {
+            // Chaque apercu se change en icone sur place
+            var morph = new Spring(0.85, 0.26);
+            foreach (var c in _cards)
+            {
+                double cx = c.X.Value + c.W.Value / 2, cy = c.Y.Value + c.H.Value / 2;
+                c.Mix.AnimateTo(1, morph);
+                c.W.AnimateTo(IconSize, morph); c.H.AnimateTo(IconSize, morph);
+                c.X.AnimateTo(cx - IconSize / 2, morph); c.Y.AnimateTo(cy - IconSize / 2, morph);
+            }
+            Kick();
+            await Task.Delay(200);
+            IconsToDock();
+        }
+
         /// <summary>Pour les tests : tout ranger dans le dock d'un coup.</summary>
         public void AllToDock()
         {

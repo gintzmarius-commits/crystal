@@ -955,9 +955,9 @@ namespace WaveIsland
         {
             WaveSound.Play(WaveSound.Kind.Land);
             var it = _items.FirstOrDefault(i => i.Windows.Contains(hwnd));
-            if (it == null || !_awaiting.Remove(it.Key)) { Splash(hwnd); return; }
+            // Plus de rebond a l'arrivee : l'icone se pose simplement a sa place
+            if (it == null || !_awaiting.Remove(it.Key)) return;
             ShowIcons();
-            Splash(hwnd);
         }
 
         private void ShowIcons()
@@ -1483,7 +1483,19 @@ namespace WaveIsland
                 }
             }
             catch { }
-            _wifi.Text = wifi ? "" : eth ? "" : "";
+            // Barres du Wi-Fi en direct (1, 2, 3 ou 4 barres comme Windows)
+            int bars = -1;
+            if (wifi)
+                try
+                {
+                    var prof = Windows.Networking.Connectivity.NetworkInformation.GetInternetConnectionProfile();
+                    if (prof != null && prof.IsWlanConnectionProfile) bars = prof.GetSignalBars() ?? -1;
+                    else if (!eth)
+                        foreach (var pr in Windows.Networking.Connectivity.NetworkInformation.GetConnectionProfiles())
+                            if (pr.IsWlanConnectionProfile && pr.GetNetworkConnectivityLevel() != Windows.Networking.Connectivity.NetworkConnectivityLevel.None) { bars = pr.GetSignalBars() ?? -1; break; }
+                }
+                catch { }
+            _wifi.Text = wifi && bars >= 0 ? (bars <= 1 ? "\uE872" : bars == 2 ? "\uE873" : bars == 3 ? "\uE874" : "\uE701") : wifi ? "\uE701" : eth ? "\uE839" : "\uF384";
             _wifi.Opacity = wifi || eth ? 1 : 0.55;
 
             // Son

@@ -18,7 +18,7 @@ namespace WaveIsland
     /// reglages rapides (Wi-Fi, Bluetooth, son, luminosite...) et notifications + calendrier.
     /// Ils montent de leur bulle comme une goutte.
     /// </summary>
-    public sealed class TaskbarPanel : Window
+    public sealed partial class TaskbarPanel : Window
     {
         private readonly Grid _root = new Grid();
         private readonly ScaleTransform _scale = new ScaleTransform(1, 1);
@@ -265,59 +265,6 @@ namespace WaveIsland
         private readonly List<(Border box, TextBlock icon, TextBlock label, Func<bool> state)> _toggles = new List<(Border, TextBlock, TextBlock, Func<bool>)>();
         private Windows.Devices.Radios.Radio _wifi, _bt;
 
-        private void BuildQuick()
-        {
-            var grid = new UniformGrid3();
-            grid.Add(Toggle("", "Wi-Fi", () => _wifi?.State == Windows.Devices.Radios.RadioState.On, () => FlipRadio(_wifi), () => Shortcuts.Start("ms-availablenetworks:")));
-            grid.Add(Toggle("", "Bluetooth", () => _bt?.State == Windows.Devices.Radios.RadioState.On, () => FlipRadio(_bt), () => Shortcuts.Start("ms-settings:bluetooth")));
-            grid.Add(Toggle("", "Mode avion", () => _wifi != null && _wifi.State != Windows.Devices.Radios.RadioState.On && (_bt == null || _bt.State != Windows.Devices.Radios.RadioState.On),
-                Airplane, () => Shortcuts.Start("ms-settings:network-airplanemode")));
-            grid.Add(Toggle("", "Wave Drop", () => Settings.Current.DropEnabled, () =>
-            {
-                var s = Settings.Current; s.DropEnabled = !s.DropEnabled; s.Save();
-                if (s.DropEnabled) App.Drop?.Start(); else App.Drop?.Stop();
-            }, () => App.OpenSettings()));
-            grid.Add(Toggle("", "Économie", () => false, () => Shortcuts.Start("ms-settings:batterysaver"), null));
-            grid.Add(Toggle("", "Projeter", () => false, () => { CloseAnimated(); WinKey(0x4B); }, null));
-            _col.Children.Add(grid.Panel);
-
-            // Luminosite (ecran de portable) et volume
-            var vol = App.Volume?.Read() ?? (0.5f, false);
-            var volSlider = new GlassBar("", vol.level, v => App.Volume?.SetLevel((float)v));
-            volSlider.Margin = new Thickness(0, 14, 0, 0);
-            var briSlider = new GlassBar("", 0.5, v => Brightness.Set(v)) { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 12, 0, 0) };
-            _col.Children.Add(briSlider);
-            _col.Children.Add(volSlider);
-            Task.Run(() => Brightness.Get()).ContinueWith(t =>
-            {
-                if (t.Result >= 0) Dispatcher.Invoke(() => { briSlider.Value = t.Result; briSlider.Visibility = Visibility.Visible; });
-            });
-
-            // Lot 4 : batterie du telephone lie
-            if (WaveLink.Battery >= 0 && (DateTime.Now - WaveLink.BatteryAt).TotalHours < 3)
-                _col.Children.Add(new TextBlock
-                {
-                    Text = "\uE8EA  " + (WaveLink.PhoneName ?? "Téléphone") + " : " + WaveLink.Battery + " %" + (WaveLink.Charging ? " (en charge)" : ""),
-                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe UI"), FontSize = 13, Margin = new Thickness(4, 12, 0, 0), Opacity = 0.9
-                });
-
-            // Batterie + raccourcis
-            var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
-            var ps = System.Windows.Forms.SystemInformation.PowerStatus;
-            bool hasBat = (ps.BatteryChargeStatus & System.Windows.Forms.BatteryChargeStatus.NoSystemBattery) == 0 && ps.BatteryLifePercent <= 1.0f;
-            if (hasBat)
-            {
-                int pct = (int)Math.Round(ps.BatteryLifePercent * 100);
-                bool charging = ps.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online;
-                bottom.Children.Add(PlateBox(new TextBlock { Text = $"{(char)((charging ? 0xE85A : 0xE850) + Math.Min(10, pct / 10))}  {pct} %", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe UI"), FontSize = 13 }, 15, new Thickness(12, 6, 14, 7)));
-            }
-            var set = Pill("", "Paramètres", () => { CloseAnimated(); Shortcuts.Start("ms-settings:"); });
-            DockPanel.SetDock(set, Dock.Right);
-            bottom.Children.Add(set);
-            _col.Children.Add(bottom);
-
-            LoadRadios();
-        }
 
         private async void LoadRadios()
         {
@@ -364,25 +311,6 @@ namespace WaveIsland
             Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
         }
 
-        private Border Toggle(string glyph, string label, Func<bool> state, Action click, Action longClick)
-        {
-            var icon = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 18, HorizontalAlignment = HorizontalAlignment.Center };
-            var text = new TextBlock { Text = label, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-            var st = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            st.Children.Add(icon);
-            st.Children.Add(text);
-            var box = new Border
-            {
-                Height = 74, CornerRadius = new CornerRadius(18), Background = Plate, BorderBrush = PlateLine, BorderThickness = new Thickness(1),
-                Child = st, Cursor = Cursors.Hand, Margin = new Thickness(4), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1)
-            };
-            box.MouseLeftButtonDown += (a, b) => Bounce(box, 0.9);
-            box.MouseLeftButtonUp += (a, b) => { Bounce(box, 1); click(); Dispatcher.BeginInvoke(new Action(RefreshToggles), System.Windows.Threading.DispatcherPriority.Background); };
-            if (longClick != null) box.MouseRightButtonUp += (a, b) => { CloseAnimated(); longClick(); };
-            box.ToolTip = longClick != null ? "Clic droit : plus de réglages" : null;
-            _toggles.Add((box, icon, text, state));
-            return box;
-        }
 
         private static void Bounce(FrameworkElement e, double to)
         {
@@ -421,9 +349,26 @@ namespace WaveIsland
             var head = new DockPanel { LastChildFill = false, Margin = new Thickness(2, 0, 0, 8) };
             head.Children.Add(T("Notifications", 15, FontWeights.SemiBold));
             var list = App.NoteHistory.ToList();
+            // Ne pas deranger (comme la cloche de Windows)
+            Border dnd = null;
+            dnd = Pill(FocusMode.On ? "\uE7ED" : "\uEA8F", FocusMode.On ? "Silence" : "Silence", () =>
+            {
+                FocusMode.Toggle();
+                dnd.Background = FocusMode.On ? On : Plate;
+                if (dnd.Child is StackPanel sp)
+                {
+                    ((TextBlock)sp.Children[0]).Text = FocusMode.On ? "\uE7ED" : "\uEA8F";
+                    ((TextBlock)sp.Children[1]).Text = FocusMode.On ? "Silence" : "Silence";
+                    foreach (TextBlock t in sp.Children) t.Foreground = FocusMode.On ? OnInk : Brushes.White;
+                }
+            });
+            if (FocusMode.On) { dnd.Background = On; foreach (TextBlock t in ((StackPanel)dnd.Child).Children) t.Foreground = OnInk; }
+            DockPanel.SetDock(dnd, Dock.Right);
+            head.Children.Add(dnd);
             if (list.Count > 0)
             {
                 var clear = Pill(null, "Tout effacer", () => { App.NoteHistory.Clear(); CloseAnimated(); });
+                clear.Margin = new Thickness(0, 0, 6, 0);
                 DockPanel.SetDock(clear, Dock.Right);
                 head.Children.Add(clear);
             }
@@ -440,28 +385,57 @@ namespace WaveIsland
             }
 
             // Calendrier du mois
+            // Calendrier (fleches pour changer de mois, comme Windows)
             var cal = new StackPanel();
-            cal.Children.Add(T(fr.TextInfo.ToTitleCase(now.ToString("dddd d MMMM", fr)), 15, FontWeights.SemiBold));
-            var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 7, Margin = new Thickness(0, 8, 0, 0) };
+            var calHead = new DockPanel { LastChildFill = true };
+            var monthGrid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 7, Margin = new Thickness(0, 8, 0, 0) };
+            var shown = new DateTime(now.Year, now.Month, 1);
+            var title = T("", 15, FontWeights.SemiBold);
+            void Fill()
+            {
+                title.Text = shown.Month == now.Month && shown.Year == now.Year ? fr.TextInfo.ToTitleCase(now.ToString("dddd d MMMM", fr)) : fr.TextInfo.ToTitleCase(shown.ToString("MMMM yyyy", fr));
+                FillMonth(monthGrid, shown, now);
+            }
+            Border Arrow(string g, int step)
+            {
+                var b = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = new TextBlock { Text = g, FontFamily = Icons, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+                b.MouseEnter += (x, y) => b.Background = PlateHover;
+                b.MouseLeave += (x, y) => b.Background = Brushes.Transparent;
+                b.MouseLeftButtonUp += (x, y) => { shown = shown.AddMonths(step); Fill(); };
+                DockPanel.SetDock(b, Dock.Right);
+                return b;
+            }
+            calHead.Children.Add(Arrow("\uE70D", 1));
+            calHead.Children.Add(Arrow("\uE70E", -1));
+            calHead.Children.Add(title);
+            cal.Children.Add(calHead);
+            cal.Children.Add(monthGrid);
+            Fill();
+            _col.Children.Add(PlateBox(cal, 20, new Thickness(14, 12, 14, 12)).With(b => b.Margin = new Thickness(0, 14, 0, 0)));
+        }
+
+        private static void FillMonth(System.Windows.Controls.Primitives.UniformGrid grid, DateTime first, DateTime now)
+        {
+            grid.Children.Clear();
             foreach (var d in new[] { "lu", "ma", "me", "je", "ve", "sa", "di" })
                 grid.Children.Add(new TextBlock { Text = d, FontSize = 11.5, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 4) });
-            var first = new DateTime(now.Year, now.Month, 1);
             int lead = ((int)first.DayOfWeek + 6) % 7;
             for (int i = 0; i < lead; i++) grid.Children.Add(new TextBlock());
-            for (int day = 1; day <= DateTime.DaysInMonth(now.Year, now.Month); day++)
+            for (int day = 1; day <= DateTime.DaysInMonth(first.Year, first.Month); day++)
             {
-                bool today = day == now.Day;
+                bool today = day == now.Day && first.Month == now.Month && first.Year == now.Year;
                 var tb = new TextBlock { Text = day.ToString(), FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = today ? OnInk : Brushes.White, FontWeight = today ? FontWeights.SemiBold : FontWeights.Normal };
                 grid.Children.Add(new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Background = today ? On : Brushes.Transparent, Child = tb, Margin = new Thickness(1) });
             }
-            cal.Children.Add(grid);
-            _col.Children.Add(PlateBox(cal, 20, new Thickness(14, 12, 14, 12)).With(b => b.Margin = new Thickness(0, 14, 0, 0)));
         }
 
         private FrameworkElement NoteCard(IslandNote n, DateTime when)
         {
             var st = new StackPanel();
             var top = new DockPanel { LastChildFill = true };
+            var x = new TextBlock { Text = "\uE711", FontFamily = Icons, FontSize = 10, Margin = new Thickness(10, 1, 0, 0), Opacity = 0.8, Cursor = Cursors.Hand, Background = Brushes.Transparent };
+            DockPanel.SetDock(x, Dock.Right);
+            top.Children.Add(x);
             var ago = new TextBlock { Text = Ago(when), FontSize = 11.5, Opacity = 0.75 };
             DockPanel.SetDock(ago, Dock.Right);
             top.Children.Add(ago);
@@ -474,8 +448,20 @@ namespace WaveIsland
             card.Cursor = Cursors.Hand;
             card.MouseEnter += (a, b) => card.Background = PlateHover;
             card.MouseLeave += (a, b) => card.Background = Plate;
+            x.MouseLeftButtonUp += (a, b) =>
+            {
+                b.Handled = true;
+                App.NoteHistory.RemoveAll(y => y.note == n);
+                // La carte part vers la droite puis la liste se resserre
+                var tt = new TranslateTransform();
+                card.RenderTransform = tt;
+                var go = new DoubleAnimation(420, TimeSpan.FromMilliseconds(260)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn } };
+                go.Completed += (c, d) => { if (card.Parent is Panel p) p.Children.Remove(card); };
+                tt.BeginAnimation(TranslateTransform.XProperty, go);
+            };
             card.MouseLeftButtonUp += (a, b) =>
             {
+                if (b.Handled) return;
                 CloseAnimated();
                 if (n.OnClick != null) n.OnClick();
                 else Shortcuts.OpenApp(n.Aumid, n.App);

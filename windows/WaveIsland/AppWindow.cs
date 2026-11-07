@@ -284,6 +284,10 @@ namespace WaveIsland
                 () => S.SearchKey, v => { S.SearchKey = v; S.Save(); }));
             tools.Children.Add(Toggle("Vue des applis Wave (Win + Tab, 3 doigts vers le haut)", "Remplace l'affichage des tâches de Windows : aperçus, croix pour fermer, bureaux (glisse un aperçu sur un bureau pour l'y déplacer)",
                 () => S.OwnTaskView, v => { S.OwnTaskView = v; S.Save(); }));
+            tools.Children.Add(Toggle("Tout ranger dans le dock (Win + D, 3 doigts vers le bas)", "Les applis à l'écran se changent en icônes et vont se poser dans le dock",
+                () => S.OwnShowDesktop, v => { S.OwnShowDesktop = v; S.Save(); }));
+            tools.Children.Add(Toggle("Réglages rapides et notifications Wave (Win + A, Win + N)", "Les raccourcis de Windows ouvrent les panneaux en verre de Wave Island",
+                () => S.OwnPanels, v => { S.OwnPanels = v; S.Save(); }));
             tools.Children.Add(Toggle("Capture Wave (Impr. écran)", "L'écran est copié et enregistré dans Images > Captures Wave ; la capture tombe dans l'îlot (touche-la pour l'annoter)",
                 () => S.ShotKey, v => { S.ShotKey = v; S.Save(); }));
             tools.Children.Add(T("Écran de veille goutte", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));

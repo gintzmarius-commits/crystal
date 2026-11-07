@@ -23,6 +23,10 @@ namespace WaveIsland
         public event Action SearchKey, ShotKey;
         /// <summary>Win + Tab (et le glissement a 3 doigts vers le haut) : notre vue des applis.</summary>
         public event Action TaskViewKey;
+        /// <summary>Win + D (3 doigts vers le bas), Win + A (reglages rapides), Win + N (notifications).</summary>
+        public event Action ShowDesktopKey, QuickKey, NotesKey;
+        /// <summary>Win + D renvoye a Windows (aucune appli a ranger).</summary>
+        public static volatile bool PassNextWinD;
         /// <summary>Win + Tab envoye par Wave Island lui-meme pour fermer l'affichage des taches de Windows.</summary>
         public static volatile bool PassNextWinTab;
         private bool _hyper, _assistCombo, _hyperUsed;
@@ -115,6 +119,25 @@ namespace WaveIsland
                         _ui.BeginInvoke(new Action(() => { Log.I("Win + Tab"); TaskViewKey?.Invoke(); }));
                     }
                     return new IntPtr(1);
+                }
+                // Win + D / Win + A / Win + N (aussi envoyes par les gestes du pave tactile : touches injectees acceptees)
+                if ((k.vkCode == 0x44 || k.vkCode == 0x41 || k.vkCode == 0x4E) && (_winDown || Held(0x5B) || Held(0x5C)) && !Held(0x11) && !Held(0x12) && !Held(0x10))
+                {
+                    bool mine = k.vkCode == 0x44 ? Settings.Current.OwnShowDesktop && !(PassNextWinD && injected) : Settings.Current.OwnPanels;
+                    if (k.vkCode == 0x44 && PassNextWinD && injected && !down) PassNextWinD = false;
+                    if (mine)
+                    {
+                        if (down)
+                        {
+                            _winOther = true;
+                            Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                            Native.keybd_event(0xE8, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                            var ev = k.vkCode == 0x44 ? ShowDesktopKey : k.vkCode == 0x41 ? QuickKey : NotesKey;
+                            int vk = k.vkCode;
+                            _ui.BeginInvoke(new Action(() => { Log.I("Win + " + (char)vk); ev?.Invoke(); }));
+                        }
+                        return new IntPtr(1);
+                    }
                 }
                 if (!injected && down && k.vkCode == 0x20 /* Espace */ && Settings.Current.SearchKey && Held(0x12) && !Held(0x11) && !_winDown)
                 {

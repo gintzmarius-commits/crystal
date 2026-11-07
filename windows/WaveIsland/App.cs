@@ -50,6 +50,18 @@ namespace WaveIsland
             // Lot 2 : recherche universelle, capture Wave, ecran de veille goutte
             Volume.SearchKey += SearchWindow.Toggle;
             Volume.TaskViewKey += AppMotion.BeginSwitcher;
+            Volume.ShowDesktopKey += () =>
+            {
+                // Aucune appli a l'ecran : Windows fait son Win + D habituel
+                if (AppMotion.SendAllToDock()) return;
+                VolumeService.PassNextWinD = true;
+                Native.keybd_event((byte)Native.VK_LWIN, 0, 0, UIntPtr.Zero);
+                Native.keybd_event(0x44, 0, 0, UIntPtr.Zero);
+                Native.keybd_event(0x44, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                Native.keybd_event((byte)Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            };
+            Volume.QuickKey += () => OpenPanel("quick");
+            Volume.NotesKey += () => OpenPanel("notes");
             TabletShell.WatchTaskView();
             Volume.ShotKey += WaveShot.Take;
             DropSaver.Start();
@@ -281,6 +293,14 @@ namespace WaveIsland
         }
 
         /// <summary>Met en place (ou retire) la barre des taches Wave Theme selon le reglage.</summary>
+        /// <summary>Win + A / Win + N : le panneau en verre, au-dessus de sa bulle (ou en bas a droite sans barre Wave).</summary>
+        private static void OpenPanel(string kind)
+        {
+            if (Taskbar != null && Taskbar.IsVisible) { Taskbar.OpenPanel(kind); return; }
+            var wa = SystemParameters.WorkArea;
+            TaskbarPanel.Toggle(kind, new Rect(wa.Right - 60, wa.Bottom - 8, 40, 8));
+        }
+
         public static void ApplyTaskbar()
         {
             try

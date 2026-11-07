@@ -56,6 +56,10 @@ namespace WaveIsland
         public bool ClipSync { get; set; } = true;
         /// <summary>Win + Tab / 3 doigts vers le haut : la vue des applis de Wave Island au lieu de celle de Windows.</summary>
         public bool OwnTaskView { get; set; } = true;
+        /// <summary>Win + D (3 doigts vers le bas) : les applis vont dans le dock.</summary>
+        public bool OwnShowDesktop { get; set; } = true;
+        /// <summary>Win + A et Win + N : nos reglages rapides et notifications en verre.</summary>
+        public bool OwnPanels { get; set; } = true;
         public bool Handoff { get; set; } = true;
         public List<string> Reminders { get; set; } = new List<string>();
         public bool MorningBrief { get; set; } = true;
