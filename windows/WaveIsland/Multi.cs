@@ -157,6 +157,9 @@ namespace WaveIsland
             Watch();
         }
 
+        /// <summary>Ou se pose l'appli flottante (pixels ecran).</summary>
+        public static System.Drawing.Rectangle SlideTarget() => SlideRect(0);
+
         private static System.Drawing.Rectangle SlideRect(double hideFrac)
         {
             var sb = Screen;

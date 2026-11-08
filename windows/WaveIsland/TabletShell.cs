@@ -452,7 +452,8 @@ namespace WaveIsland
             if (dy > 12 && AppMotion.Current == null) AppMotion.Begin(g.App);
             AppMotion.Current?.Drag(p, g.Start);
             // Doigt immobile assez haut : toutes les applis ouvertes
-            if (AppMotion.Current != null && !AppMotion.Current.Switcher && dy > 120 && (DateTime.Now - g.StillSince).TotalMilliseconds > 260)
+            // (pas dans la bulle « appli flottante » tout en haut)
+            if (AppMotion.Current != null && !AppMotion.Current.Switcher && !AppMotion.Current.InFloat && dy > 120 && (DateTime.Now - g.StillSince).TotalMilliseconds > 260)
                 AppMotion.Current.ShowSwitcher();
         }
 
@@ -466,6 +467,7 @@ namespace WaveIsland
             double dy = g.Start.Y - p.Y;
             double v = dy / Math.Max(0.05, (DateTime.Now - g.At).TotalSeconds);
             if (m.Switcher) { m.SettleSwitcher(); return; }
+            if (m.InFloat) { m.MakeFloating(); return; }
             if (dy > 70 || v > 900) m.CloseToDock();
             else m.Cancel();
         }

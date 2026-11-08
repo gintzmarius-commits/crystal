@@ -584,8 +584,151 @@ namespace WaveIsland
             double w = _sw * s, h = _sh * s;
             double cx = _sw / 2 + (finger.X - start.X) * 0.8;
             double bottom = Math.Min(_sh, finger.Y - Top + 14);
+            // Tout en haut : la bulle « appli flottante » happe l'appli
+            if (FloatZone(c, finger.Y - Top)) return;
             c.X.Set(cx - w / 2); c.Y.Set(bottom - h); c.W.Set(w); c.H.Set(h);
             Render();
+        }
+
+        // ================== Bulle « appli flottante » (comme iPadOS) ==================
+        // Glisser une appli tout en haut de l'ecran (depuis l'appli ou depuis la vue des applis) :
+        // une bulle de verre liquide apparait, entoure l'appli ; lachee dedans = l'appli devient flottante.
+
+        private Border _bubble;
+        private ScaleTransform _bubbleScale;
+        private bool _inFloat;
+        private Card _floatCard;
+
+        /// <summary>L'appli est dans la bulle (lacher = appli flottante).</summary>
+        public bool InFloat => _inFloat;
+
+        private Rect BubbleRect()
+        {
+            double bw = Math.Min(_sw * 0.2, 340), bh = Math.Min(bw * 1.5, _sh * 0.36);
+            double top = Switcher ? DeskBarBottom + 18 : 22;
+            return new Rect((_sw - bw) / 2, top, bw, bh);
+        }
+
+        private void EnsureBubble()
+        {
+            if (_bubble != null) return;
+            _bubbleScale = new ScaleTransform(0.8, 0.8);
+            var rim = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            rim.GradientStops.Add(new GradientStop(Color.FromArgb(240, 255, 255, 255), 0));
+            rim.GradientStops.Add(new GradientStop(Color.FromArgb(90, 255, 255, 255), 0.45));
+            rim.GradientStops.Add(new GradientStop(Color.FromArgb(200, 200, 225, 255), 1));
+            var fill = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+            fill.GradientStops.Add(new GradientStop(Color.FromArgb(70, 255, 255, 255), 0));
+            fill.GradientStops.Add(new GradientStop(Color.FromArgb(22, 255, 255, 255), 0.5));
+            fill.GradientStops.Add(new GradientStop(Color.FromArgb(46, 255, 255, 255), 1));
+            // Reflet du haut, comme une goutte
+            var shine = new Border
+            {
+                Height = 26, Margin = new Thickness(14, 6, 14, 0), VerticalAlignment = VerticalAlignment.Top, CornerRadius = new CornerRadius(14),
+                Background = new LinearGradientBrush(Color.FromArgb(110, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90)
+            };
+            var label = new TextBlock
+            {
+                Text = "Appli flottante", Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -26),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 8, ShadowDepth = 0, Opacity = 0.7 }
+            };
+            var g = new Grid();
+            g.Children.Add(shine);
+            g.Children.Add(label);
+            _bubble = new Border
+            {
+                CornerRadius = new CornerRadius(34), Background = fill, BorderBrush = rim, BorderThickness = new Thickness(2),
+                Child = g, Opacity = 0, IsHitTestVisible = false, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = _bubbleScale,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 34, ShadowDepth = 0, Color = Colors.White, Opacity = 0.45 }
+            };
+            var r = BubbleRect();
+            Canvas.SetLeft(_bubble, r.X); Canvas.SetTop(_bubble, r.Y);
+            _bubble.Width = r.Width; _bubble.Height = r.Height;
+            Panel.SetZIndex(_bubble, 1);
+            _canvas.Children.Add(_bubble);
+        }
+
+        private void BubbleTo(double opacity, double scale, int ms = 160)
+        {
+            if (_bubble == null) return;
+            var ease = new BackEase { Amplitude = 0.4, EasingMode = EasingMode.EaseOut };
+            _bubble.BeginAnimation(OpacityProperty, new DoubleAnimation(opacity, TimeSpan.FromMilliseconds(ms)));
+            _bubbleScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(ms + 100)) { EasingFunction = ease });
+            _bubbleScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(ms + 100)) { EasingFunction = ease });
+        }
+
+        private double _bubbleShown = -1;
+
+        /// <summary>
+        /// Le doigt monte (y = coordonnees de la fenetre) : la bulle apparait en haut a mesure qu'on s'approche,
+        /// et happe l'appli quand le doigt y arrive. Vrai si l'appli est dans la bulle.
+        /// </summary>
+        private bool FloatZone(Card c, double y)
+        {
+            if (!TabletShell.Active || c == null || c.Src == IntPtr.Zero) return false;
+            EnsureBubble();
+            var r = BubbleRect();
+            double appear = _sh * 0.5, zone = r.Bottom + 30;
+            double show = Math.Max(0, Math.Min(1, (appear - y) / Math.Max(1, appear - zone)));
+            bool inZone = y < zone;
+            // Apparition progressive (pas d'animation a chaque mouvement : seulement par paliers)
+            double step = inZone ? 2 : Math.Round(show * 4) / 4;
+            if (step != _bubbleShown)
+            {
+                _bubbleShown = step;
+                if (inZone) BubbleTo(1, 1.06, 140);
+                else BubbleTo(show * 0.9, 0.8 + 0.2 * show);
+            }
+            if (inZone && !_inFloat)
+            {
+                _inFloat = true;
+                _floatCard = c;
+                WaveSound.Play(WaveSound.Kind.Note);
+                Log.I("Mode tablette : appli dans la bulle (appli flottante)");
+            }
+            else if (!inZone && _inFloat) { _inFloat = false; _floatCard = null; }
+            if (_inFloat)
+            {
+                // L'appli rapetisse et se loge dans la bulle, avec un petit rebond
+                var snap = new Spring(0.62, 0.26);
+                double pad = 10;
+                c.X.AnimateTo(r.X + pad, snap); c.Y.AnimateTo(r.Y + pad, snap);
+                c.W.AnimateTo(r.Width - 2 * pad, snap); c.H.AnimateTo(r.Height - 2 * pad, snap);
+                Kick();
+            }
+            return _inFloat;
+        }
+
+        private void HideBubble() { _inFloat = false; _floatCard = null; _bubbleShown = -1; BubbleTo(0, 0.8); }
+
+        /// <summary>Lachee dans la bulle : l'appli sort de la bulle et devient une fenetre flottante sur le cote (Slide Over).</summary>
+        public async void MakeFloating()
+        {
+            var c = _floatCard ?? (_cards.Count > 0 ? _cards[0] : null);
+            if (c == null || c.Src == IntPtr.Zero) { Finish(); return; }
+            var h = c.Src;
+            _inFloat = false;
+            _openedApp = true;
+            Log.I("Mode tablette : appli flottante");
+            WaveSound.Play(WaveSound.Kind.Open);
+            // La bulle eclate doucement pendant que l'appli file vers sa place
+            BubbleTo(0, 1.25, 260);
+            double k = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            var t = TabletMulti.SlideTarget();
+            var fly = new Spring(0.72, 0.36);
+            c.Mix.AnimateTo(0, fly);
+            c.X.AnimateTo(t.X / k - Left, fly); c.Y.AnimateTo(t.Y / k - Top, fly);
+            c.W.AnimateTo(t.Width / k, fly); c.H.AnimateTo(t.Height / k, fly);
+            // Les autres apercus s'effacent (vue des applis)
+            foreach (var o in _cards) if (o != c) o.Op.AnimateTo(0, Spring.Soft);
+            Kick();
+            if (Native.IsIconic(h)) Native.ShowWindow(h, 9 /* SW_RESTORE */);
+            await Task.Delay(260);
+            TabletMulti.SlideOver(h);
+            await Settled();
+            await Task.Delay(80);
+            Finish();
         }
 
         /// <summary>Doigt leve : l'appli se change en son icone et va se ranger dans le dock avec un rebond.</summary>
@@ -904,10 +1047,13 @@ namespace WaveIsland
                     // La carte suit le doigt vers le haut ; pres de la barre des bureaux, elle suit aussi sur le cote
                     _flingVel = _flingVel * 0.6 + dyStep / dt * 0.4;
                     double up = Math.Min(0, ty);
-                    _fling.Y.Set(_flingFrom.Y + up + Math.Max(0, ty) * 0.2);
+                    int pill = PillAt(p);
+                    HighlightDesk(pill);
+                    // Glissee lentement tout en haut (pas sur un bureau) : la bulle « appli flottante »
+                    if (pill < 0 && _flingVel > -1100 && FloatZone(_fling, p.Y)) break;
                     bool nearBar = _deskBar != null && p.Y < DeskBarBottom + 80;
+                    _fling.Y.Set(_flingFrom.Y + up + Math.Max(0, ty) * 0.2);
                     _fling.X.Set(nearBar ? _flingFrom.X + tx : _flingFrom.X);
-                    HighlightDesk(PillAt(p));
                     Render();
                     break;
                 }
@@ -945,6 +1091,8 @@ namespace WaveIsland
                     _fling = null;
                     int desk = PillAt(p);
                     HighlightDesk(-1);
+                    if (_inFloat && _floatCard == c) { MakeFloating(); break; }
+                    if (_bubble != null) HideBubble();
                     if (desk >= 0 && desk != VDesk.Current()) { MoveToDesk(c, desk); break; }
                     if (p.Y - _pd.Y < -_sh * 0.16 || _flingVel < -1100) CloseCard(c);
                     else { var sp = new Spring(0.7, 0.4); c.X.AnimateTo(_flingFrom.X, sp); c.Y.AnimateTo(_flingFrom.Y, sp); Kick(); }
@@ -1485,6 +1633,27 @@ namespace WaveIsland
             shot("31a-tablette-goutte");
             await Task.Delay(1300);
             shot("31-tablette-bureau");
+            // Appli flottante : on remonte l'appli tout en haut, dans la bulle de verre
+            try
+            {
+                Native.ShowWindow(app, 9 /* SW_RESTORE */);
+                Native.SetForegroundWindow(app);
+                await Task.Delay(1500);
+                TabletShell.Down(bottom);
+                for (int i = 1; i <= 6; i++) { TabletShell.Move(new Point(bottom.X, bottom.Y - i * 12)); await Task.Delay(16); }
+                TabletShell.Up(new Point(bottom.X, bottom.Y - 72));
+                await Task.Delay(900);
+                TabletShell.Down(bottom);
+                double top = 60;
+                for (int i = 1; i <= 30; i++) { TabletShell.Move(new Point(bottom.X, bottom.Y - (bottom.Y - top) * i / 30.0)); await Task.Delay(16); }
+                await Task.Delay(500);
+                shot("38-tablette-bulle-flottante");
+                Log.I("DEMO : appli dans la bulle = " + (Current?.InFloat == true));
+                TabletShell.Up(new Point(bottom.X, top));
+                await Task.Delay(1400);
+                shot("39-tablette-appli-flottante");
+            }
+            catch (Exception e) { Log.I("DEMO : appli flottante : " + e.Message); }
         }
     }
 }
