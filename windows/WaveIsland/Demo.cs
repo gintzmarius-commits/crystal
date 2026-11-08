@@ -184,6 +184,21 @@ namespace WaveIsland
                     }
                 }
 
+                // Fenetre des reglages (nouveau look clair et colore)
+                try
+                {
+                    var aw = new AppWindow();
+                    aw.Show();
+                    await Wait(1.5);
+                    SnapWindow(aw, "40-reglages-app");
+                    aw.DemoScroll(820);
+                    await Wait(0.8);
+                    SnapWindow(aw, "41-reglages-app-fonctions");
+                    aw.Close();
+                    await Wait(0.4);
+                }
+                catch (Exception e) { Log.I("DEMO : fenetre des reglages : " + e.Message); }
+
                 // Version 4.0 : mode tablette facon iPad (sur la machine de test, force)
                 if (App.Taskbar != null)
                 {

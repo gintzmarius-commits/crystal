@@ -10,21 +10,69 @@ using System.Windows.Shapes;
 
 namespace WaveIsland
 {
-    /// <summary>L'appli Wave Island : une vraie fenetre (barre de titre, barre des taches, redimensionnable) en verre liquide, avec un menu a gauche.</summary>
+    /// <summary>L'appli Wave Island : une vraie fenetre (barre de titre, barre des taches, redimensionnable), claire et coloree, avec un menu a gauche.</summary>
     public sealed class AppWindow : Window
     {
-        private static readonly Color Accent = Color.FromRgb(176, 240, 210);
-        private static readonly Brush AccentBrush = new SolidColorBrush(Accent);
-        private static readonly Brush Ink = Brushes.White;
-        private static readonly Brush InkSoft = new SolidColorBrush(Color.FromArgb(160, 255, 255, 255));
-        private static readonly Brush Card = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255));
-        private static readonly Brush CardLine = new SolidColorBrush(Color.FromArgb(26, 255, 255, 255));
+        // Nouveau look : fond clair opaque, cartes blanches bien arrondies, accents en degrade bleu > violet > rose
+        private static readonly Color Accent = Color.FromRgb(108, 92, 246);
+        private static readonly Brush AccentBrush = Grad(Color.FromRgb(79, 124, 255), Color.FromRgb(139, 92, 246), Color.FromRgb(236, 72, 153));
+        private static readonly Brush AccentText = new SolidColorBrush(Color.FromRgb(98, 84, 230));
+        private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(28, 29, 42));
+        private static readonly Brush InkSoft = new SolidColorBrush(Color.FromRgb(108, 112, 134));
+        private static readonly Brush PageBg = new SolidColorBrush(Color.FromRgb(242, 243, 250));
+        private static readonly Brush Card = Brushes.White;
+        private static readonly Brush CardLine = new SolidColorBrush(Color.FromRgb(232, 233, 243));
+        private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(240, 241, 249));
+        private static readonly Brush SoftHover = new SolidColorBrush(Color.FromRgb(228, 230, 245));
+        private static readonly Brush TrackOff = new SolidColorBrush(Color.FromRgb(222, 224, 237));
+
+        private static LinearGradientBrush Grad(params Color[] c)
+        {
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            for (int i = 0; i < c.Length; i++) g.GradientStops.Add(new GradientStop(c[i], c.Length == 1 ? 0 : (double)i / (c.Length - 1)));
+            g.Freeze();
+            return g;
+        }
+
+        private static System.Windows.Media.Effects.DropShadowEffect Shadow(double blur = 22, double depth = 4, double opacity = 0.08, Color? c = null) =>
+            new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = blur, ShadowDepth = depth, Direction = 270, Opacity = opacity, Color = c ?? Color.FromRgb(40, 40, 90) };
+
+        /// <summary>Une couleur par rubrique (pastille ronde du menu et des titres).</summary>
+        private static readonly System.Collections.Generic.Dictionary<string, (string glyph, Color color)> SectionLook = new System.Collections.Generic.Dictionary<string, (string, Color)>
+        {
+            ["Position de l'îlot"] = ("\uE7F4", Color.FromRgb(79, 124, 255)),
+            ["Taille"] = ("\uE740", Color.FromRgb(56, 189, 248)),
+            ["Apparence"] = ("\uE790", Color.FromRgb(139, 92, 246)),
+            ["Fonctions"] = ("\uE9E9", Color.FromRgb(16, 185, 129)),
+            ["Ambiance"] = ("\uE706", Color.FromRgb(245, 158, 11)),
+            ["Outils"] = ("\uE90F", Color.FromRgb(20, 184, 166)),
+            ["Assistant IA (Gemini)"] = ("\uE99A", Color.FromRgb(168, 85, 247)),
+            ["Raccourcis (clic sur l'îlot)"] = ("\uE8A9", Color.FromRgb(236, 72, 153)),
+            ["Applis du dock (barre des tâches)"] = ("\uE71D", Color.FromRgb(99, 102, 241)),
+            ["Mode tablette"] = ("\uE70A", Color.FromRgb(14, 165, 233)),
+            ["Wave Link (PC + téléphone)"] = ("\uE8EA", Color.FromRgb(34, 197, 94)),
+            ["Wave Drop"] = ("\uE72D", Color.FromRgb(59, 130, 246)),
+            ["Mises à jour"] = ("\uE777", Color.FromRgb(249, 115, 22)),
+            ["Tester"] = ("\uE768", Color.FromRgb(234, 88, 12)),
+            ["Aide"] = ("\uE897", Color.FromRgb(244, 63, 94)),
+        };
+
+        private static Border Bubble(string glyph, Color c, double size)
+        {
+            var light = Color.FromRgb((byte)Math.Min(255, c.R + 50), (byte)Math.Min(255, c.G + 50), (byte)Math.Min(255, c.B + 50));
+            return new Border
+            {
+                Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Grad(light, c),
+                Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = size * 0.45, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                Effect = Shadow(10, 2, 0.25, c)
+            };
+        }
         private static readonly FontFamily Ui = new FontFamily("Segoe UI Variable Text, Segoe UI");
         private static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
         private readonly StackPanel _col = new StackPanel { Margin = new Thickness(28, 6, 28, 40), MaxWidth = 680 };
-        private readonly System.Collections.Generic.List<(string title, FrameworkElement anchor, Border nav)> _nav =
-            new System.Collections.Generic.List<(string, FrameworkElement, Border)>();
+        private readonly System.Collections.Generic.List<(string title, FrameworkElement anchor, Border nav, TextBlock label, Color color)> _nav =
+            new System.Collections.Generic.List<(string, FrameworkElement, Border, TextBlock, Color)>();
         private StackPanel _navPanel;
         private TextBlock _updateStatus;
 
@@ -37,8 +85,13 @@ namespace WaveIsland
             try
             {
                 var h = new System.Windows.Interop.WindowInteropHelper(w).Handle;
-                int on = 1;
+                int on = w is AppWindow ? 0 : 1; // la fenetre des reglages est claire
                 if (DwmSetWindowAttribute(h, 20, ref on, 4) != 0) DwmSetWindowAttribute(h, 19, ref on, 4);
+                if (w is AppWindow)
+                {
+                    int cap = 0x00FAF3F2; // barre de titre de la meme couleur que le fond (COLORREF 0x00BBGGRR)
+                    DwmSetWindowAttribute(h, 35, ref cap, 4);
+                }
                 int round = 2; // coins arrondis (Windows 11)
                 DwmSetWindowAttribute(h, 33, ref round, 4);
             }
@@ -86,46 +139,45 @@ namespace WaveIsland
             MinWidth = 720;
             MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = new SolidColorBrush(Color.FromRgb(14, 17, 19));
+            Background = PageBg;
             FontFamily = Ui;
             try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/WaveIsland;component/wave.ico")); } catch { }
             SourceInitialized += (a, b) => DarkTitleBar(this);
 
-            // Fond en verre liquide : le bureau est vu a travers la fenetre (pas de flou),
-            // avec un voile sombre pour bien lire
-            var glass = new GlassBackdrop(this, 8, 0.74);
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
+            var grid = new Grid { Background = PageBg };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
             grid.ColumnDefinitions.Add(new ColumnDefinition());
-            grid.Children.Add(glass.Image);
-            Grid.SetColumnSpan(glass.Image, 2);
 
-            // Menu de gauche
+            // Menu de gauche : une grande carte blanche arrondie
             var side = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
-                BorderThickness = new Thickness(0, 0, 1, 0)
+                Background = Card, CornerRadius = new CornerRadius(26), Margin = new Thickness(14, 14, 4, 14),
+                BorderBrush = CardLine, BorderThickness = new Thickness(1), Effect = Shadow()
             };
             var sideDock = new DockPanel { Margin = new Thickness(14, 18, 14, 16) };
-            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 0, 22) };
-            var logo = new Image { Width = 38, Height = 38, Margin = new Thickness(0, 0, 10, 0) };
+            var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 22) };
+            var logo = new Image { Width = 40, Height = 40, Margin = new Thickness(0, 0, 10, 0) };
             try { logo.Source = new BitmapImage(new Uri("pack://application:,,,/WaveIsland;component/wave.png")); } catch { }
             brand.Children.Add(logo);
-            brand.Children.Add(T("Wave Island", 19, FontWeights.SemiBold, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center));
+            var brandText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            brandText.Children.Add(T("Wave Island", 18, FontWeights.Bold, Ink));
+            brandText.Children.Add(T("Réglages", 12, FontWeights.SemiBold, AccentText));
+            brand.Children.Add(brandText);
             DockPanel.SetDock(brand, Dock.Top);
             sideDock.Children.Add(brand);
-            var ver = T("Version " + Updater.CurrentVersion, 12, FontWeights.Normal, InkSoft);
-            ver.Margin = new Thickness(10, 10, 0, 0);
+            var ver = new Border
+            {
+                CornerRadius = new CornerRadius(14), Background = Soft, Padding = new Thickness(12, 7, 12, 7), Margin = new Thickness(0, 10, 0, 0),
+                Child = T("Version " + Updater.CurrentVersion, 12, FontWeights.SemiBold, InkSoft)
+            };
             DockPanel.SetDock(ver, Dock.Bottom);
             sideDock.Children.Add(ver);
             _navPanel = new StackPanel();
-            sideDock.Children.Add(_navPanel);
+            sideDock.Children.Add(new ScrollViewer { Content = _navPanel, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden });
             side.Child = sideDock;
             grid.Children.Add(side);
 
-            _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _col, CanContentScroll = false };
+            _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = _col, CanContentScroll = false };
             _scroll.PreviewMouseWheel += SmoothWheel;
             _scroll.ScrollChanged += (a, b) => HighlightNav();
             Grid.SetColumn(_scroll, 1);
@@ -136,16 +188,22 @@ namespace WaveIsland
             KeyDown += (a, b) => { if (b.Key == Key.Escape) Close(); };
         }
 
-        private static readonly (string section, string label, string glyph)[] NavItems =
+        private static readonly (string section, string label)[] NavItems =
         {
-            ("Position de l'îlot", "Îlot", "\uE7F4"),
-            ("Apparence", "Apparence", "\uE790"),
-            ("Fonctions", "Fonctions", "\uE9E9"),
-            ("Raccourcis (clic sur l'îlot)", "Raccourcis", "\uE8A9"),
-            ("Wave Drop", "Wave Drop", "\uE72D"),
-            ("Mises à jour", "Mises à jour", "\uE777"),
-            ("Tester", "Tester", "\uE768"),
-            ("Aide", "Aide", "\uE897"),
+            ("Position de l'îlot", "Îlot"),
+            ("Apparence", "Apparence"),
+            ("Fonctions", "Fonctions"),
+            ("Ambiance", "Ambiance"),
+            ("Outils", "Outils"),
+            ("Assistant IA (Gemini)", "Assistant IA"),
+            ("Raccourcis (clic sur l'îlot)", "Raccourcis"),
+            ("Applis du dock (barre des tâches)", "Dock"),
+            ("Mode tablette", "Mode tablette"),
+            ("Wave Link (PC + téléphone)", "Wave Link"),
+            ("Wave Drop", "Wave Drop"),
+            ("Mises à jour", "Mises à jour"),
+            ("Tester", "Tester"),
+            ("Aide", "Aide"),
         };
 
         private void AddNav(string section, FrameworkElement anchor)
@@ -153,15 +211,22 @@ namespace WaveIsland
             foreach (var n in NavItems)
             {
                 if (n.section != section) continue;
+                var look = SectionLook.TryGetValue(section, out var l) ? l : ("\uE713", Accent);
                 var sp = new StackPanel { Orientation = Orientation.Horizontal };
-                sp.Children.Add(G(n.glyph, 15).With(g => { g.Margin = new Thickness(0, 0, 12, 0); g.VerticalAlignment = VerticalAlignment.Center; }));
-                sp.Children.Add(T(n.label, 14, FontWeights.Normal, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center));
-                var b = new Border { Height = 40, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 0, 12, 0), Child = sp, Cursor = Cursors.Hand, Background = Brushes.Transparent, Margin = new Thickness(0, 2, 0, 2) };
+                sp.Children.Add(Bubble(look.Item1, look.Item2, 28).With(g => { g.Margin = new Thickness(0, 0, 12, 0); g.VerticalAlignment = VerticalAlignment.Center; }));
+                var label = T(n.label, 14, FontWeights.SemiBold, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center);
+                sp.Children.Add(label);
+                var b = new Border { Height = 44, CornerRadius = new CornerRadius(22), Padding = new Thickness(8, 0, 12, 0), Child = sp, Cursor = Cursors.Hand, Background = Brushes.Transparent, Margin = new Thickness(0, 2, 0, 2) };
+                b.MouseEnter += (x, y) => { if (b.Tag == null) b.Background = Soft; };
+                b.MouseLeave += (x, y) => { if (b.Tag == null) b.Background = Brushes.Transparent; };
                 b.MouseLeftButtonUp += (x, y) => ScrollTo(anchor);
                 _navPanel.Children.Add(b);
-                _nav.Add((section, anchor, b));
+                _nav.Add((section, anchor, b, label, look.Item2));
             }
         }
+
+        /// <summary>Pour les captures du test automatique.</summary>
+        public void DemoScroll(double y) { _scroll.ScrollToVerticalOffset(y); }
 
         private void ScrollTo(FrameworkElement anchor)
         {
@@ -189,13 +254,39 @@ namespace WaveIsland
             }
             if (_scroll.VerticalOffset >= _scroll.ScrollableHeight - 2) current = _nav.Count - 1;
             for (int i = 0; i < _nav.Count; i++)
-                _nav[i].nav.Background = i == current ? new SolidColorBrush(Color.FromArgb(40, 176, 240, 210)) : Brushes.Transparent;
+            {
+                bool on = i == current;
+                var c = _nav[i].color;
+                _nav[i].nav.Tag = on ? "on" : null;
+                _nav[i].nav.Background = on ? new SolidColorBrush(Color.FromArgb(34, c.R, c.G, c.B)) : Brushes.Transparent;
+                _nav[i].label.Foreground = on ? new SolidColorBrush(Color.FromRgb((byte)(c.R * 0.75), (byte)(c.G * 0.75), (byte)(c.B * 0.75))) : Ink;
+            }
         }
 
         // ================== Structure ==================
 
         private void Build()
         {
+            // --- Bandeau colore en haut ---
+            var heroText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            heroText.Children.Add(T("Bonjour !", 26, FontWeights.Bold, Brushes.White));
+            heroText.Children.Add(T("Règle ta Wave Island comme tu l'aimes : l'îlot, la barre, le dock, l'assistant et plus encore.", 13.5, FontWeights.Normal,
+                new SolidColorBrush(Color.FromArgb(225, 255, 255, 255))).With(t => t.Margin = new Thickness(0, 4, 0, 0)));
+            var heroLogo = new Border
+            {
+                Width = 64, Height = 64, CornerRadius = new CornerRadius(32), Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                Margin = new Thickness(0, 0, 18, 0), Child = new Image { Width = 40, Height = 40 }.With(im => { try { im.Source = new BitmapImage(new Uri("pack://application:,,,/WaveIsland;component/wave.png")); } catch { } })
+            };
+            var heroRow = new DockPanel();
+            DockPanel.SetDock(heroLogo, Dock.Left);
+            heroRow.Children.Add(heroLogo);
+            heroRow.Children.Add(heroText);
+            _col.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(28), Background = AccentBrush, Padding = new Thickness(24, 22, 24, 22), Margin = new Thickness(0, 14, 0, 0),
+                Child = heroRow, Effect = Shadow(26, 6, 0.3, Color.FromRgb(120, 80, 230))
+            });
+
             // --- Position ---
             Section("Position de l'îlot");
             var pos = CardPanel();
@@ -306,11 +397,11 @@ namespace WaveIsland
             ai.Children.Add(T("Clé Gemini gratuite (aistudio.google.com > Get API key)", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 4, 0, 4)));
             var keyBox = new PasswordBox
             {
-                Password = S.AiKey ?? "", FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(10, 7, 10, 7),
-                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)), BorderBrush = CardLine, BorderThickness = new Thickness(1)
+                Password = S.AiKey ?? "", FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(6, 6, 6, 6),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0)
             };
             keyBox.PasswordChanged += (a, b) => { S.AiKey = keyBox.Password.Trim(); S.Save(); };
-            ai.Children.Add(keyBox);
+            ai.Children.Add(Field(keyBox));
             ai.Children.Add(Button("Créer une clé Gemini gratuite", () => Shortcuts.Start("https://aistudio.google.com/apikey"), compact: true));
             ai.Children.Add(T("Modèle", 12.5, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
             ai.Children.Add(Segmented(new[] { "Flash (rapide)", "Pro (plus malin, moins de questions gratuites)" }, new[] { "gemini-flash-latest", "gemini-pro-latest" },
@@ -344,9 +435,9 @@ namespace WaveIsland
             _pinList = new StackPanel();
             dk.Children.Add(_pinList);
             dk.Children.Add(T("Ajouter une appli", 12, FontWeights.SemiBold, InkSoft).With(t => t.Margin = new Thickness(2, 12, 0, 6)));
-            _pinSearch = new TextBox { FontSize = 14, Padding = new Thickness(10, 7, 10, 7), Background = Card, Foreground = Ink, BorderBrush = CardLine, BorderThickness = new Thickness(1), CaretBrush = Ink };
+            _pinSearch = new TextBox { FontSize = 14, Padding = new Thickness(6), Background = Brushes.Transparent, Foreground = Ink, BorderThickness = new Thickness(0), CaretBrush = Ink };
             _pinSearch.TextChanged += (a, b) => RefreshPins();
-            dk.Children.Add(_pinSearch);
+            dk.Children.Add(Field(_pinSearch, "\uE721"));
             _pinAdd = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             dk.Children.Add(_pinAdd);
             _col.Children.Add(dk.Parent as FrameworkElement);
@@ -417,11 +508,11 @@ namespace WaveIsland
             wd.Children.Add(T("Nom de ce PC", 13, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(2, 8, 0, 4)));
             var nameBox = new TextBox
             {
-                Text = WaveDropService.MyName, FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(10, 7, 10, 7),
-                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)), BorderBrush = CardLine, BorderThickness = new Thickness(1)
+                Text = WaveDropService.MyName, FontSize = 14, Foreground = Ink, CaretBrush = Ink, Padding = new Thickness(6),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0)
             };
             nameBox.TextChanged += (a, b) => { if (!string.IsNullOrWhiteSpace(nameBox.Text)) { S.DropName = nameBox.Text.Trim(); S.Save(); } };
-            wd.Children.Add(nameBox);
+            wd.Children.Add(Field(nameBox));
             wd.Children.Add(Button("Envoyer un fichier", () => App.Launcher.OpenDrop(null)));
             wd.Children.Add(Button("Ouvrir les fichiers reçus", () =>
             {
@@ -538,7 +629,7 @@ namespace WaveIsland
                 g.ColumnDefinitions.Add(new ColumnDefinition());
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var icon = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = Card, Margin = new Thickness(0, 0, 12, 0) };
+                var icon = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = Soft, Margin = new Thickness(0, 0, 12, 0) };
                 icon.Child = it.Icon != null ? (UIElement)new Image { Source = it.Icon, Width = 18, Height = 18 } : Center(G(it.Glyph, 14));
                 var name = T(it.Label, 14, FontWeights.Normal, Ink);
                 name.VerticalAlignment = VerticalAlignment.Center;
@@ -591,10 +682,12 @@ namespace WaveIsland
 
         private void Section(string title)
         {
-            var t = T(title, 20, FontWeights.SemiBold, Ink);
-            t.Margin = new Thickness(4, _col.Children.Count == 0 ? 18 : 30, 0, 10);
-            _col.Children.Add(t);
-            AddNav(title, t);
+            var look = SectionLook.TryGetValue(title, out var l) ? l : ("\uE713", Accent);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, _col.Children.Count <= 1 ? 22 : 32, 0, 12) };
+            row.Children.Add(Bubble(look.Item1, look.Item2, 34).With(b => { b.Margin = new Thickness(0, 0, 12, 0); b.VerticalAlignment = VerticalAlignment.Center; }));
+            row.Children.Add(T(title, 20, FontWeights.Bold, Ink).With(t => t.VerticalAlignment = VerticalAlignment.Center));
+            _col.Children.Add(row);
+            AddNav(title, row);
         }
 
         private StackPanel CardPanel()
@@ -602,10 +695,31 @@ namespace WaveIsland
             var sp = new StackPanel();
             var b = new Border
             {
-                CornerRadius = new CornerRadius(18), Background = Card, BorderBrush = CardLine, BorderThickness = new Thickness(1),
-                Padding = new Thickness(14), Child = sp
+                CornerRadius = new CornerRadius(24), Background = Card, BorderBrush = CardLine, BorderThickness = new Thickness(1),
+                Padding = new Thickness(18, 16, 18, 16), Child = sp, Effect = Shadow()
             };
             return sp;
+        }
+
+        /// <summary>Champ de texte arrondi (gris tres clair, contour colore quand on ecrit dedans).</summary>
+        private static Border Field(Control box, string glyph = null)
+        {
+            var dp = new DockPanel();
+            if (glyph != null)
+            {
+                var ic = G(glyph, 13).With(g => { g.Foreground = InkSoft; g.VerticalAlignment = VerticalAlignment.Center; g.Margin = new Thickness(4, 0, 4, 0); });
+                DockPanel.SetDock(ic, Dock.Left);
+                dp.Children.Add(ic);
+            }
+            dp.Children.Add(box);
+            var b = new Border
+            {
+                CornerRadius = new CornerRadius(18), Background = Soft, BorderBrush = Soft, BorderThickness = new Thickness(2),
+                Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 2, 0, 4), Child = dp
+            };
+            box.GotKeyboardFocus += (x, y) => { b.BorderBrush = AccentBrush; b.Background = Card; };
+            box.LostKeyboardFocus += (x, y) => { b.BorderBrush = Soft; b.Background = Soft; };
+            return b;
         }
 
         private static TextBlock T(string s, double size, FontWeight w, Brush c) => new TextBlock
@@ -624,7 +738,7 @@ namespace WaveIsland
 
         private FrameworkElement Segmented(string[] labels, string[] keys, Func<string> get, Action<string> set)
         {
-            var host = new Border { CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)), Padding = new Thickness(3), Margin = new Thickness(0, 2, 0, 2) };
+            var host = new Border { CornerRadius = new CornerRadius(20), Background = Soft, Padding = new Thickness(4), Margin = new Thickness(0, 2, 0, 2) };
             var grid = new UniformGrid { Columns = labels.Length };
             host.Child = grid;
             var cells = new Border[labels.Length];
@@ -634,16 +748,19 @@ namespace WaveIsland
                 {
                     bool on = keys[i] == get();
                     cells[i].Background = on ? AccentBrush : Brushes.Transparent;
-                    ((TextBlock)cells[i].Child).Foreground = on ? new SolidColorBrush(Color.FromRgb(12, 22, 18)) : Ink;
+                    cells[i].Effect = on ? Shadow(12, 2, 0.3, Accent) : null;
+                    ((TextBlock)cells[i].Child).Foreground = on ? Brushes.White : InkSoft;
                 }
             }
             for (int i = 0; i < labels.Length; i++)
             {
                 int k = i;
-                var t = T(labels[i], 13.5, FontWeights.SemiBold, Ink);
+                var t = T(labels[i], 13.5, FontWeights.SemiBold, InkSoft);
                 t.HorizontalAlignment = HorizontalAlignment.Center;
                 t.VerticalAlignment = VerticalAlignment.Center;
-                cells[i] = new Border { CornerRadius = new CornerRadius(11), Height = 34, Child = t, Cursor = Cursors.Hand, Background = Brushes.Transparent };
+                t.TextAlignment = TextAlignment.Center;
+                t.Margin = new Thickness(4, 0, 4, 0);
+                cells[i] = new Border { CornerRadius = new CornerRadius(16), MinHeight = 36, Child = t, Cursor = Cursors.Hand, Background = Brushes.Transparent };
                 cells[i].MouseLeftButtonUp += (a, b) => { set(keys[k]); Refresh(); };
                 grid.Children.Add(cells[i]);
             }
@@ -653,22 +770,21 @@ namespace WaveIsland
 
         private FrameworkElement Toggle(string label, string sub, Func<bool> get, Action<bool> set)
         {
-            var g = new Grid { Margin = new Thickness(0, 6, 0, 6), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            var g = new Grid { Margin = new Thickness(0, 7, 0, 7), Background = Brushes.Transparent, Cursor = Cursors.Hand };
             g.ColumnDefinitions.Add(new ColumnDefinition());
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var texts = new StackPanel { Margin = new Thickness(2, 0, 12, 0) };
-            texts.Children.Add(T(label, 14.5, FontWeights.Normal, Ink));
-            if (sub != null) texts.Children.Add(T(sub, 12, FontWeights.Normal, InkSoft));
-            var track = new Border { Width = 46, Height = 28, CornerRadius = new CornerRadius(14), VerticalAlignment = VerticalAlignment.Center };
+            var texts = new StackPanel { Margin = new Thickness(2, 0, 14, 0) };
+            texts.Children.Add(T(label, 14.5, FontWeights.SemiBold, Ink));
+            if (sub != null) texts.Children.Add(T(sub, 12.5, FontWeights.Normal, InkSoft).With(t => t.Margin = new Thickness(0, 2, 0, 0)));
+            var track = new Border { Width = 50, Height = 30, CornerRadius = new CornerRadius(15), VerticalAlignment = VerticalAlignment.Center };
             var knobMove = new TranslateTransform();
-            var knob = new Ellipse { Width = 22, Height = 22, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(3, 0, 0, 0), RenderTransform = knobMove };
+            var knob = new Ellipse { Width = 24, Height = 24, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(3, 0, 0, 0), RenderTransform = knobMove, Effect = Shadow(6, 1, 0.25) };
             track.Child = knob;
             void Refresh()
             {
                 bool on = get();
-                track.Background = on ? AccentBrush : new SolidColorBrush(Color.FromArgb(55, 255, 255, 255));
-                knob.Fill = on ? new SolidColorBrush(Color.FromRgb(12, 22, 18)) : Brushes.White;
-                knobMove.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(on ? 18 : 0, TimeSpan.FromMilliseconds(220))
+                track.Background = on ? AccentBrush : TrackOff;
+                knobMove.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(on ? 20 : 0, TimeSpan.FromMilliseconds(220))
                 {
                     EasingFunction = new System.Windows.Media.Animation.BackEase { Amplitude = 0.35, EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
                 });
@@ -685,15 +801,15 @@ namespace WaveIsland
         {
             var root = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };
             var head = new Grid();
-            var name = T(label, 14, FontWeights.Normal, Ink);
-            var val = T("", 13, FontWeights.SemiBold, AccentBrush);
-            val.HorizontalAlignment = HorizontalAlignment.Right;
+            var name = T(label, 14, FontWeights.SemiBold, Ink);
+            var val = T("", 12.5, FontWeights.Bold, AccentText);
+            var valBox = new Border { CornerRadius = new CornerRadius(11), Background = new SolidColorBrush(Color.FromRgb(238, 236, 255)), Padding = new Thickness(9, 2, 9, 3), Child = val, HorizontalAlignment = HorizontalAlignment.Right };
             head.Children.Add(name);
-            head.Children.Add(val);
-            var area = new Grid { Height = 26, Background = Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(0, 4, 0, 0) };
-            var track = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(Color.FromArgb(45, 255, 255, 255)), VerticalAlignment = VerticalAlignment.Center };
-            var fill = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = AccentBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
-            var thumb = new Ellipse { Width = 20, Height = 20, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            head.Children.Add(valBox);
+            var area = new Grid { Height = 30, Background = Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(0, 4, 0, 0) };
+            var track = new Border { Height = 8, CornerRadius = new CornerRadius(4), Background = TrackOff, VerticalAlignment = VerticalAlignment.Center };
+            var fill = new Border { Height = 8, CornerRadius = new CornerRadius(4), Background = AccentBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            var thumb = new Ellipse { Width = 22, Height = 22, Fill = Brushes.White, Stroke = new SolidColorBrush(Accent), StrokeThickness = 3, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Effect = Shadow(8, 1, 0.25) };
             area.Children.Add(track);
             area.Children.Add(fill);
             area.Children.Add(thumb);
@@ -704,15 +820,15 @@ namespace WaveIsland
             {
                 double v = get();
                 val.Text = Math.Round(v) + " px";
-                double w = Math.Max(0, area.ActualWidth - 20);
+                double w = Math.Max(0, area.ActualWidth - 22);
                 double x = w * (v - min) / (max - min);
                 thumb.Margin = new Thickness(x, 0, 0, 0);
-                fill.Width = Math.Max(0, x + 10);
+                fill.Width = Math.Max(0, x + 11);
             }
             void FromMouse(MouseEventArgs e)
             {
-                double w = Math.Max(1, area.ActualWidth - 20);
-                double x = Math.Max(0, Math.Min(w, e.GetPosition(area).X - 10));
+                double w = Math.Max(1, area.ActualWidth - 22);
+                double x = Math.Max(0, Math.Min(w, e.GetPosition(area).X - 11));
                 double v = Math.Round(min + (max - min) * x / w);
                 if (Math.Abs(v - get()) < 0.5) return;
                 set(v);
@@ -729,41 +845,56 @@ namespace WaveIsland
 
         private FrameworkElement Button(string text, Action click, bool compact = false, bool danger = false)
         {
-            var t = T(text, 13.5, FontWeights.SemiBold, danger ? new SolidColorBrush(Color.FromRgb(255, 140, 130)) : Ink);
+            var t = T(text, 13.5, FontWeights.SemiBold, danger ? new SolidColorBrush(Color.FromRgb(225, 45, 70)) : AccentText);
             t.HorizontalAlignment = HorizontalAlignment.Center;
             t.VerticalAlignment = VerticalAlignment.Center;
             t.TextWrapping = TextWrapping.NoWrap;
-            var normal = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
-            var hover = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255));
+            var normal = danger ? new SolidColorBrush(Color.FromRgb(255, 236, 239)) : new SolidColorBrush(Color.FromRgb(238, 236, 255));
+            var hover = danger ? new SolidColorBrush(Color.FromRgb(255, 222, 228)) : new SolidColorBrush(Color.FromRgb(226, 222, 255));
             var b = new Border
             {
-                CornerRadius = new CornerRadius(14), Height = 40, Background = normal, Child = t, Cursor = Cursors.Hand,
-                Margin = compact ? new Thickness(3) : new Thickness(0, 4, 0, 4)
+                CornerRadius = new CornerRadius(21), Height = 42, Background = normal, Child = t, Cursor = Cursors.Hand,
+                Margin = compact ? new Thickness(3) : new Thickness(0, 4, 0, 4), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1)
             };
             b.MouseEnter += (x, y) => b.Background = hover;
-            b.MouseLeave += (x, y) => b.Background = normal;
-            b.MouseLeftButtonUp += (x, y) => click();
+            b.MouseLeave += (x, y) => { b.Background = normal; Press(b, 1); };
+            b.MouseLeftButtonDown += (x, y) => Press(b, 0.96);
+            b.MouseLeftButtonUp += (x, y) => { Press(b, 1); click(); };
             return b;
+        }
+
+        private static void Press(Border b, double to)
+        {
+            var a = new System.Windows.Media.Animation.DoubleAnimation(to, TimeSpan.FromMilliseconds(140)) { EasingFunction = new System.Windows.Media.Animation.QuadraticEase() };
+            b.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+            b.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, a);
         }
 
         private FrameworkElement Chip(string glyph, string label, Action click)
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(G(glyph, 12).With(g => { g.VerticalAlignment = VerticalAlignment.Center; g.Margin = new Thickness(0, 0, 6, 0); }));
-            sp.Children.Add(T(label, 12.5, FontWeights.Normal, Ink));
+            sp.Children.Add(G(glyph, 12).With(g => { g.VerticalAlignment = VerticalAlignment.Center; g.Margin = new Thickness(0, 0, 7, 0); g.Foreground = AccentText; }));
+            sp.Children.Add(T(label, 12.5, FontWeights.SemiBold, Ink));
             var b = new Border
             {
-                CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-                Padding = new Thickness(11, 6, 12, 6), Margin = new Thickness(0, 6, 6, 0), Child = sp,
-                Cursor = click == null ? Cursors.Arrow : Cursors.Hand, Opacity = click == null ? 0.35 : 1
+                CornerRadius = new CornerRadius(16), Background = Soft,
+                Padding = new Thickness(12, 7, 14, 7), Margin = new Thickness(0, 6, 6, 0), Child = sp,
+                Cursor = click == null ? Cursors.Arrow : Cursors.Hand, Opacity = click == null ? 0.4 : 1
             };
-            if (click != null) b.MouseLeftButtonUp += (x, y) => click();
+            if (click != null)
+            {
+                b.MouseEnter += (x, y) => b.Background = SoftHover;
+                b.MouseLeave += (x, y) => b.Background = Soft;
+                b.MouseLeftButtonUp += (x, y) => click();
+            }
             return b;
         }
 
         private FrameworkElement SmallIcon(string glyph, Action click)
         {
-            var b = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = Center(G(glyph, 11)) };
+            var b = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = Soft, Cursor = Cursors.Hand, Margin = new Thickness(4, 0, 0, 0), Child = Center(G(glyph, 11).With(g => g.Foreground = InkSoft)) };
+            b.MouseEnter += (x, y) => b.Background = SoftHover;
+            b.MouseLeave += (x, y) => b.Background = Soft;
             b.MouseLeftButtonUp += (x, y) => click();
             return b;
         }
