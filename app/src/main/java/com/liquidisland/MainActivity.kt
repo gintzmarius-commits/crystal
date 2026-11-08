@@ -1247,6 +1247,8 @@ class MainActivity : Activity() {
             background = Look.bubble(color)
             setImageDrawable(LineIcon(kind, Color.WHITE, d))
             setPadding(dp(8), dp(8), dp(8), dp(8))
+            outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
             elevation = dpf(3)
         }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(12) })
         row.addView(text(title, 19f, Look.INK, bold = true))
