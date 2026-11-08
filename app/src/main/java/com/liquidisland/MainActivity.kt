@@ -270,6 +270,8 @@ class MainActivity : Activity() {
             "assist1" -> com.liquidisland.assist.Assistant.demo(this, 1)
             "assist2" -> com.liquidisland.assist.Assistant.demo(this, 2)
             "live" -> askLive()
+            // Mesures de performance : effet du verre choisi
+            "blur", "clear" -> { Prefs.setGlassMode(this, i.getStringExtra("ci")!!); IslandService.instance?.applySettings(); IslandService.instance?.updateStrip() }
             "stop" -> { Prefs.setEnabled(this, false); stopService(Intent(this, IslandService::class.java)) }
             "fullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
             "exitfullscreen" -> if (Build.VERSION.SDK_INT >= 30) window.insetsController?.show(android.view.WindowInsets.Type.statusBars())

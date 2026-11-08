@@ -13,6 +13,8 @@ namespace WaveIsland
     /// </summary>
     public sealed class ScreenCapture : IDisposable
     {
+        /// <summary>Nom pour les mesures (ilot, barre, panneau).</summary>
+        public string Name = "fond";
         private IntPtr _memDc, _dib, _old, _bits;
         private int _w, _h;
         public WriteableBitmap Bitmap { get; private set; }
@@ -34,6 +36,7 @@ namespace WaveIsland
             int sw = Math.Max(0, Math.Min(w - sx, sub.Width)), sh = Math.Max(0, Math.Min(h - sy, sub.Height));
             if (sw == 0 || sh == 0) return false;
 
+            Perf.Hit("copie-ecran-" + Name);
             IntPtr screen = Native.GetDC(IntPtr.Zero);
             try { Native.BitBlt(_memDc, sx, sy, sw, sh, screen, x + sx, y + sy, Native.SRCCOPY); }
             finally { Native.ReleaseDC(IntPtr.Zero, screen); }
@@ -70,6 +73,7 @@ namespace WaveIsland
             // Image en Bgr32 : l'alpha est ignore, plus besoin de le corriger pixel par pixel
             int stride = w * 4;
             IntPtr start = _bits + (sy * w + sx) * 4;
+            Perf.Hit("envoi-gpu-" + Name);
             Bitmap.WritePixels(new Int32Rect(sx, sy, sw, sh), start, (sh - 1) * stride + sw * 4, stride);
             return true;
         }

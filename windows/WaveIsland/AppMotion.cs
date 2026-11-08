@@ -536,8 +536,11 @@ namespace WaveIsland
                 moving |= _scroll.Moving;
                 Stack(_scroll.Value, animate: false);
             }
+            long pf = Perf.FrameStart();
+            Perf.Hit("image-apercus");
             foreach (var c in _cards) { c.X.Tick(); c.Y.Tick(); c.W.Tick(); c.H.Tick(); c.Op.Tick(); c.Mix.Tick(); moving |= c.X.Moving || c.Y.Moving || c.W.Moving || c.H.Moving || c.Op.Moving || c.Mix.Moving; }
             Render();
+            Perf.FrameEnd(pf);
             if (!moving) { CompositionTarget.Rendering -= OnFrame; _animating = false; }
         }
 

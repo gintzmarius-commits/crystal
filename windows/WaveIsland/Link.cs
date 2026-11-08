@@ -72,7 +72,7 @@ namespace WaveIsland
             // Presse-papiers du PC -> telephone (texte), si active
             var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
             _clipSeq = GetClipboardSequenceNumber();
-            t.Tick += (a, b) => WatchClipboard();
+            t.Tick += (a, b) => { Perf.Hit("lien-presse-papiers"); WatchClipboard(); };
             t.Start();
         }
 

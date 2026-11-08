@@ -32,7 +32,7 @@ namespace WaveIsland
         private const double Pad = 54, WH = H + Pad, EdgeY = Pad + 6;
 
         private readonly Canvas _root = new Canvas();
-        private readonly ScreenCapture _cap = new ScreenCapture();
+        private readonly ScreenCapture _cap = new ScreenCapture { Name = "barre" };
         private readonly DispatcherTimer _capTimer, _tick;
         private readonly FrameGate _gate = new FrameGate();
         private IntPtr _hwnd, _tray;
@@ -92,9 +92,9 @@ namespace WaveIsland
             BuildClock();
 
             _capTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
-            _capTimer.Tick += (a, b) => Capture();
+            _capTimer.Tick += (a, b) => { Perf.Hit("barre-capture"); Capture(); };
             _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
-            _tick.Tick += (a, b) => Tick();
+            _tick.Tick += (a, b) => { Perf.Hit("barre-horloge"); Tick(); };
 
             // Glisser une appli (menu Windows) ou un raccourci / programme (bureau, Explorateur) sur la barre : epinglee
             AllowDrop = true;
@@ -140,7 +140,7 @@ namespace WaveIsland
             _capTimer.Start();
             _tick.Start();
             _mouse = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
-            _mouse.Tick += (a, b) => AutoHide();
+            _mouse.Tick += (a, b) => { Perf.Hit("barre-souris"); AutoHide(); };
             _mouse.Start();
             Log.I("Wave Theme : barre des taches active");
         }
@@ -426,11 +426,14 @@ namespace WaveIsland
         private void OnFrame(object s, EventArgs e)
         {
             if (!_gate.Ready()) return;
+            long pf = Perf.FrameStart();
+            Perf.Hit("image-barre");
             _appsW.Tick();
             bool moving = _appsW.Moving;
             foreach (var sv in _slots.Values) { sv.Tick(); moving |= sv.Moving; }
             foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
             Layout();
+            Perf.FrameEnd(pf);
             if (!moving)
             {
                 CompositionTarget.Rendering -= OnFrame; _animating = false;

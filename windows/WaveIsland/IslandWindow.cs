@@ -40,7 +40,7 @@ namespace WaveIsland
         private readonly GlassEffect _fx = new GlassEffect();
         private readonly Grid _box = new Grid { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly RectangleGeometry _clip = new RectangleGeometry();
-        private readonly ScreenCapture _cap = new ScreenCapture();
+        private readonly ScreenCapture _cap = new ScreenCapture { Name = "ilot" };
 
         private readonly SpringValue _w, _h, _alpha = new SpringValue(0), _tint = new SpringValue(0), _level = new SpringValue(0);
         private readonly DispatcherTimer _captureTimer, _hideTimer, _watchTimer, _hoverTimer, _animTimer;
@@ -313,7 +313,7 @@ namespace WaveIsland
             };
 
             _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
-            _captureTimer.Tick += (a, b) => CaptureFrame();
+            _captureTimer.Tick += (a, b) => { Perf.Hit("ilot-capture"); CaptureFrame(); };
             _hideTimer = new DispatcherTimer();
             _hideTimer.Tick += (a, b) =>
             {
@@ -324,11 +324,11 @@ namespace WaveIsland
                 Collapse();
             };
             _watchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            _watchTimer.Tick += (a, b) => Watch();
+            _watchTimer.Tick += (a, b) => { Perf.Hit("ilot-surveillance"); Watch(); };
             _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
             _hoverTimer.Tick += (a, b) => { _hoverTimer.Stop(); if (_hover && _mode == Mode.Collapsed && HasLive) ShowLive(); };
             _animTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(90) };
-            _animTimer.Tick += (a, b) => AnimateLive();
+            _animTimer.Tick += (a, b) => { Perf.Hit("ilot-musique"); AnimateLive(); };
 
             // Glisser un fichier sur l'ilot : Wave Drop
             AllowDrop = true;
@@ -1122,8 +1122,11 @@ namespace WaveIsland
         private void OnFrame(object sender, EventArgs e)
         {
             if (!_gate.Ready()) return;
+            long pf = Perf.FrameStart();
+            Perf.Hit("image-ilot");
             _w.Tick(); _h.Tick(); _alpha.Tick(); _tint.Tick(); _level.Tick();
             Render();
+            Perf.FrameEnd(pf);
             if (!_w.Moving && !_h.Moving && !_alpha.Moving && !_tint.Moving && !_level.Moving)
             {
                 CompositionTarget.Rendering -= OnFrame;

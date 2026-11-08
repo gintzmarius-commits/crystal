@@ -29,8 +29,17 @@ namespace WaveIsland
             try
             {
                 var s = Settings.Current;
+                Perf.Folder = Folder;
                 await Wait(2.5);
+                Perf.Write($"demarrage : interface prete {Perf.StartupMs:0} ms apres le lancement | processeurs {Environment.ProcessorCount} | ecran {Frames.ScreenHz()} Hz | cadence choisie {Frames.Fps} i/s");
+                // Mesure 1 : ilot seul au repos (rien ne bouge)
+                await Wait(3);
+                await Perf.Idle("ilot seul", 15);
                 island.Snap("01-repos", Folder);
+                // Mesure 2 : animation d'une notification
+                await Perf.Animation("notification ilot", () => island.ShowNote(new IslandNote { App = "Messages", Title = "Mesure", Text = "Animation de l'ilot" }), 1.6);
+                island.Collapse();
+                await Wait(1.2);
 
                 island.ShowVolume(0.30f, false);
                 await Wait(0.12);
@@ -174,6 +183,17 @@ namespace WaveIsland
                     await Wait(1.0);
                     Log.I("DEMO : barre des taches Wave Theme " + (App.Taskbar.Active ? "active" : "inactive"));
                     App.NoteHistory.Insert(0, (new IslandNote { App = "Messages", Title = "Léa", Text = "On se retrouve à 20h devant le ciné ?" }, DateTime.Now.AddMinutes(-3)));
+                    // Mesure 3 : ilot + barre des taches au repos ; puis l'animation de la barre (goutte)
+                    await Wait(2);
+                    await Perf.Idle("ilot + barre des taches", 15);
+                    await Perf.Animation("barre : descend puis remonte", () => { App.Taskbar.Drop(); System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => App.Taskbar.Dispatcher.BeginInvoke(new Action(App.Taskbar.Rise))); }, 2.2);
+                    await Wait(1);
+                    // Mesure 4 : panneau des reglages rapides ouvert (verre en direct)
+                    App.Taskbar.OpenPanel("quick");
+                    await Wait(1.5);
+                    await Perf.Idle("reglages rapides ouverts", 8);
+                    TaskbarPanel.Current?.CloseAnimated();
+                    await Wait(0.8);
                     foreach (var (kind, shot) in new[] { ("quick", "25-reglages-rapides"), ("notes", "26-notifications") })
                     {
                         App.Taskbar.OpenPanel(kind);
@@ -218,11 +238,14 @@ namespace WaveIsland
                 try
                 {
                     await Wait(3);
-                    Native.keybd_event(0x5B, 0, 0, UIntPtr.Zero);
-                    Native.keybd_event(0x09, 0, 0, UIntPtr.Zero);
-                    Native.keybd_event(0x09, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
-                    Native.keybd_event(0x5B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
-                    await Wait(1.5);
+                    // Mesure 5 : ouverture de la vue des applis (apercus en verre)
+                    await Perf.Animation("vue des applis (Win + Tab)", () =>
+                    {
+                        Native.keybd_event(0x5B, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x09, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x09, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                        Native.keybd_event(0x5B, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    }, 1.5);
                     Log.I("DEMO : vue des applis ordinateur " + (AppMotion.Current != null ? "ouverte" : "PAS ouverte"));
                     ScreenShot("35-vue-applis-ordi");
                     AppMotion.CloseCurrent();

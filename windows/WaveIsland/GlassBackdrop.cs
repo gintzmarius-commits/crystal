@@ -17,7 +17,7 @@ namespace WaveIsland
     {
         public readonly Image Image = new Image { Stretch = Stretch.Fill };
         private readonly GlassEffect _fx = new GlassEffect();
-        private readonly ScreenCapture _cap = new ScreenCapture();
+        private readonly ScreenCapture _cap = new ScreenCapture { Name = "panneau" };
         private readonly Window _w;
         private readonly double _radius, _tint;
         private DispatcherTimer _timer;
@@ -48,7 +48,7 @@ namespace WaveIsland
                 Image.Source = flat;
             }
             _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
-            _timer.Tick += (a, b) => Grab();
+            _timer.Tick += (a, b) => { Perf.Hit("panneau-capture"); Grab(); };
             _timer.Start();
             Update();
         }

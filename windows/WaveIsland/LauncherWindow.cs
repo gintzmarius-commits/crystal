@@ -33,7 +33,7 @@ namespace WaveIsland
         private readonly Grid _root = new Grid();
         private readonly Image _glass = new Image { Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly DropEffect _fx = new DropEffect();
-        private readonly ScreenCapture _cap = new ScreenCapture();
+        private readonly ScreenCapture _cap = new ScreenCapture { Name = "menu" };
         private readonly Border _content = new Border { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly RectangleGeometry _clip = new RectangleGeometry();
         private readonly DispatcherTimer _captureTimer;

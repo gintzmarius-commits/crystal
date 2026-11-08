@@ -211,6 +211,53 @@ grep "Bord du haut tire" $OUT/log.txt | while read -r l; do echo "::notice::$l";
 grep -q "Fond capture pour le verre" $OUT/log.txt || echo "::warning::Pas de capture du fond (refraction)"
 grep "LiquidIsland" $OUT/log.txt | while read -r l; do echo "::notice::$l"; done
 
+# ===== Mesures de performance (perf.txt) =====
+perf() { echo "$1" | tee -a $OUT/perf.txt; echo "::notice::PERF $1"; }
+cpu_ticks() { adb shell "p=\$(pidof $P); cat /proc/\$p/stat" | awk '{print $14+$15}'; }
+ctx_sw() { adb shell "p=\$(pidof $P); cat /proc/\$p/task/*/status" 2>/dev/null | awk '/voluntary_ctxt_switches/ {s+=$2} END {print s+0}'; }
+threads() { adb shell "p=\$(pidof $P); ls /proc/\$p/task | wc -l" | tr -d '\r '; }
+gfx_line() { adb shell dumpsys gfxinfo $P | grep -m1 "$1" | sed 's/^ *//' | tr -d '\r'; }
+measure_idle() {
+  local t0 c0 t1 c1
+  adb shell dumpsys gfxinfo $P reset > /dev/null
+  t0=$(cpu_ticks); c0=$(ctx_sw)
+  sleep $2
+  t1=$(cpu_ticks); c1=$(ctx_sw)
+  perf "repos [$1] ${2}s : processeur $(awk "BEGIN{printf \"%.2f\", ($t1-$t0)/$2}") % d'un coeur | changements de contexte $(awk "BEGIN{printf \"%.1f\", ($c1-$c0)/$2}")/s | $(gfx_line 'Total frames rendered') | fils $(threads)"
+}
+measure_anim() {
+  local t0 t1
+  adb shell dumpsys gfxinfo $P reset > /dev/null
+  t0=$(cpu_ticks)
+  eval "$2"
+  sleep $3
+  t1=$(cpu_ticks)
+  perf "animation [$1] : processeur $(awk "BEGIN{printf \"%.1f\", ($t1-$t0)/$3}") % d'un coeur | $(gfx_line 'Total frames rendered') | $(gfx_line 'Janky frames:') | $(gfx_line '50th percentile') | $(gfx_line '90th percentile') | $(gfx_line '99th percentile') | $(gfx_line 'Number Slow UI thread') | $(gfx_line 'Number Slow bitmap uploads')"
+}
+adb shell am start -W -n $P/.MainActivity --es ci blur
+sleep 2
+adb shell input keyevent KEYCODE_HOME
+sleep 6
+perf "version $(adb shell dumpsys package $P | grep -m1 versionName | tr -d '\r ') | ecran $(adb shell dumpsys display | grep -m1 -o 'fps=[0-9.]*') | effet du verre : flou liquide"
+measure_idle "accueil, ilot replie" 20
+measure_anim "notification de l'ilot" "adb shell \"cmd notification post -S bigtext -t 'Mesure' perf1 'Animation de l ilot'\"" 9
+sleep 2
+measure_anim "dock (monte puis redescend)" "adb shell input swipe 540 2385 540 2200 200" 6
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+adb shell dumpsys meminfo $P | grep -m1 -E "TOTAL PSS|TOTAL:" | sed 's/^ *//' | tr -d '\r' | while read -r l; do perf "memoire : $l"; done
+adb shell input keyevent KEYCODE_SLEEP
+sleep 4
+measure_idle "ecran eteint" 20
+adb shell input keyevent KEYCODE_WAKEUP
+sleep 1
+adb shell wm dismiss-keyguard
+sleep 2
+adb shell am start -W -n $P/.MainActivity --es ci live
+sleep 3
+adb shell input keyevent KEYCODE_HOME
+sleep 4
+
 # Mode encoche en dernier (journaux deja recuperes)
 adb shell am start -W -n $P/.MainActivity --es ci notch
 sleep 2

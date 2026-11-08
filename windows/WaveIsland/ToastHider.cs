@@ -37,13 +37,14 @@ namespace WaveIsland
             _proc = OnEvent;
             _hook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, IntPtr.Zero, _proc, 0, 0, WINEVENT_OUTOFCONTEXT);
             // Filet de securite : verifie aussi regulierement (la bulle peut apparaitre sans evenement)
-            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(120), DispatcherPriority.Background, (a, b) => Sweep(), ui);
+            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(120), DispatcherPriority.Background, (a, b) => { Perf.Hit("bulles-sondage"); Sweep(); }, ui);
             _poll.Start();
             Log.I("Bulles de Windows : masquage " + (On ? "actif" : "inactif"));
         }
 
         private static void OnEvent(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time)
         {
+            Perf.Hit("bulles-evenement");
             if (obj != 0 || hwnd == IntPtr.Zero || !On) return;
             if (IsToast(hwnd)) Push(hwnd);
         }

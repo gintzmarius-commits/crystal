@@ -58,6 +58,7 @@ namespace WaveIsland
             _watch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
             _watch.Tick += (a, b) =>
             {
+                Perf.Hit("tablette-surveillance");
                 Apply();
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
                 if (Active) { var fgApp = AppInFront(); WatchTitle(fgApp); ExtendToBottom(fgApp); }
@@ -316,6 +317,7 @@ namespace WaveIsland
             _tvPoll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
             _tvPoll.Tick += (a, b) =>
             {
+                Perf.Hit("vue-taches-sondage");
                 var fg = GetForegroundWindow();
                 if (fg == last) return;
                 last = fg;

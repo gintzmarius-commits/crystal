@@ -61,7 +61,7 @@ namespace WaveIsland
                 Log.I("Musique : commandes multimedia de Windows disponibles");
             }
             catch (Exception e) { Log.I("Musique : indisponible (" + e.Message + ")"); }
-            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, async (a, b) => await Refresh(), _ui);
+            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, async (a, b) => { Perf.Hit("media-sondage"); await Refresh(); }, _ui);
         }
 
         private GlobalSystemMediaTransportControlsSession Pick()

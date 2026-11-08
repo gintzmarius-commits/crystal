@@ -137,7 +137,7 @@ namespace WaveIsland
             Activated += (a, b) => _wasActive = true;
             Deactivated += (a, b) => { if (_wasActive && (DateTime.Now - _openedAt).TotalMilliseconds > 500) CloseAnimated(); };
             _outside = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-            _outside.Tick += (a, b) => CheckOutside();
+            _outside.Tick += (a, b) => { Perf.Hit("panneau-dehors"); CheckOutside(); };
             PreviewKeyDown += (a, b) => { if (b.Key == Key.Escape) CloseAnimated(); };
 
             if (kind == "quick") BuildQuick();

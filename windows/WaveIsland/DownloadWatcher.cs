@@ -43,7 +43,7 @@ namespace WaveIsland
             _folder = Environment.GetEnvironmentVariable("WAVE_DOWNLOADS") ?? Native.KnownFolder(Native.FOLDERID_Downloads)
                       ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             Log.I("Telechargements surveilles : " + _folder);
-            _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (a, b) => Tick(), _ui);
+            _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (a, b) => { Perf.Hit("telechargements"); Tick(); }, _ui);
         }
 
         public static bool IsTemp(string path) => TempExt.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));

@@ -32,6 +32,9 @@ namespace WaveIsland
             bool firstRun = !File.Exists(Path.Combine(Log.Folder, "reglages.json"));
 
             if (Program.Demo) new Backdrop().Show();
+            // Temps de demarrage : jusqu'a ce que l'interface soit au repos (tout est lance et affiche)
+            Dispatcher.BeginInvoke(new Action(() => { Perf.StartupMs = (DateTime.Now - Perf.ProcessStart).TotalMilliseconds; Log.I($"Demarrage : pret en {Perf.StartupMs:0} ms"); }),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
             Volume = new VolumeService(Dispatcher);
             Media = new MediaService(Dispatcher);
@@ -107,7 +110,7 @@ namespace WaveIsland
             // Lot 1 : teinte du verre, concentration par horaires
             WaveColor.Changed += () => { Island?.RefreshTint(); Taskbar?.RefreshTint(); };
             var focusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            focusTimer.Tick += (a, b) => FocusMode.Check();
+            focusTimer.Tick += (a, b) => { Perf.Hit("concentration"); FocusMode.Check(); };
             focusTimer.Start();
             FocusMode.Check();
 

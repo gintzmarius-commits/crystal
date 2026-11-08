@@ -41,7 +41,7 @@ namespace WaveIsland
             Log.I($"Notifications : surveillance active (dernier n° {_lastId}, copie={_copyMode})");
             _debounce = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, (s, e) => { _debounce.Stop(); Check(); }, _ui);
             _debounce.Stop();
-            _poll = new DispatcherTimer(TimeSpan.FromSeconds(4), DispatcherPriority.Background, (s, e) => Check(), _ui);
+            _poll = new DispatcherTimer(TimeSpan.FromSeconds(4), DispatcherPriority.Background, (s, e) => { Perf.Hit("notifs-sondage"); Check(); }, _ui);
             try
             {
                 _watcher = new FileSystemWatcher(_folder, "wpndatabase.db*")

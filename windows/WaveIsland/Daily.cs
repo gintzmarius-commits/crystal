@@ -27,7 +27,7 @@ namespace WaveIsland
         public static void Start()
         {
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-            t.Tick += (a, b) => Sample();
+            t.Tick += (a, b) => { Perf.Hit("quotidien-4s"); Sample(); };
             t.Start();
             Microsoft.Win32.SystemEvents.SessionSwitch += (a, e) =>
             {
@@ -131,7 +131,7 @@ namespace WaveIsland
         public static void Start()
         {
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-            t.Tick += (a, b) => Check("time");
+            t.Tick += (a, b) => { Perf.Hit("rappels-15s"); Check("time"); };
             t.Start();
         }
 
