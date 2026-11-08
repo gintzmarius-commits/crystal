@@ -1639,10 +1639,14 @@ namespace WaveIsland
                 Native.ShowWindow(app, 9 /* SW_RESTORE */);
                 Native.SetForegroundWindow(app);
                 await Task.Delay(1500);
-                TabletShell.Down(bottom);
-                for (int i = 1; i <= 6; i++) { TabletShell.Move(new Point(bottom.X, bottom.Y - i * 12)); await Task.Delay(16); }
-                TabletShell.Up(new Point(bottom.X, bottom.Y - 72));
-                await Task.Delay(900);
+                Log.I("DEMO : appli au premier plan pour la bulle = " + (TabletShell.AppInFront() != IntPtr.Zero) + ", dock visible = " + (App.Taskbar?.DockVisible ?? false));
+                if (!(App.Taskbar?.DockVisible ?? false))
+                {
+                    TabletShell.Down(bottom);
+                    for (int i = 1; i <= 6; i++) { TabletShell.Move(new Point(bottom.X, bottom.Y - i * 12)); await Task.Delay(16); }
+                    TabletShell.Up(new Point(bottom.X, bottom.Y - 72));
+                    await Task.Delay(900);
+                }
                 TabletShell.Down(bottom);
                 double top = 60;
                 for (int i = 1; i <= 30; i++) { TabletShell.Move(new Point(bottom.X, bottom.Y - (bottom.Y - top) * i / 30.0)); await Task.Delay(16); }
