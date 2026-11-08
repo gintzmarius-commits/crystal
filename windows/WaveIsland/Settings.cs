@@ -60,6 +60,10 @@ namespace WaveIsland
         public bool OwnShowDesktop { get; set; } = true;
         /// <summary>Win + A et Win + N : nos reglages rapides et notifications en verre.</summary>
         public bool OwnPanels { get; set; } = true;
+        /// <summary>Cacher les bulles de notification de Windows en bas a droite (l'ilot les montre).</summary>
+        public bool HideWinToasts { get; set; } = true;
+        /// <summary>Gestes a 3 doigts geres par Wave Island (ceux de Windows sont coupes).</summary>
+        public bool OwnThreeFinger { get; set; } = true;
         public bool Handoff { get; set; } = true;
         public List<string> Reminders { get; set; } = new List<string>();
         public bool MorningBrief { get; set; } = true;

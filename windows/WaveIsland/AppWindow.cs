@@ -330,6 +330,8 @@ namespace WaveIsland
                 () => S.VolumeInIsland, v => { S.VolumeInIsland = v; S.Save(); }));
             fx.Children.Add(Toggle("Notifications dans l'îlot", "Clique dessus pour ouvrir l'appli",
                 () => S.Notifications, v => { S.Notifications = v; S.Save(); }));
+            fx.Children.Add(Toggle("Cacher les bulles de Windows en bas à droite", "Seul l'îlot en verre les affiche ; elles restent dans le centre de notifications (Win + N)",
+                () => S.HideWinToasts, v => { S.HideWinToasts = v; S.Save(); }));
             fx.Children.Add(Toggle("Musique et vidéos", "Titre, pochette et commandes quand quelque chose joue (survole l'îlot)",
                 () => S.LiveMedia, v => { S.LiveMedia = v; S.Save(); }));
             fx.Children.Add(Toggle("Téléchargements en cours", "Une barre de progression par téléchargement",
@@ -375,6 +377,8 @@ namespace WaveIsland
                 () => S.SearchKey, v => { S.SearchKey = v; S.Save(); }));
             tools.Children.Add(Toggle("Vue des applis Wave (Win + Tab, 3 doigts vers le haut)", "Remplace l'affichage des tâches de Windows : aperçus, croix pour fermer, bureaux (glisse un aperçu sur un bureau pour l'y déplacer)",
                 () => S.OwnTaskView, v => { S.OwnTaskView = v; S.Save(); }));
+            tools.Children.Add(Toggle("Gestes à 3 doigts Wave (pavé tactile)", "Les gestes de Windows sont coupés : 3 doigts vers le haut = vue des applis Wave, vers le bas = tout ranger dans le dock",
+                () => S.OwnThreeFinger, v => { S.OwnThreeFinger = v; S.Save(); TouchpadGestures.Apply(); }));
             tools.Children.Add(Toggle("Tout ranger dans le dock (Win + D, 3 doigts vers le bas)", "Les applis à l'écran se changent en icônes et vont se poser dans le dock",
                 () => S.OwnShowDesktop, v => { S.OwnShowDesktop = v; S.Save(); }));
             tools.Children.Add(Toggle("Réglages rapides et notifications Wave (Win + A, Win + N)", "Les raccourcis de Windows ouvrent les panneaux en verre de Wave Island",

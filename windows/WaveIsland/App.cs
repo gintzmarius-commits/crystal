@@ -67,6 +67,8 @@ namespace WaveIsland
             DropSaver.Start();
             // Lot 4 : Wave Link, continuite, rappels, resume du matin
             WaveLink.Start(Dispatcher);
+            ToastHider.Start(Dispatcher);
+            TouchpadGestures.Start();
             Continuity.Start();
             Reminders.Start();
             System.Threading.Tasks.Task.Delay(25000).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() => Morning.Maybe())));
