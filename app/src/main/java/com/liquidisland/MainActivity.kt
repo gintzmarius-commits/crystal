@@ -74,16 +74,16 @@ class MainActivity : Activity() {
         header.addView(android.widget.ImageView(this).apply {
             setImageDrawable(applicationInfo.loadIcon(packageManager))
         }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(12) })
-        header.addView(text("Wave Island", 32f, Glass.INK, bold = true))
+        header.addView(text("Wave Island", 32f, Look.INK, bold = true))
         col.addView(header)
-        col.addView(text("Ton îlot dynamique en verre, toujours à l'écran.", 15f, Glass.INK_SOFT).apply {
+        col.addView(text("Ton îlot dynamique en verre, toujours à l'écran.", 15f, Look.INK_SOFT).apply {
             setPadding(0, dp(2), 0, dp(18))
         })
 
         // Dernier plantage : proposer d'envoyer le rapport
         crashCard = card(strong = true).apply { visibility = View.GONE }
-        crashCard.addView(text("Wave Island a planté", 15f, Glass.INK, bold = true))
-        crashCard.addView(text("Envoie-moi le rapport (dans la conversation) pour que je corrige la cause.", 13f, Glass.INK_SOFT).apply {
+        crashCard.addView(text("Wave Island a planté", 15f, Look.INK, bold = true))
+        crashCard.addView(text("Envoie-moi le rapport (dans la conversation) pour que je corrige la cause.", 13f, Look.INK_SOFT).apply {
             setPadding(0, dp(4), 0, 0)
         })
         crashCard.addView(glassButton("Envoyer le rapport", primary = true) { shareReport(clearAfter = true) }, buttonLp(top = 10))
@@ -104,27 +104,27 @@ class MainActivity : Activity() {
         val live = card()
         live.addView(switchRow(
             "Musique et vidéos",
-            text("Pochette et barres qui dansent sur l'îlot. Touche l'îlot : morceau précédent, pause, suivant.", 13f, Glass.INK_SOFT),
+            text("Pochette et barres qui dansent sur l'îlot. Touche l'îlot : morceau précédent, pause, suivant.", 13f, Look.INK_SOFT),
             Prefs.liveMedia(this)
         ) { Prefs.setLiveMedia(this, it); IslandService.instance?.applySettings() })
         live.addView(switchRow(
             "Téléchargements et tâches",
-            text("Une barre de progression par téléchargement (navigateur, Play Store, envois...).", 13f, Glass.INK_SOFT),
+            text("Une barre de progression par téléchargement (navigateur, Play Store, envois...).", 13f, Look.INK_SOFT),
             Prefs.liveDownloads(this)
         ) { Prefs.setLiveDownloads(this, it); IslandService.instance?.applySettings() })
         live.addView(switchRow(
             "Dock Wave Theme",
-            text("Dans une appli : glisse tout en bas de l'écran (sur la petite barre) pour faire monter le dock. Il reste 3 secondes ; pendant ce temps, glisse encore pour fermer l'appli comme d'habitude (c'est Android qui s'en charge). Appui long sur une icône du dock : l'ajouter ou la retirer des favoris.", 13f, Glass.INK_SOFT),
+            text("Dans une appli : glisse tout en bas de l'écran (sur la petite barre) pour faire monter le dock. Il reste 3 secondes ; pendant ce temps, glisse encore pour fermer l'appli comme d'habitude (c'est Android qui s'en charge). Appui long sur une icône du dock : l'ajouter ou la retirer des favoris.", 13f, Look.INK_SOFT),
             Prefs.dock(this)
         ) { Prefs.setDock(this, it); IslandService.instance?.updateStrip() })
-        live.addView(text("Applis du dock (${WaveDock.MAX} au maximum)", 14f, Glass.INK).apply { setPadding(dp(4), dp(10), 0, dp(2)) })
+        live.addView(text("Applis du dock (${WaveDock.MAX} au maximum)", 14f, Look.INK).apply { setPadding(dp(4), dp(10), 0, dp(2)) })
         dockList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         live.addView(dockList)
         live.addView(glassButton("Ajouter une appli au dock", primary = false) { addDockDialog() }, buttonLp(top = 8))
         renderDock()
         live.addView(switchRow(
             "Centres de notifications et de contrôle",
-            text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Glass.INK_SOFT),
+            text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Look.INK_SOFT),
             Prefs.shade(this)
         ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip() })
         col.addView(live)
@@ -151,7 +151,7 @@ class MainActivity : Activity() {
                     "• Réglages › Écran › Super Island : désactive-la.\n" +
                     "• Si elle revient pour une appli : Réglages › Notifications et Centre de contrôle › l'appli › Super Island.\n" +
                     "• Introuvable ? Tape « Super » dans la recherche des Réglages.",
-                14f, Glass.INK_SOFT
+                14f, Look.INK_SOFT
             ).apply { setLineSpacing(0f, 1.15f) })
             x.addView(glassButton("Ouvrir les réglages Écran", primary = false) {
                 open(Intent(Settings.ACTION_DISPLAY_SETTINGS))
@@ -173,10 +173,6 @@ class MainActivity : Activity() {
         perms.addView(permRow("3", "Accessibilité", "Pour toucher l'îlot par-dessus la barre d'état", {
             accessibilityEnabled()
         }) { open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
-        perms.addView(divider())
-        perms.addView(permRow("✦", "Effet goutte d'eau en direct", "Capture d'écran : l'effet suit l'écran sans délai", {
-            if (Build.VERSION.SDK_INT < 33) null else IslandService.instance?.isLive == true
-        }) { askLive() })
         perms.addView(divider())
         perms.addView(permRow("4", "Batterie sans restriction", "Pour que l'îlot ne soit jamais coupé", {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
@@ -200,7 +196,7 @@ class MainActivity : Activity() {
                 "2. Ouvre les infos de l'appli avec le bouton ci-dessous.\n" +
                 "3. Touche le menu ⋮ en haut à droite, puis « Autoriser les paramètres restreints ».\n" +
                 "4. Reviens ici et active l'accès aux notifications et l'accessibilité.",
-            14f, Glass.INK_SOFT
+            14f, Look.INK_SOFT
         ).apply { setLineSpacing(0f, 1.15f) })
         help.addView(glassButton("Ouvrir les infos de l'appli", primary = false) { openAppInfo() }, buttonLp(top = 14))
         col.addView(help)
@@ -208,13 +204,8 @@ class MainActivity : Activity() {
         // Options
         col.addView(section("Options"))
         val opts = card()
-        opts.addView(switchRow(
-            "Masquer les notifications du système",
-            text("Seul l'îlot les affiche (elles quittent aussi le volet)", 13f, Glass.INK_SOFT),
-            Prefs.hideSystem(this)
-        ) { Prefs.setHideSystem(this, it) })
-        opts.addView(divider())
-        opts.addView(permRow("", "Notifications pop-up du système", "À couper pour ne garder que l'îlot", { null }) {
+        opts.addView(text("Les notifications s'affichent dans l'îlot et restent aussi dans le volet de notifications du téléphone.", 13f, Look.INK_SOFT).apply { setPadding(0, 0, 0, dp(8)) })
+        opts.addView(permRow("", "Notifications pop-up du système", "À couper pour ne garder que l'îlot en haut (elles restent dans le volet)", { null }) {
             openNotificationSettings()
         })
         col.addView(opts)
@@ -222,10 +213,10 @@ class MainActivity : Activity() {
         // Version et verification manuelle des mises a jour
         col.addView(section("Mises à jour"))
         val upd = card()
-        upd.addView(text("Version installée : ${BuildConfig.VERSION_NAME}", 15f, Glass.INK).apply {
+        upd.addView(text("Version installée : ${BuildConfig.VERSION_NAME}", 15f, Look.INK).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
-        checkStatus = text("", 13f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
+        checkStatus = text("", 13f, Look.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
         upd.addView(checkStatus)
         upd.addView(glassButton("Vérifier les mises à jour", primary = false) { checkUpdate(manual = true) }, buttonLp(top = 12))
         upd.addView(glassButton("Envoyer un rapport de bug", primary = false) { shareReport(clearAfter = false) }, buttonLp(top = 10))
@@ -239,7 +230,7 @@ class MainActivity : Activity() {
         settingsPage = scroll
         dropPage = buildDropPage().apply { visibility = View.GONE }
         val root = FrameLayout(this).apply {
-            background = Glass.background(resources.displayMetrics.widthPixels)
+            background = Look.background(resources.displayMetrics.widthPixels)
             addView(scroll)
             addView(dropPage)
             // Onglets en bas : Parametres et Wave Drop
@@ -302,14 +293,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = dpf(29)
-                setColor(Color.argb(200, 16, 26, 22))
-                setStroke(maxOf(1, dp(1)), Color.argb(70, 255, 255, 255))
+                setColor(Color.WHITE)
+                setStroke(maxOf(1, dp(1)), Look.LINE)
             }
             setPadding(dp(5), dp(5), dp(5), dp(5))
             elevation = dpf(10)
         }
         listOf("Paramètres" to LineIcon.Kind.SETTINGS, "Wave Drop" to LineIcon.Kind.DROP).forEachIndexed { i, (label, kind) ->
-            val t = text(label, 15f, Glass.INK).apply {
+            val t = text(label, 15f, Look.INK).apply {
                 gravity = Gravity.CENTER
                 tag = kind
                 compoundDrawablePadding = dp(8)
@@ -328,9 +319,9 @@ class MainActivity : Activity() {
     private fun paintTabs() {
         tabs.forEachIndexed { i, t ->
             val on = i == tab
-            t.background = if (on) Glass.tinted(d, dpf(24)) else null
-            t.setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
-            val ic = LineIcon(t.tag as LineIcon.Kind, if (on) Glass.ON_ACCENT else Glass.INK, d).apply { setBounds(0, 0, dp(20), dp(20)) }
+            t.background = if (on) Look.tinted(d, dpf(24)) else null
+            t.setTextColor(if (on) Look.ON_ACCENT else Look.INK)
+            val ic = LineIcon(t.tag as LineIcon.Kind, if (on) Look.ON_ACCENT else Look.INK, d).apply { setBounds(0, 0, dp(20), dp(20)) }
             t.setCompoundDrawables(ic, null, null, null)
         }
     }
@@ -366,15 +357,15 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(70), dp(18), dp(130))
         }
-        col.addView(text("Wave Drop", 32f, Glass.INK, bold = true))
-        col.addView(text("Envoie n'importe quel fichier à un appareil proche, comme AirDrop : téléphone ou PC avec Wave Island.", 15f, Glass.INK_SOFT).apply {
+        col.addView(text("Wave Drop", 32f, Look.INK, bold = true))
+        col.addView(text("Envoie n'importe quel fichier à un appareil proche, comme AirDrop : téléphone ou PC avec Wave Island.", 15f, Look.INK_SOFT).apply {
             setPadding(0, dp(2), 0, dp(18))
         })
 
         val main = card(strong = true)
         val row = switchRow(
             "Activer Wave Drop",
-            text("Ton appareil devient visible des appareils Wave Drop tout proches", 13f, Glass.INK_SOFT),
+            text("Ton appareil devient visible des appareils Wave Drop tout proches", 13f, Look.INK_SOFT),
             com.liquidisland.drop.WaveDrop.enabled(this)
         ) { on -> if (on && !com.liquidisland.drop.WaveDrop.hasPermissions(this)) {
                 requestPermissions(com.liquidisland.drop.WaveDrop.permissions(), DROP_PERMS)
@@ -383,13 +374,13 @@ class MainActivity : Activity() {
         dropSwitch = (row as LinearLayout).getChildAt(1) as Switch
         main.addView(row)
         main.addView(divider())
-        main.addView(text("Nom de cet appareil", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, dp(4)) })
+        main.addView(text("Nom de cet appareil", 13f, Look.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, dp(4)) })
         val name = android.widget.EditText(this).apply {
             setText(com.liquidisland.drop.WaveDrop.myName)
-            setTextColor(Glass.INK)
+            setTextColor(Look.INK)
             textSize = 16f
             setSingleLine()
-            background = Glass.card(d, dpf(16), strong = true)
+            background = Look.soft(dpf(18))
             setPadding(dp(14), dp(10), dp(14), dp(10))
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -400,10 +391,10 @@ class MainActivity : Activity() {
             })
         }
         main.addView(name)
-        dropStatus = text("", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), dp(4), 0) }
+        dropStatus = text("", 13f, Look.INK_SOFT).apply { setPadding(dp(4), dp(12), dp(4), 0) }
         main.addView(dropStatus)
         main.addView(glassButton("Envoyer un fichier", primary = true) { com.liquidisland.drop.WaveDropActivity.open(this) }, buttonLp(top = 14))
-        main.addView(text("Astuce : glisse l'îlot vers le bas pour ouvrir Wave Drop depuis n'importe où.", 12f, Glass.INK_SOFT).apply {
+        main.addView(text("Astuce : glisse l'îlot vers le bas pour ouvrir Wave Drop depuis n'importe où.", 12f, Look.INK_SOFT).apply {
             setPadding(dp(4), dp(10), dp(4), 0)
         })
         col.addView(main)
@@ -425,7 +416,7 @@ class MainActivity : Activity() {
                 "• L'autre doit accepter avant que quoi que ce soit n'arrive. Tout est chiffré de bout en bout.\n" +
                 "• Même Wi-Fi : transfert rapide. Sinon : Bluetooth, automatiquement (plus lent).\n" +
                 "• Les fichiers reçus vont dans Téléchargements › Wave Drop.",
-            14f, Glass.INK_SOFT
+            14f, Look.INK_SOFT
         ).apply { setLineSpacing(0f, 1.2f) })
         col.addView(how)
 
@@ -476,17 +467,17 @@ class MainActivity : Activity() {
         refreshDropNearby()
         dropHistory.removeAllViews()
         val items = com.liquidisland.drop.History.list(this)
-        if (items.isEmpty()) dropHistory.addView(text("Rien reçu pour l'instant.", 14f, Glass.INK_SOFT))
+        if (items.isEmpty()) dropHistory.addView(text("Rien reçu pour l'instant.", 14f, Look.INK_SOFT))
         items.take(10).forEach { h ->
             val r = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(4), dp(8), dp(4), dp(8))
-                background = Glass.pressable(ColorDrawable(Color.TRANSPARENT), dpf(14))
+                background = Look.pressable(ColorDrawable(Color.TRANSPARENT), dpf(14))
                 isClickable = true
                 setOnClickListener { h.uri?.let { com.liquidisland.drop.WaveDropActivity.openFile(this@MainActivity, Uri.parse(it), null) } }
             }
-            r.addView(text(h.name, 15f, Glass.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE })
-            r.addView(text("De ${h.from} · " + android.text.format.DateUtils.getRelativeTimeSpanString(h.time), 12f, Glass.INK_SOFT))
+            r.addView(text(h.name, 15f, Look.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE })
+            r.addView(text("De ${h.from} · " + android.text.format.DateUtils.getRelativeTimeSpanString(h.time), 12f, Look.INK_SOFT))
             dropHistory.addView(r)
         }
     }
@@ -496,13 +487,13 @@ class MainActivity : Activity() {
         dropNearby.removeAllViews()
         val wd = com.liquidisland.drop.WaveDrop
         val list = if (wd.running) wd.nearbyList() else emptyList()
-        if (list.isEmpty()) dropNearby.addView(text(if (wd.running) "Aucun appareil Wave Drop autour." else "Active Wave Drop pour voir les appareils autour.", 14f, Glass.INK_SOFT))
+        if (list.isEmpty()) dropNearby.addView(text(if (wd.running) "Aucun appareil Wave Drop autour." else "Active Wave Drop pour voir les appareils autour.", 14f, Look.INK_SOFT))
         list.take(6).forEach { n ->
             dropNearby.addView(text(n.label + "   ·   " +
-                (if (n.close) "tout près" else "à proximité") + (if (n.beacon.ip != null) " · Wi-Fi" else " · Bluetooth"), 14f, Glass.INK).apply {
+                (if (n.close) "tout près" else "à proximité") + (if (n.beacon.ip != null) " · Wi-Fi" else " · Bluetooth"), 14f, Look.INK).apply {
                 setPadding(dp(4), dp(6), dp(4), dp(6))
                 compoundDrawablePadding = dp(10)
-                setCompoundDrawables(LineIcon(if (n.beacon.isPc) LineIcon.Kind.LAPTOP else LineIcon.Kind.PHONE, Glass.INK, d).apply { setBounds(0, 0, dp(22), dp(22)) }, null, null, null)
+                setCompoundDrawables(LineIcon(if (n.beacon.isPc) LineIcon.Kind.LAPTOP else LineIcon.Kind.PHONE, Look.INK, d).apply { setBounds(0, 0, dp(22), dp(22)) }, null, null, null)
             })
         }
     }
@@ -513,16 +504,16 @@ class MainActivity : Activity() {
         val c = card()
         c.addView(switchRow(
             "Indicateur de volume façon iPhone",
-            text("Une capsule en verre à côté des boutons, à la place de celle du téléphone. Touche-la pour régler au doigt.", 13f, Glass.INK_SOFT),
+            text("Une capsule en verre à côté des boutons, à la place de celle du téléphone. Touche-la pour régler au doigt.", 13f, Look.INK_SOFT),
             Prefs.volumeHud(this)
         ) {
             Prefs.setVolumeHud(this, it)
             if (it) IslandService.instance?.previewVolume()
         })
-        c.addView(text("Côté des boutons de volume", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
+        c.addView(text("Côté des boutons de volume", 14f, Look.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
         val seg = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Glass.chip(Glass.INK, dpf(20))
+            background = Look.soft(dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         val sides = listOf("left" to "Gauche", "right" to "Droite")
@@ -531,12 +522,12 @@ class MainActivity : Activity() {
             val cur = Prefs.volumeSide(this)
             sides.forEachIndexed { i, (key, _) ->
                 val on = key == cur
-                views[i].background = if (on) Glass.tinted(d, dpf(18)) else null
-                views[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+                views[i].background = if (on) Look.tinted(d, dpf(18)) else null
+                views[i].setTextColor(if (on) Look.ON_ACCENT else Look.INK)
             }
         }
         sides.forEach { (key, label) ->
-            val t = text(label, 14f, Glass.INK).apply {
+            val t = text(label, 14f, Look.INK).apply {
                 gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 isClickable = true
@@ -557,7 +548,7 @@ class MainActivity : Activity() {
         }
         // Le curseur affiche des « dp » : ici ce sont des % de l'ecran
         c.addView(pos)
-        c.addView(text("Appuie sur un bouton de volume pour voir l'indicateur. Il demande l'accessibilité.", 12f, Glass.INK_SOFT).apply {
+        c.addView(text("Appuie sur un bouton de volume pour voir l'indicateur. Il demande l'accessibilité.", 12f, Look.INK_SOFT).apply {
             setPadding(dp(4), dp(8), 0, 0)
         })
         return c
@@ -571,7 +562,7 @@ class MainActivity : Activity() {
         val c = card()
         c.addView(text(
             "Reste appuyé sur l'îlot pour ouvrir ce menu. Jusqu'à ${Shortcuts.MAX} raccourcis.",
-            14f, Glass.INK_SOFT
+            14f, Look.INK_SOFT
         ).apply { setPadding(0, 0, 0, dp(6)) })
         shortcutsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         c.addView(shortcutsList)
@@ -592,12 +583,12 @@ class MainActivity : Activity() {
             }
             row.addView(android.widget.ImageView(this).apply {
                 setImageDrawable(item.icon)
-                if (item.tintIcon) imageTintList = ColorStateList.valueOf(Glass.INK)
+                if (item.tintIcon) imageTintList = ColorStateList.valueOf(Look.INK)
                 val p = if (item.tintIcon) dp(6) else 0
                 setPadding(p, p, p, p)
-                background = Glass.chip(Glass.ACCENT, dpf(18))
+                background = Look.chip(Look.ACCENT, dpf(18))
             }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(14) })
-            row.addView(text(item.label, 15f, Glass.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(text(item.label, 15f, Look.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             if (i > 0) row.addView(smallButton("↑") {
                 val l = ids.toMutableList(); l.removeAt(i); l.add(i - 1, id); saveShortcuts(l)
             })
@@ -607,7 +598,7 @@ class MainActivity : Activity() {
             shortcutsList.addView(row)
             if (i < ids.size - 1) shortcutsList.addView(divider())
         }
-        if (ids.isEmpty()) shortcutsList.addView(text("Aucun raccourci pour l'instant.", 14f, Glass.INK_SOFT))
+        if (ids.isEmpty()) shortcutsList.addView(text("Aucun raccourci pour l'instant.", 14f, Look.INK_SOFT))
     }
 
     private lateinit var dockList: LinearLayout
@@ -622,7 +613,7 @@ class MainActivity : Activity() {
                 try { setImageDrawable(packageManager.getApplicationIcon(pkg)) } catch (e: Exception) { }
             }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(14) })
             val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { pkg }
-            row.addView(text(label, 15f, Glass.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(text(label, 15f, Look.INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             if (i > 0) row.addView(smallButton("↑") {
                 val l = ids.toMutableList(); l.removeAt(i); l.add(i - 1, pkg); Prefs.setDockApps(this, l); renderDock()
             })
@@ -632,7 +623,7 @@ class MainActivity : Activity() {
             })
             dockList.addView(row)
         }
-        if (ids.isEmpty()) dockList.addView(text("Aucune appli : ajoute-en jusqu'à ${WaveDock.MAX}.", 14f, Glass.INK_SOFT))
+        if (ids.isEmpty()) dockList.addView(text("Aucune appli : ajoute-en jusqu'à ${WaveDock.MAX}.", 14f, Look.INK_SOFT))
     }
 
     private fun addDockDialog() {
@@ -649,9 +640,9 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun smallButton(label: String, action: () -> Unit) = text(label, 16f, Glass.INK_SOFT).apply {
+    private fun smallButton(label: String, action: () -> Unit) = text(label, 16f, Look.INK_SOFT).apply {
         gravity = Gravity.CENTER
-        background = Glass.pressable(ColorDrawable(Color.TRANSPARENT), dpf(18))
+        background = Look.pressable(ColorDrawable(Color.TRANSPARENT), dpf(18))
         isClickable = true
         setOnClickListener { action() }
         layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
@@ -735,12 +726,12 @@ class MainActivity : Activity() {
 
     private fun buildUpdateCard(): View {
         updateCard = card(strong = true).apply { visibility = View.GONE }
-        updateText = text("", 15f, Glass.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+        updateText = text("", 15f, Look.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
         updateCard.addView(updateText)
         updateBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
-            progressTintList = ColorStateList.valueOf(Glass.ACCENT)
-            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(40, 255, 255, 255))
+            progressTintList = ColorStateList.valueOf(Look.ACCENT)
+            progressBackgroundTintList = ColorStateList.valueOf(Look.TRACK_OFF)
             visibility = View.GONE
         }
         updateCard.addView(updateBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)).apply { topMargin = dp(10) })
@@ -796,9 +787,9 @@ class MainActivity : Activity() {
     private fun refresh() {
         for (r in rows) {
             when (r.check()) {
-                true -> setChip(r.chip, "OK", Glass.OK)
-                false -> setChip(r.chip, "À faire", Glass.WARN)
-                null -> setChip(r.chip, "Ouvrir", Glass.ACCENT)
+                true -> setChip(r.chip, "OK", Look.OK)
+                false -> setChip(r.chip, "À faire", Look.WARN)
+                null -> setChip(r.chip, "Ouvrir", Look.ACCENT)
             }
         }
         val running = IslandService.instance != null
@@ -865,10 +856,10 @@ class MainActivity : Activity() {
 
     private fun setNotch(v: Boolean) {
         Prefs.setNotch(this, v)
-        segIsland.background = if (!v) Glass.tinted(d, dpf(18)) else null
-        segIsland.setTextColor(if (!v) Glass.ON_ACCENT else Glass.INK)
-        segNotch.background = if (v) Glass.tinted(d, dpf(18)) else null
-        segNotch.setTextColor(if (v) Glass.ON_ACCENT else Glass.INK)
+        segIsland.background = if (!v) Look.tinted(d, dpf(18)) else null
+        segIsland.setTextColor(if (!v) Look.ON_ACCENT else Look.INK)
+        segNotch.background = if (v) Look.tinted(d, dpf(18)) else null
+        segNotch.setTextColor(if (v) Look.ON_ACCENT else Look.INK)
         offsetRow.alpha = if (v) 0.4f else 1f
         preview.notch = v
         preview.update()
@@ -914,7 +905,9 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
     }
 
     private fun appearanceCard(): View {
@@ -923,10 +916,10 @@ class MainActivity : Activity() {
         // Choix ile / encoche
         val seg = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Glass.chip(Glass.INK, dpf(20))
+            background = Look.soft(dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        fun segItem(label: String, notch: Boolean) = text(label, 15f, Glass.INK).apply {
+        fun segItem(label: String, notch: Boolean) = text(label, 15f, Look.INK).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             isClickable = true
@@ -939,10 +932,10 @@ class MainActivity : Activity() {
         c.addView(seg)
 
         // Teinte du verre
-        c.addView(text("Teinte du verre", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
+        c.addView(text("Teinte du verre", 14f, Look.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
         val themeSeg = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Glass.chip(Glass.INK, dpf(20))
+            background = Look.soft(dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         val themes = listOf("clear" to "Transparent", "dark" to "Sombre", "light" to "Claire")
@@ -951,12 +944,12 @@ class MainActivity : Activity() {
             val cur = Prefs.theme(this)
             themes.forEachIndexed { i, (key, _) ->
                 val on = key == cur
-                themeViews[i].background = if (on) Glass.tinted(d, dpf(18)) else null
-                themeViews[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+                themeViews[i].background = if (on) Look.tinted(d, dpf(18)) else null
+                themeViews[i].setTextColor(if (on) Look.ON_ACCENT else Look.INK)
             }
         }
         themes.forEach { (key, label) ->
-            val t = text(label, 14f, Glass.INK).apply {
+            val t = text(label, 14f, Look.INK).apply {
                 gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 isClickable = true
@@ -982,7 +975,7 @@ class MainActivity : Activity() {
             setOnClickListener { expanded = !expanded; update() }
         }
         c.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(130)).apply { topMargin = dp(14) })
-        c.addView(text("Touche l'aperçu pour voir l'îlot ouvert", 12f, Glass.INK_SOFT).apply {
+        c.addView(text("Touche l'aperçu pour voir l'îlot ouvert", 12f, Look.INK_SOFT).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(4))
         })
@@ -997,19 +990,53 @@ class MainActivity : Activity() {
             Prefs.setOffset(this, it); preview.offsetDp = it; preview.update()
         }
         c.addView(offsetRow)
-        c.addView(switchRow(
-            "Déformation du fond (effet goutte d'eau)",
-            text("Le bord de l'îlot déforme ce qui est derrière lui. Android 13+, avec l'accessibilité", 13f, Glass.INK_SOFT),
-            Prefs.refraction(this)
-        ) {
-            Prefs.setRefraction(this, it)
-            IslandService.instance?.applySettings()
-        })
+        // Effet du verre (ilot et dock)
+        c.addView(text("Effet du verre (îlot et dock)", 14f, Look.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
+        val fxSeg = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Look.soft(dpf(20))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val fxModes = listOf("blur" to "Flou liquide", "clear" to "Transparent", "live" to "Déformation")
+        val fxViews = mutableListOf<TextView>()
+        val fxHelp = text("", 12.5f, Look.INK_SOFT).apply { setPadding(dp(4), dp(6), dp(4), 0) }
+        fun paintFx() {
+            val cur = Prefs.glassMode(this)
+            fxModes.forEachIndexed { i, (key, _) ->
+                val on = key == cur
+                fxViews[i].background = if (on) Look.tinted(d, dpf(18)) else null
+                fxViews[i].setTextColor(if (on) Look.ON_ACCENT else Look.INK)
+            }
+            fxHelp.text = when (cur) {
+                "blur" -> "Verre givré léger flouté par Android derrière l'îlot et le dock, avec bords liquides, reflets et lumière qui suit l'inclinaison. Sans enregistrement de l'écran."
+                "clear" -> "Verre totalement transparent : seulement les bords liquides et les reflets. Sans enregistrement de l'écran."
+                else -> "Le bord déforme vraiment ce qui est derrière (comme une goutte d'eau). Demande l'enregistrement de l'écran (Android 13+)."
+            }
+        }
+        fxModes.forEach { (key, label) ->
+            val t = text(label, 14f, Look.INK).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isClickable = true
+                setOnClickListener {
+                    Prefs.setGlassMode(this@MainActivity, key)
+                    paintFx()
+                    IslandService.instance?.applySettings()
+                    IslandService.instance?.updateStrip()
+                    if (key == "live") askLive()
+                }
+            }
+            fxViews.add(t)
+            fxSeg.addView(t, LinearLayout.LayoutParams(0, dp(36), 1f))
+        }
+        c.addView(fxSeg)
+        c.addView(fxHelp)
+        paintFx()
         // En plein ecran
-        c.addView(text("En plein écran (vidéo, jeu)", 14f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
+        c.addView(text("En plein écran (vidéo, jeu)", 14f, Look.INK_SOFT).apply { setPadding(dp(4), dp(14), 0, dp(6)) })
         val fsSeg = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Glass.chip(Glass.INK, dpf(20))
+            background = Look.soft(dpf(20))
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         val fsModes = listOf("show" to "Contre la caméra", "hide" to "Cacher l'îlot")
@@ -1018,12 +1045,12 @@ class MainActivity : Activity() {
             val cur = Prefs.fullscreen(this)
             fsModes.forEachIndexed { i, (key, _) ->
                 val on = key == cur
-                fsViews[i].background = if (on) Glass.tinted(d, dpf(18)) else null
-                fsViews[i].setTextColor(if (on) Glass.ON_ACCENT else Glass.INK)
+                fsViews[i].background = if (on) Look.tinted(d, dpf(18)) else null
+                fsViews[i].setTextColor(if (on) Look.ON_ACCENT else Look.INK)
             }
         }
         fsModes.forEach { (key, label) ->
-            val t = text(label, 14f, Glass.INK).apply {
+            val t = text(label, 14f, Look.INK).apply {
                 gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 isClickable = true
@@ -1054,18 +1081,18 @@ class MainActivity : Activity() {
             setPadding(0, dp(10), 0, 0)
         }
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        head.addView(text(label, 15f, Glass.INK).apply {
+        head.addView(text(label, 15f, Look.INK).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val valueText = text("$value $unit", 14f, Glass.ACCENT)
+        val valueText = text("$value $unit", 14f, Look.ACCENT)
         head.addView(valueText)
         box.addView(head)
         val bar = SeekBar(this).apply {
             this.max = max - min
             progress = value - min
-            progressTintList = ColorStateList.valueOf(Glass.ACCENT)
-            thumbTintList = ColorStateList.valueOf(Glass.ACCENT)
-            progressBackgroundTintList = ColorStateList.valueOf(Color.argb(50, 255, 255, 255))
+            progressTintList = ColorStateList.valueOf(Look.ACCENT)
+            thumbTintList = ColorStateList.valueOf(Look.ACCENT)
+            progressBackgroundTintList = ColorStateList.valueOf(Look.TRACK_OFF)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
                     valueText.text = "${p + min} $unit"
@@ -1091,7 +1118,7 @@ class MainActivity : Activity() {
     private fun linkCard(): View {
         val c = card()
         c.addView(text("Lie ton PC une seule fois (même Wi-Fi, Wave Drop allumé des deux côtés) : batterie du téléphone sur le PC, " +
-            "copier sur l'un et coller sur l'autre, faire sonner l'autre, continuité des pages web, rappels partagés et résumé du matin.", 13f, Glass.INK_SOFT))
+            "copier sur l'un et coller sur l'autre, faire sonner l'autre, continuité des pages web, rappels partagés et résumé du matin.", 13f, Look.INK_SOFT))
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refresh() {
             list.removeAllViews()
@@ -1106,7 +1133,7 @@ class MainActivity : Activity() {
                     com.liquidisland.drop.WaveLink.pair(n) { msg -> android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show(); refreshLink?.invoke() }
                 }, buttonLp(top = 8))
             }
-            if (list.childCount == 0) list.addView(text("Aucun PC proche : allume Wave Drop sur le PC (même Wi-Fi), puis touche « Actualiser ».", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, 0) })
+            if (list.childCount == 0) list.addView(text("Aucun PC proche : allume Wave Drop sur le PC (même Wi-Fi), puis touche « Actualiser ».", 13f, Look.INK_SOFT).apply { setPadding(dp(4), dp(8), 0, 0) })
         }
         refreshLink = { refresh() }
         refresh()
@@ -1118,11 +1145,11 @@ class MainActivity : Activity() {
         c.addView(glassButton("Envoyer le presse-papiers au PC", primary = false) {
             startActivity(Intent(this, com.liquidisland.drop.ClipToPcActivity::class.java))
         }, buttonLp(top = 8))
-        c.addView(switchRow("Presse-papiers partagé", text("Le texte copié sur le PC arrive ici. Pour l'autre sens : pastille « Copier vers le PC » ou Partager > Copier vers le PC.", 13f, Glass.INK_SOFT),
+        c.addView(switchRow("Presse-papiers partagé", text("Le texte copié sur le PC arrive ici. Pour l'autre sens : pastille « Copier vers le PC » ou Partager > Copier vers le PC.", 13f, Look.INK_SOFT),
             com.liquidisland.drop.WaveLink.clipSync()) { com.liquidisland.drop.WaveLink.setClipSync(it) })
-        c.addView(switchRow("Continuité", text("La page ouverte dans ton navigateur est proposée sur le PC (et l'inverse).", 13f, Glass.INK_SOFT),
+        c.addView(switchRow("Continuité", text("La page ouverte dans ton navigateur est proposée sur le PC (et l'inverse).", 13f, Look.INK_SOFT),
             com.liquidisland.drop.WaveLink.handoff()) { com.liquidisland.drop.WaveLink.setHandoff(it) })
-        c.addView(switchRow("Résumé du matin", text("Au premier déverrouillage de la journée : météo et rappels du jour.", 13f, Glass.INK_SOFT),
+        c.addView(switchRow("Résumé du matin", text("Au premier déverrouillage de la journée : météo et rappels du jour.", 13f, Look.INK_SOFT),
             com.liquidisland.drop.WaveLink.morning()) { com.liquidisland.drop.WaveLink.setMorning(it) })
         return c
     }
@@ -1133,17 +1160,17 @@ class MainActivity : Activity() {
         val c = card()
         c.addView(text("Appui long sur le bouton d'alimentation (comme pour Gemini) : la Wave Island t'écoute et Gemini répond à voix haute. " +
             "Il peut chercher sur Firefox, ouvrir une appli ou un site, régler le son, la luminosité, la lampe, la musique, un minuteur, une alarme, appeler ou envoyer un SMS. " +
-            "Touche l'îlot pendant qu'il écoute pour envoyer tout de suite, ou pendant qu'il parle pour poser une autre question.", 13f, Glass.INK_SOFT))
-        c.addView(text("Clé Gemini gratuite (aistudio.google.com > Get API key)", 14f, Glass.INK).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
+            "Touche l'îlot pendant qu'il écoute pour envoyer tout de suite, ou pendant qu'il parle pour poser une autre question.", 13f, Look.INK_SOFT))
+        c.addView(text("Clé Gemini gratuite (aistudio.google.com > Get API key)", 14f, Look.INK).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
         val key = android.widget.EditText(this).apply {
             setText(Prefs.aiKey(this@MainActivity))
             hint = "AIza…"
             setSingleLine()
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setTextColor(Glass.INK)
-            setHintTextColor(Glass.INK_SOFT)
+            setTextColor(Look.INK)
+            setHintTextColor(Look.INK_SOFT)
             textSize = 15f
-            background = Glass.card(d, dpf(14), false)
+            background = Look.soft(dpf(18))
             setPadding(dp(14), dp(10), dp(14), dp(10))
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -1157,17 +1184,17 @@ class MainActivity : Activity() {
         }, buttonLp(top = 8))
         val sonnet = Prefs.aiModel(this).contains("pro")
         c.addView(switchRow("Modèle plus malin (Gemini Pro)",
-            text("Sinon Flash : plus rapide, avec plus de questions gratuites par jour.", 13f, Glass.INK_SOFT), sonnet
+            text("Sinon Flash : plus rapide, avec plus de questions gratuites par jour.", 13f, Look.INK_SOFT), sonnet
         ) { Prefs.setAiModel(this, if (it) "gemini-pro-latest" else "gemini-flash-latest") })
         c.addView(switchRow("Réponse à voix haute",
-            text("Une voix française lit la réponse (sinon elle s'affiche seulement dans l'îlot).", 13f, Glass.INK_SOFT), Prefs.aiVoice(this)
+            text("Une voix française lit la réponse (sinon elle s'affiche seulement dans l'îlot).", 13f, Look.INK_SOFT), Prefs.aiVoice(this)
         ) { Prefs.setAiVoice(this, it) })
         c.addView(glassButton("Autoriser micro, contacts, appels et SMS", primary = false) {
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.READ_CONTACTS,
                 android.Manifest.permission.CALL_PHONE, android.Manifest.permission.SEND_SMS), 41)
         }, buttonLp(top = 8))
         c.addView(text("Pour que l'appui long ouvre Wave Island à la place de Gemini : choisis « Wave Island » comme application d'assistant numérique. " +
-            "Sur Xiaomi, vérifie aussi Réglages > Réglages supplémentaires > Raccourcis gestuels > « Lancer l'assistant » (appui long sur le bouton).", 13f, Glass.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
+            "Sur Xiaomi, vérifie aussi Réglages > Réglages supplémentaires > Raccourcis gestuels > « Lancer l'assistant » (appui long sur le bouton).", 13f, Look.INK_SOFT).apply { setPadding(dp(4), dp(12), 0, dp(4)) })
         c.addView(glassButton("Choisir Wave Island comme assistant", primary = true) { openAssistantSettings() }, buttonLp(top = 8))
         c.addView(glassButton("Essayer maintenant", primary = false) {
             val island = IslandService.instance
@@ -1188,20 +1215,53 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun section(title: String) = text(title, 13f, Glass.INK_SOFT).apply {
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        letterSpacing = 0.04f
-        setPadding(dp(8), dp(26), 0, dp(8))
+    private var sectionCount = 0
+
+    /** Titre de rubrique : pastille ronde coloree avec une icone, puis le titre en gras. */
+    private fun section(title: String): View {
+        val t = title.lowercase()
+        val kind = when {
+            "apparence" in t -> LineIcon.Kind.ISLAND
+            "volume" in t -> LineIcon.Kind.VOLUME
+            "activit" in t -> LineIcon.Kind.PLAY
+            "link" in t -> LineIcon.Kind.LAPTOP
+            "assistant" in t -> LineIcon.Kind.BELL
+            "menu" in t -> LineIcon.Kind.APPS
+            "xiaomi" in t -> LineIcon.Kind.PHONE
+            "autorisation" in t -> LineIcon.Kind.LOCK
+            "grisé" in t || "restreint" in t -> LineIcon.Kind.SETTINGS
+            "option" in t -> LineIcon.Kind.SETTINGS
+            "mise" in t -> LineIcon.Kind.UPDATE
+            "appareils" in t -> LineIcon.Kind.PHONE
+            "reçus" in t -> LineIcon.Kind.DOWNLOAD
+            "comment" in t -> LineIcon.Kind.CHECK
+            else -> LineIcon.Kind.DROP
+        }
+        val color = Look.PALETTE[sectionCount++ % Look.PALETTE.size]
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(28), 0, dp(12))
+        }
+        row.addView(android.widget.ImageView(this).apply {
+            background = Look.bubble(color)
+            setImageDrawable(LineIcon(kind, Color.WHITE, d))
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            elevation = dpf(3)
+        }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(12) })
+        row.addView(text(title, 19f, Look.INK, bold = true))
+        return row
     }
 
     private fun card(strong: Boolean = false) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = Glass.card(d, dpf(26), strong)
+        background = Look.card(d, dpf(26), strong)
         setPadding(dp(18), dp(16), dp(18), dp(16))
+        elevation = dpf(2)
     }
 
     private fun divider() = View(this).apply {
-        setBackgroundColor(Color.argb(24, 255, 255, 255))
+        setBackgroundColor(Look.LINE)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxOf(1, dp(1) / 2)).apply {
             topMargin = dp(4); bottomMargin = dp(4)
         }
@@ -1223,16 +1283,16 @@ class MainActivity : Activity() {
             val r = dpf(24)
             when {
                 primary -> {
-                    setTextColor(Glass.ON_ACCENT)
-                    background = Glass.pressable(Glass.tinted(d, r), r, dark = true)
+                    setTextColor(Look.ON_ACCENT)
+                    background = Look.pressable(Look.tinted(d, r), r, dark = true)
                 }
                 onWhite -> {
-                    setTextColor(Glass.ACCENT)
-                    background = Glass.pressable(Glass.card(d, r, strong = true), r)
+                    setTextColor(Look.ACCENT_DEEP)
+                    background = Look.pressable(GradientDrawable().apply { cornerRadius = r; setColor(Color.WHITE) }, r)
                 }
                 else -> {
-                    setTextColor(Glass.INK)
-                    background = Glass.pressable(Glass.card(d, r, strong = true), r)
+                    setTextColor(Look.ACCENT_DEEP)
+                    background = Look.pressable(GradientDrawable().apply { cornerRadius = r; setColor(Color.rgb(238, 236, 255)) }, r)
                 }
             }
             isClickable = true
@@ -1242,8 +1302,9 @@ class MainActivity : Activity() {
     private fun heroCard(): View {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.card(d, dpf(30), strong = true)
+            background = Look.gradient(dpf(30))
             setPadding(dp(20), dp(20), dp(20), dp(20))
+            elevation = dpf(8)
         }
         c.addView(text("L'îlot", 22f, Color.WHITE, bold = true))
         heroStatus = text("", 15f, Color.argb(225, 255, 255, 255))
@@ -1252,13 +1313,13 @@ class MainActivity : Activity() {
         // Sans l'accessibilite, la barre d'etat recoit les touchers a la place de l'ilot
         accessWarn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Glass.card(d, dpf(20), strong = true)
+            background = Look.card(d, dpf(20), strong = true)
             setPadding(dp(14), dp(12), dp(14), dp(12))
             visibility = View.GONE
         }
-        accessTitle = text("Toucher l'îlot ouvre le volet des réglages ?", 15f, Glass.INK, bold = true)
+        accessTitle = text("Toucher l'îlot ouvre le volet des réglages ?", 15f, Look.INK, bold = true)
         accessWarn.addView(accessTitle)
-        accessBody = text("", 13f, Glass.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
+        accessBody = text("", 13f, Look.INK_SOFT).apply { setPadding(0, dp(4), 0, 0) }
         accessWarn.addView(accessBody)
         accessWarn.addView(glassButton("Activer l'accessibilité", primary = true) {
             open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -1284,7 +1345,7 @@ class MainActivity : Activity() {
     private fun setChip(chip: TextView, label: String, color: Int) {
         chip.text = label
         chip.setTextColor(color)
-        chip.background = Glass.chip(color, dpf(12))
+        chip.background = Look.chip(color, dpf(12))
     }
 
     private fun permRow(num: String, title: String, sub: String, check: () -> Boolean?, action: () -> Unit): View {
@@ -1292,25 +1353,25 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(10), dp(4), dp(10))
-            background = Glass.pressable(ColorDrawable(Color.TRANSPARENT), dpf(16))
+            background = Look.pressable(ColorDrawable(Color.TRANSPARENT), dpf(16))
             isClickable = true
             setOnClickListener { action() }
         }
         if (num.isNotEmpty()) {
-            row.addView(text(num, 14f, Glass.ACCENT, bold = true).apply {
+            row.addView(text(num, 14f, Look.ACCENT, bold = true).apply {
                 gravity = Gravity.CENTER
-                background = Glass.chip(Glass.ACCENT, dpf(15))
+                background = Look.chip(Look.ACCENT, dpf(15))
                 layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(14) }
             })
         }
         val texts = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            addView(text(title, 15f, Glass.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) })
-            addView(text(sub, 13f, Glass.INK_SOFT))
+            addView(text(title, 15f, Look.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) })
+            addView(text(sub, 13f, Look.INK_SOFT))
         }
         row.addView(texts)
-        val chip = text("", 12f, Glass.ACCENT).apply {
+        val chip = text("", 12f, Look.ACCENT).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setPadding(dp(10), dp(4), dp(10), dp(4))
             layoutParams = LinearLayout.LayoutParams(
@@ -1331,7 +1392,7 @@ class MainActivity : Activity() {
         val texts = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            addView(text(title, 15f, Glass.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) })
+            addView(text(title, 15f, Look.INK).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) })
             addView(sub)
         }
         row.addView(texts)
@@ -1339,7 +1400,7 @@ class MainActivity : Activity() {
         val sw = Switch(this).apply {
             isChecked = initial
             thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, Color.WHITE))
-            trackTintList = ColorStateList(states, intArrayOf(Glass.ACCENT, Color.argb(70, 255, 255, 255)))
+            trackTintList = ColorStateList(states, intArrayOf(Look.ACCENT, Look.TRACK_OFF))
             setOnCheckedChangeListener { _, v -> onChange(v) }
         }
         row.addView(sw)

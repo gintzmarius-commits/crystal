@@ -284,7 +284,8 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             windowAnimations = 0
         }
-        try { wm.addView(root, lp); dockRoot = root; dockLp = lp } catch (e: Exception) { shown = false; Log.w(TAG, "Dock impossible : $e"); return }
+        createBlur()   // d'abord : la fenetre de flou doit etre SOUS le dock
+        try { wm.addView(root, lp); dockRoot = root; dockLp = lp } catch (e: Exception) { shown = false; removeBlur(); Log.w(TAG, "Dock impossible : $e"); return }
         root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
         // Le dock est la : pendant ce temps le bas de l'ecran revient a Android (2e glissement = fermer l'appli)
         pause(3300)
@@ -450,6 +451,69 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         a.start()
     }
 
+    // ---------- Flou liquide derriere le dock (sans enregistrement de l'ecran) ----------
+
+    /** Petite fenetre placee SOUS le dock, a sa forme exacte, qui floute ce qu'il y a derriere (Android 12+). */
+    private var blurDlg: android.app.Dialog? = null
+    private var blurKey = ""
+
+    private fun createBlur() {
+        if (Build.VERSION.SDK_INT < 31 || !Prefs.blur(ctx) || blurDlg != null) return
+        val host: Context = IslandAccessibility.instance ?: ctx
+        try {
+            val hostWm = host.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            if (!hostWm.isCrossWindowBlurEnabled) return
+            val dlg = android.app.Dialog(host, android.R.style.Theme_Panel)
+            dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            dlg.setContentView(View(host))
+            dlg.setCancelable(false)
+            val w = dlg.window ?: return
+            w.setType(type)
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            w.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            w.setWindowAnimations(0)
+            w.setGravity(Gravity.TOP or Gravity.START)
+            w.setDecorFitsSystemWindows(false)
+            val a = w.attributes
+            a.fitInsetsTypes = 0
+            a.width = 1; a.height = 1; a.x = -10; a.y = -10
+            w.attributes = a
+            w.setBackgroundBlurRadius(dp(12))
+            w.setBackgroundDrawable(blurShape(1, 1))
+            dlg.show()
+            w.decorView.setPadding(0, 0, 0, 0)
+            blurDlg = dlg
+            blurKey = ""
+        } catch (e: Exception) {
+            Log.w(TAG, "Dock : flou impossible : $e")
+            blurDlg = null
+        }
+    }
+
+    private fun blurShape(w: Int, h: Int) = android.graphics.drawable.GradientDrawable().apply {
+        setColor(Color.argb(1, 0, 0, 0))
+        cornerRadius = minOf(w, h) / 2f
+        setBounds(0, 0, w, h)
+    }
+
+    /** Le flou suit la goutte / pilule (coordonnees de l'ecran). */
+    private fun moveBlur(x: Int, y: Int, w: Int, h: Int) {
+        val win = blurDlg?.window ?: return
+        if (w <= 0 || h <= 0) return
+        val key = "$x/$y/$w/$h"
+        if (key == blurKey) return
+        blurKey = key
+        val a = win.attributes
+        a.x = x; a.y = y; a.width = w; a.height = h
+        try { win.attributes = a; win.setBackgroundDrawable(blurShape(w, h)) } catch (e: Exception) { }
+    }
+
+    private fun removeBlur() {
+        try { blurDlg?.dismiss() } catch (e: Exception) { }
+        blurDlg = null
+    }
+
     fun hide(animated: Boolean = true, pauseMs: Long = 350) {
         if (!shown) return
         shown = false
@@ -458,7 +522,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         val dv = dock
         dockRoot = null
         dock = null
-        val remove = { try { wm.removeView(root) } catch (e: Exception) { } }
+        val remove = { removeBlur(); try { wm.removeView(root) } catch (e: Exception) { } }
         // Apres un 2e glissement (fermer l'appli) le bas reste a Android un moment ; sinon il revient tout de suite
         pausedUntil = 0L
         pause(pauseMs)
@@ -494,7 +558,8 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         }
         c.addListener(object : android.animation.AnimatorListenerAdapter() {
             override fun onAnimationEnd(an: android.animation.Animator) {
-                // 3) la goutte s'etire et tombe sous le bord de l'ecran
+                // 3) la goutte s'etire et tombe sous le bord de l'ecran (le flou part tout de suite)
+                removeBlur()
                 val below = (gestureHeight() + dp(6)).toFloat() + dia * 1.6f
                 val f = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(260)
                 f.interpolator = android.view.animation.AccelerateInterpolator(1.7f)
@@ -566,6 +631,7 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
         var sw = 0f
         var sh = 0f
         private val clip = Path()
+        private val loc = IntArray(2)
         init { setWillNotDraw(false); clipChildren = false }
         override fun dispatchDraw(canvas: Canvas) {
             val cx = (row.left + row.right) / 2f + if (settled) 0f else offX
@@ -575,7 +641,12 @@ class WaveDock(private val ctx: Context, private val wm: WindowManager, private 
             if (wNow < 1f || hNow < 1f) return
             val l = cx - wNow / 2f; val t = bottom - hNow; val r = cx + wNow / 2f
             glass.fixedRadius = minOf(wNow, hNow) / 2f   // toujours entierement rond
+            glass.blurred = blurDlg != null
             glass.build(l, t, r, bottom)
+            if (blurDlg != null) {
+                getLocationOnScreen(loc)
+                moveBlur((loc[0] + l).toInt(), (loc[1] + t).toInt(), wNow.toInt(), hNow.toInt())
+            }
             glass.drawBody(canvas)
             // Les icones n'apparaissent qu'a l'interieur de la goutte
             clip.reset()

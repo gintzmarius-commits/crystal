@@ -932,7 +932,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             a.x = (resources.displayMetrics.widthPixels - cw) / 2
             a.y = off
             w.attributes = a
-            w.setBackgroundBlurRadius(dp(24))
+            w.setBackgroundBlurRadius(dp(12))   // flou leger : on voit encore bien le fond
             w.setBackgroundDrawable(blurShape(cw, ch))
             d.show()
             w.decorView.setPadding(0, 0, 0, 0)

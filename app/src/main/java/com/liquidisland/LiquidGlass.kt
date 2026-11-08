@@ -58,6 +58,9 @@ class LiquidGlass(private val density: Float) {
     private val innerPath = Path()
     private val tmp = RectF()
     private val specMatrix = Matrix()
+    /** Sans capture de l'ecran : lueur sous le bord oppose a la lumiere (la lumiere qui traverse la goutte) */
+    private val caustic = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val causticMatrix = Matrix()
     private var radius = 0f
 
     // ---------- Refraction (Android 13+) ----------
@@ -150,6 +153,11 @@ class LiquidGlass(private val density: Float) {
         specMatrix.setScale(sr * min(3.2f, max(1f, w / h * 0.9f)), sr * 0.55f)
         specMatrix.postTranslate(sx, sy)
         spec.shader.setLocalMatrix(specMatrix)
+        val cxr = cx - lx * w * 0.28f
+        val cyr = b - h * (0.14f - 0.04f * ly)
+        causticMatrix.setScale(sr * min(2.6f, max(1f, w / h * 0.7f)), sr * 0.42f)
+        causticMatrix.postTranslate(cxr, cyr)
+        caustic.shader?.setLocalMatrix(causticMatrix)
 
         shade.color = if (dark) Color.argb(60, 0, 0, 0) else Color.argb(36, 30, 40, 70)
 
@@ -202,6 +210,7 @@ class LiquidGlass(private val density: Float) {
         else LinearGradient(0f, 0f, 0f, 1f,
             Color.argb(aTop.toInt(), 255, 255, 255), Color.argb(aBot.toInt(), 238, 242, 250), Shader.TileMode.CLAMP)
         spec.shader = RadialGradient(0f, 0f, 1f, white(85f), white(0f), Shader.TileMode.CLAMP)
+        caustic.shader = RadialGradient(0f, 0f, 1f, white(if (dark) 42f else 60f), white(0f), Shader.TileMode.CLAMP)
         // Epaisseur : bord interieur clair cote lumiere, plus sombre a l'oppose
         edge.shader = LinearGradient(0.5f - lx * 0.5f, -ly, 0.5f + lx * 0.5f, 1.2f,
             white(if (dark) 70f else 110f), black(if (dark) 55f else 28f), Shader.TileMode.CLAMP)
@@ -244,14 +253,19 @@ class LiquidGlass(private val density: Float) {
         c.save()
         c.clipPath(path)
         // Epaisseur : degrade lisse sur ~6 dp, en couches tres legeres
+        // Sans deformation du fond (pas de capture) : bord plus epais et plus lumineux, comme une goutte d'eau
+        val liquid = backdrop == null || fade < 0.01f
+        val boost = if (liquid) 2.3f else 1f
+        val thick = if (liquid) 16f else 12f
         val steps = 5
         for (i in 0 until steps) {
             val k = (i + 1).toFloat() / steps
-            edge.strokeWidth = dp(12f * (1f - k) + 1.2f)
-            edge.alpha = (16 * k + 4).toInt()
+            edge.strokeWidth = dp(thick * (1f - k) + 1.2f)
+            edge.alpha = ((16 * k + 4) * boost).toInt().coerceAtMost(255)
             c.drawPath(path, edge)
         }
         c.drawRect(rect, spec)
+        if (liquid && rect.height() > dp(14f)) c.drawRect(rect, caustic)
         if (!innerPath.isEmpty) {
             innerRim.strokeWidth = dp(0.8f)
             c.drawPath(innerPath, innerRim)

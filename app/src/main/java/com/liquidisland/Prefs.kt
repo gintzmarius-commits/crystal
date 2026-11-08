@@ -5,7 +5,8 @@ import android.content.Context
 object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("island", Context.MODE_PRIVATE)
 
-    fun hideSystem(c: Context) = sp(c).getBoolean("hide", false)
+    /** Les notifications restent toujours aussi dans le volet d'Android */
+    fun hideSystem(c: Context) = false
     fun setHideSystem(c: Context, v: Boolean) = sp(c).edit().putBoolean("hide", v).apply()
 
     /** true = l'ilot doit tourner (et redemarrer au demarrage du telephone) */
@@ -24,14 +25,22 @@ object Prefs {
     fun fullscreen(c: Context) = sp(c).getString("fullscreen2", "show") ?: "show"
     fun setFullscreen(c: Context, v: String) = sp(c).edit().putString("fullscreen2", v).apply()
 
-    /** Flou du fond, limite a la forme de l'ilot */
-    /** Plus de flou : l'ilot est toujours en verre transparent */
-    fun blur(c: Context) = false
-    fun setBlur(c: Context, v: Boolean) = sp(c).edit().putBoolean("blur3", v).apply()
+    /**
+     * Effet du verre de l'ilot et du dock :
+     * "blur" = flou leger du systeme derriere + bords liquides (par defaut, sans enregistrement de l'ecran),
+     * "clear" = totalement transparent, seulement les bords liquides,
+     * "live" = deformation du fond (capture de l'ecran, Android 13+).
+     */
+    fun glassMode(c: Context) = sp(c).getString("glassMode", "blur") ?: "blur"
+    fun setGlassMode(c: Context, v: String) = sp(c).edit().putString("glassMode", v).apply()
 
-    /** Deformation du fond sur les bords (capture de l'ecran, Android 13+) */
-    fun refraction(c: Context) = sp(c).getBoolean("refraction", true)
-    fun setRefraction(c: Context, v: Boolean) = sp(c).edit().putBoolean("refraction", v).apply()
+    /** Flou du systeme derriere l'ilot et le dock (Android 12+) */
+    fun blur(c: Context) = glassMode(c) == "blur"
+    fun setBlur(c: Context, v: Boolean) = setGlassMode(c, if (v) "blur" else "clear")
+
+    /** Deformation du fond sur les bords (capture de l'ecran, Android 13+) : seulement en mode "live" */
+    fun refraction(c: Context) = glassMode(c) == "live"
+    fun setRefraction(c: Context, v: Boolean) = setGlassMode(c, if (v) "live" else "blur")
 
     /** L'utilisateur veut l'effet en direct (a accepte la capture) : on la repropose si Android la coupe */
     fun liveWanted(c: Context) = sp(c).getBoolean("liveWanted", false)
