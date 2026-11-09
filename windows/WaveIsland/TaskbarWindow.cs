@@ -36,7 +36,7 @@ namespace WaveIsland
         private readonly DispatcherTimer _capTimer, _tick, _clockTimer, _appsSoon;
         /// <summary>Copie du fond : rapide quand il bouge, ralentie quand il est immobile.</summary>
         private readonly Pacer _pacer;
-        private uint _shellMsg;
+        private int _shellMsg;
         private IntPtr _winHook;
         private WinEventProc _winHookProc;
         private delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time);
@@ -44,7 +44,6 @@ namespace WaveIsland
         [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr h);
         [DllImport("user32.dll")] private static extern bool RegisterShellHookWindow(IntPtr h);
         [DllImport("user32.dll")] private static extern bool DeregisterShellHookWindow(IntPtr h);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string s);
         private readonly FrameGate _gate = new FrameGate();
         private IntPtr _hwnd, _tray;
         private bool _excluded, _animating, _bubbleHidden, _hiddenFull;
@@ -296,7 +295,7 @@ namespace WaveIsland
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
-            if (_shellMsg != 0 && msg == (int)_shellMsg)
+            if (_shellMsg != 0 && msg == _shellMsg)
             {
                 // HSHELL_WINDOWCREATED 1, DESTROYED 2, ACTIVATED 4 (et RUDEAPPACTIVATED 0x8004), WINDOWREPLACED 13.
                 // (Pas les changements de titre : certaines applis changent le leur sans arret.)
