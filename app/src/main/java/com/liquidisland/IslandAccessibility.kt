@@ -16,6 +16,7 @@ class IslandAccessibility : AccessibilityService() {
         instance = this
         val filter = (serviceInfo?.flags ?: 0) and android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS != 0
         Log.i("LiquidIsland", "Accessibilite active (filtre des touches : ${if (filter) "oui" else "non"})")
+        applyEventTypes()
         val island = IslandService.instance
         if (island != null) {
             island.rehost()
@@ -26,6 +27,28 @@ class IslandAccessibility : AccessibilityService() {
                 Log.w("LiquidIsland", "Demarrage de l'ilot refuse", e)
             }
         }
+    }
+
+    /**
+     * On ne demande a Android que les evenements utiles. Important pour la batterie de TOUT le telephone :
+     * les applis ne fabriquent pas les evenements qu'aucun service ne demande.
+     * - changement de fenetre : toujours (appli au premier plan, dock, volet) ;
+     * - changement de contenu : seulement pour reperer le volet d'Android (bande du haut) ou suivre la page du navigateur (continuite) ;
+     * - defilement : seulement pour l'effet « deformation » (capture de l'ecran) ou la continuite.
+     */
+    fun applyEventTypes() {
+        try {
+            val info = serviceInfo ?: return
+            val handoff = com.liquidisland.drop.WaveLink.handoffActive(this)
+            var types = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            if (Prefs.shade(this) || handoff) types = types or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            if (Prefs.refraction(this) || handoff) types = types or AccessibilityEvent.TYPE_VIEW_SCROLLED
+            if (info.eventTypes == types && info.notificationTimeout == 100L) return
+            info.eventTypes = types
+            info.notificationTimeout = 100
+            serviceInfo = info
+            Log.i("LiquidIsland", "Accessibilite : evenements demandes = ${Integer.toHexString(types)}")
+        } catch (e: Exception) { Log.w("LiquidIsland", "Accessibilite : reglage des evenements impossible : $e") }
     }
 
     override fun onUnbind(intent: Intent?): Boolean {

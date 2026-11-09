@@ -1334,6 +1334,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         textView.setTextColor(inkSoft())
         styleText(titleView)
         styleText(textView)
+        IslandAccessibility.instance?.applyEventTypes()   // evenements demandes selon les reglages (effet du verre...)
         val wantBlur = Prefs.blur(this) && Build.VERSION.SDK_INT >= 31
         // La fenetre de flou doit etre SOUS l'ilot : on recree tout dans le bon ordre
         if (wantBlur && blurDialog == null && !blurUnavailable) { rehost(); return }

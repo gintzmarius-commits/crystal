@@ -126,7 +126,7 @@ class MainActivity : Activity() {
             "Centres de notifications et de contrôle",
             text("Tire la barre d'état : à gauche toutes tes notifications, à droite les réglages rapides (Wi-Fi, Bluetooth, lampe, luminosité, volume, musique…), en verre liquide.", 13f, Look.INK_SOFT),
             Prefs.shade(this)
-        ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip() })
+        ) { Prefs.setShade(this, it); IslandService.instance?.updateStrip(); IslandAccessibility.instance?.applyEventTypes() })
         col.addView(live)
 
         // Lot 4 : Wave Link (PC + telephone)

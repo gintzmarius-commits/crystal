@@ -344,6 +344,10 @@ namespace WaveIsland
             _tvPoll.Tick += (a, b) =>
             {
                 Perf.Hit("vue-taches-sondage");
+                // Gestes a 3 doigts geres par Wave Island (ceux de Windows coupes) : la vue des taches de Windows ne
+                // s'ouvre presque plus, le crochet du premier plan suffit ; on ne garde qu'une verification lente
+                var iv = TimeSpan.FromMilliseconds(Settings.Current.OwnThreeFinger && !Active ? 1000 : 300);
+                if (_tvPoll.Interval != iv) _tvPoll.Interval = iv;
                 var fg = GetForegroundWindow();
                 if (fg == last) return;
                 last = fg;

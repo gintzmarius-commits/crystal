@@ -55,16 +55,27 @@ object WaveLink {
         val set = prefs().getStringSet("linked", emptySet())!!.filterNot { it.startsWith("$id|") }.toMutableSet()
         set.add("$id|${(name ?: old?.name ?: "PC").replace("|", " ")}|${ip ?: old?.ip ?: ""}|${if (port > 0) port else old?.port ?: 0}")
         prefs().edit().putStringSet("linked", set).apply()
+        if (old == null) eventsChanged()
     }
 
     fun unlink(id: Int) {
         prefs().edit().putStringSet("linked", prefs().getStringSet("linked", emptySet())!!.filterNot { it.startsWith("$id|") }.toSet()).apply()
+        eventsChanged()
     }
+
+    /** Lien ou continuite changes : l'accessibilite ajuste les evenements qu'elle demande. */
+    private fun eventsChanged() = main.post { com.liquidisland.IslandAccessibility.instance?.applyEventTypes() }
 
     fun clipSync() = prefs().getBoolean("clip", true)
     fun setClipSync(v: Boolean) = prefs().edit().putBoolean("clip", v).apply()
     fun handoff() = prefs().getBoolean("handoff", true)
-    fun setHandoff(v: Boolean) = prefs().edit().putBoolean("handoff", v).apply()
+
+    /** Continuite active (au moins un PC lie et l'option allumee) : l'accessibilite doit suivre la page du navigateur. */
+    fun handoffActive(c: Context): Boolean {
+        if (!::app.isInitialized) app = c.applicationContext
+        return try { handoff() && linked().isNotEmpty() } catch (e: Exception) { false }
+    }
+    fun setHandoff(v: Boolean) { prefs().edit().putBoolean("handoff", v).apply(); eventsChanged() }
     fun morning() = prefs().getBoolean("morning", true)
     fun setMorning(v: Boolean) = prefs().edit().putBoolean("morning", v).apply()
 
