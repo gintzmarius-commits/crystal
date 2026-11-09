@@ -31,13 +31,14 @@ namespace WaveIsland
         public static int Fps => Math.Max(30, Math.Min(120, Settings.Current.Fps));
         public static TimeSpan Interval => TimeSpan.FromMilliseconds(1000.0 / Fps);
 
-        [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint ms);
-
-        /// <summary>Au demarrage : cadence de WPF et minuteurs precis a la milliseconde.</summary>
+        /// <summary>
+        /// Au demarrage : cadence de WPF. (Plus de timeBeginPeriod(1) : il forcait tout Windows a se reveiller
+        /// toutes les millisecondes tant que l'appli tournait, ce qui use la batterie des portables. Les animations
+        /// sont synchronisees sur l'ecran par WPF, elles n'en ont pas besoin.)
+        /// </summary>
         public static void Init()
         {
             try { Timeline.DesiredFrameRateProperty.OverrideMetadata(typeof(Timeline), new FrameworkPropertyMetadata { DefaultValue = Fps }); } catch { }
-            try { timeBeginPeriod(1); } catch { }
         }
 
         // ---------- Frequence de l'ecran ----------

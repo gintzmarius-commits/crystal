@@ -13,6 +13,7 @@ namespace WaveIsland
     public static class ToastHider
     {
         private delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time);
+        [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr h);
         [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -32,13 +33,20 @@ namespace WaveIsland
 
         private static bool On => Settings.Current.HideWinToasts && Settings.Current.Notifications;
 
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        private static IntPtr _moveHook;
+        private static uint _movePid;
+
         public static void Start(Dispatcher ui)
         {
             _proc = OnEvent;
-            _hook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, IntPtr.Zero, _proc, 0, 0, WINEVENT_OUTOFCONTEXT);
-            // Filet de securite : verifie aussi regulierement (la bulle peut apparaitre sans evenement)
-            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(120), DispatcherPriority.Background, (a, b) => { Perf.Hit("bulles-sondage"); Sweep(); }, ui);
+            // Seulement « une fenetre apparait » pour tout le systeme (avant : aussi chaque deplacement de la souris
+            // et du curseur de texte, dans toutes les applis -> des centaines de reveils par seconde)
+            _hook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, IntPtr.Zero, _proc, 0, 0, WINEVENT_OUTOFCONTEXT);
+            // Filet de securite, rare (avant : 8 fois par seconde)
+            _poll = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (a, b) => { Perf.Hit("bulles-sondage"); Sweep(); }, ui);
             _poll.Start();
+            Power.Register(_poll);
             Log.I("Bulles de Windows : masquage " + (On ? "actif" : "inactif"));
         }
 
@@ -75,6 +83,14 @@ namespace WaveIsland
         private static void Push(IntPtr h)
         {
             if (!GetWindowRect(h, out var r) || r.L <= -30000) return;
+            // Windows replace sa bulle pendant son animation : on suit seulement les deplacements de CE processus
+            GetWindowThreadProcessId(h, out uint pid);
+            if (pid != 0 && pid != _movePid)
+            {
+                if (_moveHook != IntPtr.Zero) UnhookWinEvent(_moveHook);
+                _movePid = pid;
+                _moveHook = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, IntPtr.Zero, _proc, pid, 0, WINEVENT_OUTOFCONTEXT);
+            }
             SetWindowPos(h, IntPtr.Zero, -32000, -32000, 0, 0, 0x0001 /* NOSIZE */ | 0x0004 /* NOZORDER */ | 0x0010 /* NOACTIVATE */);
             if (_hidden++ < 5) Log.I("Bulle de notification de Windows cachee (l'ilot l'affiche)");
         }

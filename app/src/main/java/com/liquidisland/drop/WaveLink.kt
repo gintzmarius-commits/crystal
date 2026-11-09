@@ -89,10 +89,8 @@ object WaveLink {
         main.postDelayed(object : Runnable {
             override fun run() { sendBattery(); main.postDelayed(this, 5 * 60_000L) }
         }, 20_000)
-        // Rappels : verifies toutes les 20 s
-        main.postDelayed(object : Runnable {
-            override fun run() { checkReminders(); main.postDelayed(this, 20_000) }
-        }, 5_000)
+        // Rappels : un seul reveil, a l'heure du prochain rappel (avant : toutes les 20 s, meme sans rappel)
+        main.postDelayed({ scheduleReminders() }, 5_000)
         // Deverrouillage : page du PC a continuer, resume du matin
         app.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
@@ -264,6 +262,7 @@ object WaveLink {
         val set = prefs().getStringSet("reminders", emptySet())!!.toMutableSet()
         set.add("$at|${text.replace("\n", " ")}")
         prefs().edit().putStringSet("reminders", set).apply()
+        main.post { scheduleReminders() }
         Log.i(TAG, "Rappel : « $text » a ${Date(at)}")
         if (share) Thread { sendAll(msg("remind", "text" to text, "at" to at.toString())) }.start()
     }
@@ -274,6 +273,17 @@ object WaveLink {
     private fun remindersToday(): Int {
         val end = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59) }.timeInMillis
         return prefs().getStringSet("reminders", emptySet())!!.count { (it.substringBefore("|").toLongOrNull() ?: 0) <= end }
+    }
+
+    private val reminderTick = Runnable { checkReminders(); scheduleReminders() }
+
+    /** Prochain reveil = prochain rappel (au plus tard dans 10 min, si l'heure du telephone a change). */
+    private fun scheduleReminders() {
+        main.removeCallbacks(reminderTick)
+        if (!::app.isInitialized) return
+        val next = prefs().getStringSet("reminders", emptySet())!!.mapNotNull { it.substringBefore("|").toLongOrNull() }.minOrNull() ?: return
+        val wait = (next - System.currentTimeMillis()).coerceIn(1_000L, 10 * 60_000L)
+        main.postDelayed(reminderTick, wait)
     }
 
     private fun checkReminders() {

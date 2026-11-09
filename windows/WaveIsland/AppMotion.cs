@@ -148,9 +148,28 @@ namespace WaveIsland
         }
 
         /// <summary>Garde l'image en memoire et (au plus toutes les 20 s par appli) sur le disque.</summary>
+        /// <summary>
+        /// Memoire bornee : les images des fenetres fermees sont oubliees et le nombre d'images gardees est plafonne
+        /// (avant : rien n'etait jamais libere, la memoire grossissait au fil des heures en mode tablette).
+        /// </summary>
+        private static void Prune()
+        {
+            void Trim<T>(Dictionary<IntPtr, T> d, int max)
+            {
+                if (d.Count <= max) return;
+                foreach (var k in d.Keys.Where(k => !IsWindow(k)).ToList()) d.Remove(k);
+                while (d.Count > max) d.Remove(d.Keys.First());
+            }
+            Trim(Shots, 20);
+            Trim(Recent, 10);
+            Trim(BackPages, 10);
+            Trim(Page, 20);
+        }
+
         private static void Keep(IntPtr h, BitmapSource b)
         {
             Shots[h] = b;
+            if (Shots.Count > 20) Prune();
             var key = ShotKey(h);
             if (key == null || (_savedAt.TryGetValue(key, out var t) && (DateTime.Now - t).TotalSeconds < 20)) return;
             _savedAt[key] = DateTime.Now;
@@ -258,11 +277,11 @@ namespace WaveIsland
                 if (cur.img != null && !string.IsNullOrEmpty(cur.title))
                 {
                     stack.Add(cur);
-                    if (stack.Count > 10) stack.RemoveAt(0);
+                    if (stack.Count > 6) stack.RemoveAt(0);
                 }
                 Page[h] = (now, null);
             }
-            if (BackPages.Count > 60) { BackPages.Clear(); Page.Clear(); }
+            if (BackPages.Count > 10 || Page.Count > 20) Prune();
             // Image de la nouvelle page une fois affichee
             var ui = Application.Current?.Dispatcher;
             Task.Delay(800).ContinueWith(_ => ui?.BeginInvoke(new Action(() => Cache(h))));
@@ -301,8 +320,8 @@ namespace WaveIsland
             if (!Recent.TryGetValue(h, out var list)) Recent[h] = list = new List<(BitmapSource, byte[])>();
             // Meme page qu'avant (presque la meme image) : on remplace juste par la plus recente
             if (list.Count > 0 && Diff(list[list.Count - 1].sig, sig) < 6) list[list.Count - 1] = (b, sig);
-            else { list.Add((b, sig)); if (list.Count > 8) list.RemoveAt(0); }
-            if (Recent.Count > 40) Recent.Clear();
+            else { list.Add((b, sig)); if (list.Count > 4) list.RemoveAt(0); }
+            if (Recent.Count > 10) Prune();
         }
 
         /// <summary>Image de la page precedente de cette fenetre (sinon null).</summary>
@@ -470,11 +489,9 @@ namespace WaveIsland
                 // Coins arrondis : plus la carte est petite, plus ils sont ronds (comme iOS)
                 double full = Math.Min(1, w / Math.Max(1, _sw));
                 double rad = full > 0.995 ? 0 : Math.Min(34, 14 + 26 * (1 - full)) * Math.Min(1, w / 160);
-                foreach (var el in new FrameworkElement[] { c.View, c.Shade })
-                {
-                    Canvas.SetLeft(el, x); Canvas.SetTop(el, y);
-                    el.Width = w; el.Height = h;
-                }
+                // (sans tableau intermediaire : plus d'allocation par carte et par image)
+                PlaceAt(c.View, x, y, w, h);
+                PlaceAt(c.Shade, x, y, w, h);
                 c.View.CornerRadius = new CornerRadius(rad);
                 c.Shade.CornerRadius = new CornerRadius(rad);
                 double mix = Math.Max(0, Math.Min(1, c.Mix.Value));
@@ -498,6 +515,12 @@ namespace WaveIsland
                     Panel.SetZIndex(c.Close, Panel.GetZIndex(c.View) + 5);
                 }
             }
+        }
+
+        private static void PlaceAt(FrameworkElement el, double x, double y, double w, double h)
+        {
+            Canvas.SetLeft(el, x); Canvas.SetTop(el, y);
+            el.Width = w; el.Height = h;
         }
 
         private void Kick()

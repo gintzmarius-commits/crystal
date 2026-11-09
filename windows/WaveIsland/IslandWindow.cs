@@ -44,6 +44,10 @@ namespace WaveIsland
 
         private readonly SpringValue _w, _h, _alpha = new SpringValue(0), _tint = new SpringValue(0), _level = new SpringValue(0);
         private readonly DispatcherTimer _captureTimer, _hideTimer, _watchTimer, _hoverTimer, _animTimer;
+        /// <summary>Copie du fond : rapide quand il bouge, ralentie quand il est immobile.</summary>
+        private readonly Pacer _pacer;
+        private FrameworkElement[] _panels;
+        private int _curX = int.MinValue, _curY;
         private Mode _mode = Mode.Collapsed;
         private FrameworkElement _panel;
         private IntPtr _hwnd;
@@ -329,6 +333,11 @@ namespace WaveIsland
             _hoverTimer.Tick += (a, b) => { _hoverTimer.Stop(); if (_hover && _mode == Mode.Collapsed && HasLive) ShowLive(); };
             _animTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(90) };
             _animTimer.Tick += (a, b) => { Perf.Hit("ilot-musique"); AnimateLive(); };
+            _pacer = new Pacer(_captureTimer, 66, 250);
+            // Ecran eteint / session verrouillee : plus de copies du fond ni de surveillance
+            Power.Register(_captureTimer);
+            Power.Register(_watchTimer);
+            Power.Register(_animTimer);
 
             // Glisser un fichier sur l'ilot : Wave Drop
             AllowDrop = true;
@@ -1113,7 +1122,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
-            _captureTimer.Interval = Frames.Interval;   // fond recopie a pleine cadence pendant l'animation
+            _pacer.Hold(Frames.Interval);   // fond recopie a pleine cadence pendant l'animation
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -1131,8 +1140,8 @@ namespace WaveIsland
             {
                 CompositionTarget.Rendering -= OnFrame;
                 _animating = false;
-                // Au repos : 15 copies du fond par seconde suffisent (moins de travail pour les petits PC)
-                _captureTimer.Interval = TimeSpan.FromMilliseconds(66);
+                // Au repos : 15 copies du fond par seconde au plus, puis moins si rien ne bouge derriere
+                _pacer.Release();
             }
         }
 
@@ -1176,7 +1185,9 @@ namespace WaveIsland
             _box.Height = h;
             _clip.Rect = new Rect(0, 0, w, h);
             _clip.RadiusX = _clip.RadiusY = radius;
-            foreach (var p in new[] { _volPanel, _notePanel, (FrameworkElement)_menuPanel, _compact, _livePanel, _assistPanel })
+            // (tableau garde une fois pour toutes : plus d'allocation a chaque image)
+            _panels ??= new FrameworkElement[] { _volPanel, _notePanel, _menuPanel, _compact, _livePanel, _assistPanel };
+            foreach (var p in _panels)
             {
                 bool on = p == _panel;
                 p.Opacity = on ? Math.Max(0, Math.Min(1, _alpha.Value)) : 0;
@@ -1214,8 +1225,12 @@ namespace WaveIsland
             double cx = IslandCenterX(_w.Value);
 
             // Reflets : la lumiere vient du cote de la souris
+            bool active = false;
             if (Native.GetCursorPos(out var cur))
             {
+                // La souris bouge : on garde la cadence rapide (les reflets la suivent)
+                if (_curX == int.MinValue) { _curX = cur.X; _curY = cur.Y; }
+                else if (Math.Abs(cur.X - _curX) > 2 || Math.Abs(cur.Y - _curY) > 2) { active = true; _curX = cur.X; _curY = cur.Y; }
                 double icx = r.Left + cx * k, icy = r.Top + (Settings.Current.Top + _h.Value / 2) * k;
                 double dx = cur.X - icx, dy = cur.Y - icy, len = Math.Sqrt(dx * dx + dy * dy);
                 if (len < 1) { dx = -0.5; dy = -1; len = Math.Sqrt(1.25); }
@@ -1227,7 +1242,7 @@ namespace WaveIsland
                     _fx.Light = new Point4D(nx / nl, ny / nl, old.Z, old.W);
             }
 
-            if (!Settings.Current.Refraction || !_excluded) return;
+            if (!Settings.Current.Refraction || !_excluded) { _pacer.Result(active); return; }
             try
             {
                 int ww = r.Right - r.Left, wh = r.Bottom - r.Top;
@@ -1235,12 +1250,14 @@ namespace WaveIsland
                 double bw = Math.Max(w, _w.Value) + 2 * Pad, bh = h + Settings.Current.Top + Pad;
                 int sx = (int)Math.Floor((cx - bw / 2) * k) & ~15, sw = (int)Math.Ceiling(bw * k / 16 + 2) * 16;
                 var sub = new Int32Rect(Math.Max(0, sx), 0, Math.Min(ww - Math.Max(0, sx), sw), Math.Min(wh, (int)Math.Ceiling(bh * k / 16 + 1) * 16));
-                if (_cap.Grab(r.Left, r.Top, ww, wh, sub))
+                bool changed = _cap.Grab(r.Left, r.Top, ww, wh, sub);
+                if (changed)
                 {
                     if (_glass.Source != _cap.Bitmap) _glass.Source = _cap.Bitmap;
                     bool bright = _bright ? _cap.Luma > 0.5 : _cap.Luma > 0.64;
                     if (bright != _bright) { _bright = bright; Restyle(); }
                 }
+                _pacer.Result(changed || active);
             }
             catch (Exception e) { Log.I("Capture : " + e.Message); }
         }
@@ -1258,6 +1275,8 @@ namespace WaveIsland
             if (full != _hidden)
             {
                 _hidden = full;
+                // Ilot cache (jeu, film en plein ecran) : plus aucune copie du fond
+                if (full) _captureTimer.Stop(); else if (!Power.Asleep) { _captureTimer.Start(); _pacer.Wake(); }
                 _root.Opacity = full ? 0 : 1;
                 _root.IsHitTestVisible = !full;
                 if (full) Collapse();

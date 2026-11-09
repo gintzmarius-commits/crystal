@@ -66,14 +66,33 @@ namespace WaveIsland
         public static string PhoneName { get; private set; }
         private static DateTime _lowNoteAt = DateTime.MinValue;
 
+        [DllImport("user32.dll")] private static extern bool AddClipboardFormatListener(IntPtr h);
+        private static System.Windows.Interop.HwndSource _clipSink;
+
         public static void Start(Dispatcher ui)
         {
             _ui = ui;
-            // Presse-papiers du PC -> telephone (texte), si active
-            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            // Presse-papiers du PC -> telephone (texte), si active.
+            // Windows previent quand le presse-papiers change (avant : on le regardait 1,4 fois par seconde, meme sans telephone lie).
             _clipSeq = GetClipboardSequenceNumber();
-            t.Tick += (a, b) => { Perf.Hit("lien-presse-papiers"); WatchClipboard(); };
-            t.Start();
+            try
+            {
+                _clipSink = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters("WaveClipboard") { ParentWindow = new IntPtr(-3), WindowStyle = 0 });
+                _clipSink.AddHook((IntPtr h, int msg, IntPtr w, IntPtr l, ref bool handled) =>
+                {
+                    if (msg == 0x031D /* WM_CLIPBOARDUPDATE */) { Perf.Hit("lien-presse-papiers"); WatchClipboard(); }
+                    return IntPtr.Zero;
+                });
+                if (!AddClipboardFormatListener(_clipSink.Handle)) throw new InvalidOperationException("ecoute refusee");
+            }
+            catch (Exception e)
+            {
+                Log.I("Presse-papiers : ecoute impossible (" + e.Message + "), verification reguliere");
+                var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                t.Tick += (a, b) => { Perf.Hit("lien-presse-papiers"); WatchClipboard(); };
+                t.Start();
+                Power.Register(t);
+            }
         }
 
         // ================== Reception (appelee par Wave Drop, hors du fil de l'interface) ==================

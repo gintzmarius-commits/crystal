@@ -27,8 +27,9 @@ namespace WaveIsland
         public static void Start()
         {
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-            t.Tick += (a, b) => { Perf.Hit("quotidien-4s"); Sample(); };
+            t.Tick += (a, b) => { Perf.Hit("continuite-4s"); Sample(); };
             t.Start();
+            Power.Register(t);
             Microsoft.Win32.SystemEvents.SessionSwitch += (a, e) =>
             {
                 if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionLock) Hand();
@@ -60,11 +61,23 @@ namespace WaveIsland
         private static bool _busy;
 
         /// <summary>Navigateur au premier plan : on note sa page (lecture de la barre d'adresse, hors du fil de l'interface).</summary>
+        [DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+        private static IntPtr _lastFg;
+        private static string _lastTitle;
+        private static readonly System.Text.StringBuilder _titleBuf = new System.Text.StringBuilder(512);
+
         private static void Sample()
         {
             if (_busy || !Settings.Current.Handoff || WaveLink.Linked().Count == 0) return;
             var fg = GetForegroundWindow();
             if (fg == IntPtr.Zero) return;
+            // Meme fenetre, meme titre : meme page, on ne relit pas la barre d'adresse (lecture couteuse pour le navigateur)
+            _titleBuf.Clear();
+            GetWindowText(fg, _titleBuf, _titleBuf.Capacity);
+            string title = _titleBuf.ToString();
+            if (fg == _lastFg && title == _lastTitle) return;
+            _lastFg = fg;
+            _lastTitle = title;
             GetWindowThreadProcessId(fg, out uint pid);
             string name;
             try { name = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { return; }
@@ -117,6 +130,7 @@ namespace WaveIsland
             s.Reminders ??= new List<string>();
             s.Reminders.Add($"{at.Ticks}|{kind}|{text.Replace("\n", " ")}");
             s.Save();
+            Schedule();   // le minuteur vise le prochain rappel
             Log.I($"Rappel : « {text} » ({(kind == "pc" ? "a l'ouverture du PC" : at.ToString("g"))})");
             if (share && kind == "time")
                 _ = WaveLink.SendAll(WaveLink.Msg("remind", ("text", text), ("at", new DateTimeOffset(at).ToUnixTimeMilliseconds().ToString())));
@@ -128,11 +142,32 @@ namespace WaveIsland
             return p.Length >= 3 && long.TryParse(p[0], out long t) && new DateTime(t).Date == DateTime.Today && p[1] == "time";
         });
 
+        private static DispatcherTimer _timer;
+
+        /// <summary>Le minuteur ne tourne que s'il y a un rappel a l'heure, et vise ce rappel (avant : toutes les 15 s, toujours).</summary>
         public static void Start()
         {
-            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-            t.Tick += (a, b) => { Perf.Hit("rappels-15s"); Check("time"); };
-            t.Start();
+            _timer = new DispatcherTimer();
+            _timer.Tick += (a, b) => { Perf.Hit("rappels"); Check("time"); Schedule(); };
+            Schedule();
+        }
+
+        private static void Schedule()
+        {
+            if (_timer == null) return;
+            var s = Settings.Current;
+            DateTime next = DateTime.MaxValue;
+            foreach (var r in s.Reminders ?? new List<string>())
+            {
+                var p = r.Split('|');
+                if (p.Length >= 3 && p[1] == "time" && long.TryParse(p[0], out long t) && t < next.Ticks) next = new DateTime(t);
+            }
+            if (next == DateTime.MaxValue) { _timer.Stop(); return; }
+            var wait = next - DateTime.Now;
+            if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
+            if (wait > TimeSpan.FromMinutes(10)) wait = TimeSpan.FromMinutes(10);   // horloge du PC changee, veille : on revérifie
+            _timer.Interval = wait;
+            _timer.Start();
         }
 
         public static void PcOpened() => Check("pc");

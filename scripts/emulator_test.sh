@@ -217,22 +217,34 @@ cpu_ticks() { adb shell "p=\$(pidof $P); cat /proc/\$p/stat" | awk '{print $14+$
 ctx_sw() { adb shell "p=\$(pidof $P); cat /proc/\$p/task/*/status" 2>/dev/null | awk '/voluntary_ctxt_switches/ {s+=$2} END {print s+0}'; }
 threads() { adb shell "p=\$(pidof $P); ls /proc/\$p/task | wc -l" | tr -d '\r '; }
 gfx_line() { adb shell dumpsys gfxinfo $P | grep -m1 "$1" | sed 's/^ *//' | tr -d '\r'; }
+# Compteurs de memoire de l'appli (octets alloues depuis le lancement, nombre de ramasse-miettes)
+art_stat() { adb shell am broadcast -n $P/.PerfReceiver > /dev/null 2>&1; sleep 0.6; adb logcat -d -s WavePerf:I | grep -o 'alloc=[0-9]* gc=[0-9]*' | tail -1; }
+art_delta() { # $1 avant, $2 apres, $3 secondes
+  local a0 a1 g0 g1
+  a0=$(echo "$1" | sed -n 's/alloc=\([0-9]*\).*/\1/p'); a1=$(echo "$2" | sed -n 's/alloc=\([0-9]*\).*/\1/p')
+  g0=$(echo "$1" | sed -n 's/.*gc=\([0-9]*\)/\1/p'); g1=$(echo "$2" | sed -n 's/.*gc=\([0-9]*\)/\1/p')
+  if [ -n "$a0" ] && [ -n "$a1" ]; then echo "allocations $(awk "BEGIN{printf \"%.1f\", ($a1-$a0)/1024/$3}") Ko/s | ramasse-miettes $((g1-g0))"; else echo "allocations ?"; fi
+}
 measure_idle() {
-  local t0 c0 t1 c1
+  local t0 c0 t1 c1 s0 s1
+  s0=$(art_stat)
   adb shell dumpsys gfxinfo $P reset > /dev/null
   t0=$(cpu_ticks); c0=$(ctx_sw)
   sleep $2
   t1=$(cpu_ticks); c1=$(ctx_sw)
-  perf "repos [$1] ${2}s : processeur $(awk "BEGIN{printf \"%.2f\", ($t1-$t0)/$2}") % d'un coeur | changements de contexte $(awk "BEGIN{printf \"%.1f\", ($c1-$c0)/$2}")/s | $(gfx_line 'Total frames rendered') | fils $(threads)"
+  s1=$(art_stat)
+  perf "repos [$1] ${2}s : processeur $(awk "BEGIN{printf \"%.2f\", ($t1-$t0)/$2}") % d'un coeur | changements de contexte $(awk "BEGIN{printf \"%.1f\", ($c1-$c0)/$2}")/s | $(gfx_line 'Total frames rendered') | $(art_delta "$s0" "$s1" $2) | fils $(threads)"
 }
 measure_anim() {
-  local t0 t1
+  local t0 t1 s0 s1
+  s0=$(art_stat)
   adb shell dumpsys gfxinfo $P reset > /dev/null
   t0=$(cpu_ticks)
   eval "$2"
   sleep $3
   t1=$(cpu_ticks)
-  perf "animation [$1] : processeur $(awk "BEGIN{printf \"%.1f\", ($t1-$t0)/$3}") % d'un coeur | $(gfx_line 'Total frames rendered') | $(gfx_line 'Janky frames:') | $(gfx_line '50th percentile') | $(gfx_line '90th percentile') | $(gfx_line '99th percentile') | $(gfx_line 'Number Slow UI thread') | $(gfx_line 'Number Slow bitmap uploads')"
+  s1=$(art_stat)
+  perf "animation [$1] : processeur $(awk "BEGIN{printf \"%.1f\", ($t1-$t0)/$3}") % d'un coeur | $(art_delta "$s0" "$s1" $3) | $(gfx_line 'Total frames rendered') | $(gfx_line 'Janky frames:') | $(gfx_line '50th percentile') | $(gfx_line '90th percentile') | $(gfx_line '99th percentile') | $(gfx_line 'Number Slow UI thread') | $(gfx_line 'Number Slow bitmap uploads')"
 }
 adb shell am start -W -n $P/.MainActivity --es ci blur
 sleep 2
@@ -242,6 +254,9 @@ perf "version $(adb shell dumpsys package $P | grep -m1 versionName | tr -d '\r 
 measure_idle "accueil, ilot replie" 20
 measure_anim "notification de l'ilot" "adb shell \"cmd notification post -S bigtext -t 'Mesure' perf1 'Animation de l ilot'\"" 9
 sleep 2
+# Le dock n'apparait que sur une appli (pas sur l'accueil) : on ouvre les Parametres d'Android (autre processus)
+adb shell am start -W -a android.settings.SETTINGS > /dev/null
+sleep 3
 measure_anim "dock (monte puis redescend)" "adb shell input swipe 540 2385 540 2200 200" 6
 adb shell input keyevent KEYCODE_HOME
 sleep 3

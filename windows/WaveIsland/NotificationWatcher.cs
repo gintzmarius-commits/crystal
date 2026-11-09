@@ -41,7 +41,10 @@ namespace WaveIsland
             Log.I($"Notifications : surveillance active (dernier n° {_lastId}, copie={_copyMode})");
             _debounce = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, (s, e) => { _debounce.Stop(); Check(); }, _ui);
             _debounce.Stop();
-            _poll = new DispatcherTimer(TimeSpan.FromSeconds(4), DispatcherPriority.Background, (s, e) => { Perf.Hit("notifs-sondage"); Check(); }, _ui);
+            // Le dossier est surveille (Windows previent a chaque ecriture) : la relecture reguliere n'est qu'un filet de securite
+            // (avant : la base etait ouverte et relue toutes les 4 s)
+            _poll = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (s, e) => { Perf.Hit("notifs-sondage"); Check(); }, _ui);
+            Power.Register(_poll);
             try
             {
                 _watcher = new FileSystemWatcher(_folder, "wpndatabase.db*")
@@ -51,7 +54,7 @@ namespace WaveIsland
                 };
                 _watcher.Changed += (s, e) => _ui.BeginInvoke(new Action(() => { _debounce.Stop(); _debounce.Start(); }));
             }
-            catch (Exception e) { Log.I("Surveillance du dossier impossible : " + e.Message); }
+            catch (Exception e) { Log.I("Surveillance du dossier impossible : " + e.Message); _poll.Interval = TimeSpan.FromSeconds(4); }
         }
 
         private void Check()

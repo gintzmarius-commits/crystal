@@ -33,7 +33,18 @@ namespace WaveIsland
 
         private readonly Canvas _root = new Canvas();
         private readonly ScreenCapture _cap = new ScreenCapture { Name = "barre" };
-        private readonly DispatcherTimer _capTimer, _tick;
+        private readonly DispatcherTimer _capTimer, _tick, _clockTimer, _appsSoon;
+        /// <summary>Copie du fond : rapide quand il bouge, ralentie quand il est immobile.</summary>
+        private readonly Pacer _pacer;
+        private uint _shellMsg;
+        private IntPtr _winHook;
+        private WinEventProc _winHookProc;
+        private delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time);
+        [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
+        [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr h);
+        [DllImport("user32.dll")] private static extern bool RegisterShellHookWindow(IntPtr h);
+        [DllImport("user32.dll")] private static extern bool DeregisterShellHookWindow(IntPtr h);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string s);
         private readonly FrameGate _gate = new FrameGate();
         private IntPtr _hwnd, _tray;
         private bool _excluded, _animating, _bubbleHidden, _hiddenFull;
@@ -56,6 +67,9 @@ namespace WaveIsland
         }
 
         private readonly Bubble _win = new Bubble(), _apps = new Bubble(), _status = new Bubble(), _clock = new Bubble();
+        private Bubble[] _bubbles;
+        /// <summary>Les 4 bulles (tableau cree une seule fois : plus d'allocation a chaque image).</summary>
+        private Bubble[] Bubbles => _bubbles ??= new[] { _win, _apps, _status, _clock };
         private readonly SpringValue _appsW = new SpringValue(Cell + 16);
         private bool _dropped;
         private DateTime _riseAt = DateTime.MinValue;
@@ -81,11 +95,11 @@ namespace WaveIsland
             FontFamily = Ui;
             Content = _root;
 
-            foreach (var b in new[] { _win, _apps, _status, _clock })
+            foreach (var b in Bubbles)
             {
                 _root.Children.Add(b.Img);
             }
-            foreach (var b in new[] { _win, _apps, _status, _clock }) _root.Children.Add(b.Content);
+            foreach (var b in Bubbles) _root.Children.Add(b.Content);
 
             BuildWin();
             BuildStatus();
@@ -93,8 +107,20 @@ namespace WaveIsland
 
             _capTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
             _capTimer.Tick += (a, b) => { Perf.Hit("barre-capture"); Capture(); };
-            _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
-            _tick.Tick += (a, b) => { Perf.Hit("barre-horloge"); Tick(); };
+            _pacer = new Pacer(_capTimer, 66, 250);
+            // Avant : tout etait relu chaque seconde (applis ouvertes, reseau, son, batterie).
+            // Maintenant : les applis et le son arrivent par evenements ; le reste toutes les 3 s ; l'heure a chaque minute.
+            _tick = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _tick.Tick += (a, b) => { Perf.Hit("barre-3s"); Tick(); };
+            _clockTimer = new DispatcherTimer();
+            _clockTimer.Tick += (a, b) => { Perf.Hit("barre-horloge"); UpdateClock(); };
+            _appsSoon = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            _appsSoon.Tick += (a, b) => { _appsSoon.Stop(); Perf.Hit("barre-applis"); if (Active) RefreshApps(); };
+            Power.Register(_capTimer);
+            Power.Register(_tick);
+            Power.Register(_clockTimer);
+            Power.Woke += () => { if (Active) { UpdateClock(); Tick(); } };
+            System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (a, b) => Dispatcher.BeginInvoke(new Action(() => { _netAt = DateTime.MinValue; if (Active) UpdateStatus(); }));
 
             // Glisser une appli (menu Windows) ou un raccourci / programme (bureau, Explorateur) sur la barre : epinglee
             AllowDrop = true;
@@ -115,6 +141,9 @@ namespace WaveIsland
                 Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
                 _excluded = Native.ApplyCaptureMode(_hwnd);
                 HwndSource.FromHwnd(_hwnd)?.AddHook(WndProc);
+                // Fenetres creees, fermees, activees, renommees : Windows previent la barre (comme pour sa propre barre)
+                _shellMsg = RegisterWindowMessage("SHELLHOOK");
+                RegisterShellHookWindow(_hwnd);
             };
         }
 
@@ -130,18 +159,29 @@ namespace WaveIsland
             Height = WH;
             Left = sb.Left / _k;
             Top = (sb.Bottom / _k) - WH;
-            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Img.Height = WH; }
+            foreach (var b in Bubbles) { b.Img.Height = WH; }
             HideSystemTaskbar();
             RegisterAppBar();
             Active = true;
             RefreshApps();
             Tick();
+            UpdateClock();
             Layout();
             _capTimer.Start();
             _tick.Start();
+            if (_mouse != null) { _mouse.Stop(); Power.Unregister(_mouse); }
             _mouse = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
             _mouse.Tick += (a, b) => { Perf.Hit("barre-souris"); AutoHide(); };
             _mouse.Start();
+            Power.Register(_mouse);
+            if (App.Volume != null && !_volHooked) { _volHooked = true; App.Volume.Changed += (v, m) => { if (Active) ShowVolume(v, m); }; }
+            // Reduites / restaurees, changement de bureau virtuel (fenetres masquees) : liste des applis a jour
+            _winHookProc ??= (hk, evt, hwnd0, idObj, idChild, thr, when) => { if (idObj == 0) AppsSoon(); };
+            if (_winHook == IntPtr.Zero)
+            {
+                _winHook = SetWinEventHook(0x0016 /* MINIMIZESTART */, 0x0017 /* MINIMIZEEND */, IntPtr.Zero, _winHookProc, 0, 0, 0);
+                _cloakHook = SetWinEventHook(0x8017 /* CLOAKED */, 0x8018 /* UNCLOAKED */, IntPtr.Zero, _winHookProc, 0, 0, 0);
+            }
             Log.I("Wave Theme : barre des taches active");
         }
 
@@ -152,7 +192,10 @@ namespace WaveIsland
             Active = false;
             _capTimer.Stop();
             _tick.Stop();
+            _clockTimer.Stop();
             _mouse?.Stop();
+            if (_winHook != IntPtr.Zero) { UnhookWinEvent(_winHook); _winHook = IntPtr.Zero; }
+            if (_cloakHook != IntPtr.Zero) { UnhookWinEvent(_cloakHook); _cloakHook = IntPtr.Zero; }
             UnregisterAppBar();
             RestoreSystemTaskbar();
             Hide();
@@ -241,8 +284,26 @@ namespace WaveIsland
             _appBar = false;
         }
 
+        private IntPtr _cloakHook;
+        private bool _volHooked;
+
+        /// <summary>Une fenetre a change (creee, fermee, activee...) : la liste des applis sera relue dans 120 ms (une seule fois par rafale).</summary>
+        private void AppsSoon()
+        {
+            if (!Active) return;
+            if (!_appsSoon.IsEnabled) _appsSoon.Start();
+        }
+
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (_shellMsg != 0 && msg == (int)_shellMsg)
+            {
+                // HSHELL_WINDOWCREATED 1, DESTROYED 2, ACTIVATED 4 (et RUDEAPPACTIVATED 0x8004), WINDOWREPLACED 13.
+                // (Pas les changements de titre : certaines applis changent le leur sans arret.)
+                int code = wParam.ToInt32() & 0x7FFF;
+                if (code == 1 || code == 2 || code == 4 || code == 13) AppsSoon();
+                return IntPtr.Zero;
+            }
             if (msg == _appBarMsg && _appBarMsg != 0)
             {
                 if (wParam.ToInt32() == ABN_POSCHANGED) PlaceAppBar();
@@ -272,6 +333,8 @@ namespace WaveIsland
             }
             if (full == _hiddenFull) return;
             _hiddenFull = full;
+            // Cachee : plus de copies du fond ; de retour : on reprend
+            if (full) _capTimer.Stop(); else if (Active && !Power.Asleep) { _capTimer.Start(); _pacer.Wake(); }
             // Une appli en plein ecran (video, jeu) : la barre s'efface comme celle de Windows
             Visibility = full ? Visibility.Hidden : Visibility.Visible;
             if (!full && _hwnd != IntPtr.Zero)
@@ -299,6 +362,8 @@ namespace WaveIsland
         private void Capture()
         {
             if (_hwnd == IntPtr.Zero || _hiddenFull) return;
+            // Barre descendue sous l'ecran (appli en plein ecran) : rien a voir, on arrete les copies jusqu'a son retour
+            if (_dropped && !_animating) { _capTimer.Stop(); return; }
             if (!_excluded || !Settings.Current.Refraction)
             {
                 if (_win.Source == null)
@@ -306,7 +371,7 @@ namespace WaveIsland
                     var px = new byte[] { 40, 34, 30, 255 };
                     var flat = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, px, 4);
                     flat.Freeze();
-                    foreach (var b in new[] { _win, _apps, _status, _clock })
+                    foreach (var b in Bubbles)
                     {
                         b.Source = flat; b.Brush.ImageSource = flat;
                         b.Brush.ViewboxUnits = BrushMappingMode.RelativeToBoundingBox; b.Brush.Viewbox = new Rect(0, 0, 1, 1);
@@ -317,8 +382,10 @@ namespace WaveIsland
             if (!Native.GetWindowRect(_hwnd, out var r)) return;
             try
             {
-                if (_cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top) && _win.Source != _cap.Bitmap)
-                    foreach (var b in new[] { _win, _apps, _status, _clock })
+                bool changed = _cap.Grab(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+                _pacer.Result(changed);
+                if (changed && _win.Source != _cap.Bitmap)
+                    foreach (var b in Bubbles)
                     {
                         b.Source = _cap.Bitmap; b.Brush.ImageSource = _cap.Bitmap;
                         b.Brush.ViewboxUnits = BrushMappingMode.Absolute;
@@ -383,7 +450,7 @@ namespace WaveIsland
             _apps.X = gx + BarH + Gap; _apps.W = appsW;
             _clock.W = 104; _clock.X = _w - 10 - _clock.W;
             _status.W = 122; _status.X = _clock.X - Gap - _status.W;
-            foreach (var b in new[] { _win, _apps, _status, _clock }) Geo(b);
+            foreach (var b in Bubbles) Geo(b);
             // Chaque icone a une place qui peut s'ouvrir ou se refermer (appli rangee / affichee en apercu)
             double sum = 0;
             foreach (var it in _items)
@@ -419,7 +486,8 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
-            _capTimer.Interval = TimeSpan.FromMilliseconds(1000.0 / Math.Min(60, Frames.Fps));
+            _pacer.Hold(TimeSpan.FromMilliseconds(1000.0 / Math.Min(60, Frames.Fps)));
+            if (!_capTimer.IsEnabled && !_hiddenFull && !Power.Asleep) _capTimer.Start();
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -431,14 +499,14 @@ namespace WaveIsland
             _appsW.Tick();
             bool moving = _appsW.Moving;
             foreach (var sv in _slots.Values) { sv.Tick(); moving |= sv.Moving; }
-            foreach (var b in new[] { _win, _apps, _status, _clock }) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
+            foreach (var b in Bubbles) { b.Off.Tick(); b.St.Tick(); moving |= b.Off.Moving || b.St.Moving; }
             Layout();
             Perf.FrameEnd(pf);
             if (!moving)
             {
                 CompositionTarget.Rendering -= OnFrame; _animating = false;
-                // Au repos : le fond n'est recopie que 15 fois par seconde (economise le processeur des petits PC)
-                _capTimer.Interval = TimeSpan.FromMilliseconds(66);
+                // Au repos : 15 copies du fond par seconde au plus, puis moins si rien ne bouge derriere la barre
+                _pacer.Release();
             }
         }
 
@@ -819,6 +887,19 @@ namespace WaveIsland
 
         private readonly List<string> _runOrder = new List<string>();
 
+        /// <summary>Nom lisible d'un programme (lu une seule fois par programme : avant, relu sur le disque a chaque relecture).</summary>
+        private static readonly Dictionary<string, string> _descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static string Describe(string exe)
+        {
+            if (string.IsNullOrEmpty(exe)) return null;
+            if (_descriptions.TryGetValue(exe, out var d)) return d;
+            try { d = FileVersionInfo.GetVersionInfo(exe).FileDescription; } catch { d = null; }
+            if (_descriptions.Count > 400) _descriptions.Clear();
+            _descriptions[exe] = d;
+            return d;
+        }
+
         private void RefreshApps()
         {
             var items = Pinned().Select(p => new AppItem { Key = p.Key, Name = p.Name, Lnk = p.Lnk, Exe = p.Exe, Aumid = p.Aumid, Pin = p.Pin, Pinned = true }).ToList();
@@ -829,7 +910,7 @@ namespace WaveIsland
                 if (it == null)
                 {
                     it = new AppItem { Key = key, Exe = w.exe, Aumid = w.aumid, Name = w.aumid != null ? w.title : Path.GetFileNameWithoutExtension(w.exe) };
-                    try { var d = FileVersionInfo.GetVersionInfo(w.exe).FileDescription; if (!string.IsNullOrWhiteSpace(d) && w.aumid == null) it.Name = d; } catch { }
+                    if (w.aumid == null) { var d = Describe(w.exe); if (!string.IsNullOrWhiteSpace(d)) it.Name = d; }
                     items.Add(it);
                 }
                 it.Windows.Add(w.h);
@@ -904,17 +985,25 @@ namespace WaveIsland
         private void UpdateSlots(bool animate)
         {
             double total = 0;
+            bool changed = false;
             foreach (var it in _items)
             {
                 double t = Target(it);
                 total += t;
-                if (!_slots.TryGetValue(it.Key, out var sv)) { _slots[it.Key] = sv = new SpringValue(t); continue; }
+                if (!_slots.TryGetValue(it.Key, out var sv)) { _slots[it.Key] = sv = new SpringValue(t); changed = true; continue; }
                 if (Math.Abs(sv.Target - t) < 0.001) continue;
+                changed = true;
                 if (animate) sv.AnimateTo(t, SlotSpring); else sv.Set(t);
             }
             double w = Math.Max(1, total) * Cell + 16;
-            if (animate) _appsW.AnimateTo(w, Spring.Soft); else _appsW.Set(w);
-            Kick();
+            // Rien n'a change : on ne relance PAS l'animation (avant : relancee a chaque relecture de la liste des applis,
+            // donc la barre se redessinait en continu, meme au repos)
+            if (Math.Abs(_appsW.Target - w) > 0.5)
+            {
+                changed = true;
+                if (animate) _appsW.AnimateTo(w, Spring.Soft); else _appsW.Set(w);
+            }
+            if (changed) { if (animate) Kick(); else if (!_animating) Layout(); }
         }
 
         /// <summary>Ces fenetres sont montrees en apercu : leurs icones sortent du dock (sans animation si le dock est cache).</summary>
@@ -1009,17 +1098,36 @@ namespace WaveIsland
         private ImageSource IconOf(AppItem it)
         {
             if (_iconCache.TryGetValue(it.Key, out var img)) return img;
-            img = it.Aumid != null ? AppCatalog.LoadIcon(it.Aumid, 64)
-                : it.Lnk != null ? AppCatalog.LoadShellIcon(it.Lnk, 64)
-                : it.Exe != null ? AppCatalog.LoadShellIcon(it.Exe, 64) : null;
+            img = LoadIconOf(it);
             _iconCache[it.Key] = img;
             return img;
+        }
+
+        private static ImageSource LoadIconOf(AppItem it) =>
+            it.Aumid != null ? AppCatalog.LoadIcon(it.Aumid, 64)
+                : it.Lnk != null ? AppCatalog.LoadShellIcon(it.Lnk, 64)
+                : it.Exe != null ? AppCatalog.LoadShellIcon(it.Exe, 64) : null;
+
+        /// <summary>
+        /// Icone du dock chargee en arriere-plan (le dock s'affiche tout de suite, l'icone arrive juste apres) :
+        /// avant, chaque icone etait lue sur le disque pendant le demarrage, sur le fil de l'interface.
+        /// </summary>
+        private void IconInto(AppItem it, Image target)
+        {
+            if (_iconCache.TryGetValue(it.Key, out var img)) { target.Source = img; return; }
+            System.Threading.Tasks.Task.Run(() => { try { return LoadIconOf(it); } catch { return null; } }).ContinueWith(t =>
+            {
+                var res = t.Result;
+                if (!_iconCache.ContainsKey(it.Key)) _iconCache[it.Key] = res;
+                target.Source = _iconCache[it.Key];
+            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         private FrameworkElement AppButton(AppItem it, int index)
         {
             var g = new Grid { Width = Cell, Height = BarH, Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = it.Name };
-            var icon = new Image { Width = 28, Height = 28, Source = IconOf(it), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -4, 0, 0) };
+            var icon = new Image { Width = 28, Height = 28, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -4, 0, 0) };
+            IconInto(it, icon);
             RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
             g.Children.Add(icon);
             var dot = new Border
@@ -1335,6 +1443,9 @@ namespace WaveIsland
         private void AutoHide()
         {
             if (!Active) return;
+            // La souris n'est surveillee vite que si la barre peut se cacher (mode tablette ou masquage auto)
+            var iv = TimeSpan.FromMilliseconds(Tablet || Settings.Current.TaskbarAutoHide || _dropped ? 90 : 1000);
+            if (_mouse.Interval != iv) _mouse.Interval = iv;
             bool panelOpen = TaskbarPanel.Current != null || (App.Launcher?.IsOpen ?? false);
             if (Tablet)
             {
@@ -1369,7 +1480,7 @@ namespace WaveIsland
 
         /// <summary>Les bulles, de la plus proche du centre de l'ecran a la plus eloignee (la goutte part du milieu).</summary>
         private IEnumerable<(Bubble b, int order)> FromCenter()
-            => new[] { _win, _apps, _status, _clock }.OrderBy(x => Math.Abs(x.X + x.W / 2 - _w / 2)).Select((x, i) => (x, i));
+            => Bubbles.OrderBy(x => Math.Abs(x.X + x.W / 2 - _w / 2)).Select((x, i) => (x, i));
 
         /// <summary>
         /// Goutte : chaque bulle s'etire vers le haut en s'affinant (la goutte se forme), puis tombe sous le bord
@@ -1467,25 +1578,48 @@ namespace WaveIsland
             catch (Exception e) { Log.I("Wave Theme : zone de l'ecran : " + e.Message); }
         }
 
-        private void Tick()
-        {
-            if (++_areaTick % 5 == 1) CheckWorkArea();
-            var now = DateTime.Now;
-            _time.Text = now.ToString("HH:mm");
-            _date.Text = now.ToString("dd/MM/yyyy");
+        private DateTime _netAt = DateTime.MinValue;
+        private bool _netWifi, _netEth;
+        private string _lastClock;
 
-            // Reseau
-            bool wifi = false, eth = false;
-            try
+        /// <summary>L'heure : mise a jour pile au changement de minute (avant : chaque seconde).</summary>
+        private void UpdateClock()
+        {
+            var now = DateTime.Now;
+            string t = now.ToString("HH:mm");
+            if (t != _lastClock)
             {
-                foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
-                {
-                    if (n.OperationalStatus != OperationalStatus.Up) continue;
-                    if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211) wifi = true;
-                    else if (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet && !n.Description.Contains("Virtual") && !n.Description.Contains("Hyper-V")) eth = true;
-                }
+                _lastClock = t;
+                _time.Text = t;
+                _date.Text = now.ToString("dd/MM/yyyy");
             }
-            catch { }
+            // Prochain reveil : juste apres la prochaine minute
+            var next = TimeSpan.FromMilliseconds(60000 - (now.Second * 1000 + now.Millisecond) + 30);
+            if (_clockTimer.Interval != next) _clockTimer.Interval = next;
+            if (!_clockTimer.IsEnabled && Active && !Power.Asleep) _clockTimer.Start();
+        }
+
+        /// <summary>Reseau (barres du Wi-Fi), son et batterie.</summary>
+        private void UpdateStatus()
+        {
+            // Cartes reseau : relues seulement quand Windows signale un changement (ou toutes les 30 s par securite)
+            if ((DateTime.Now - _netAt).TotalSeconds > 30)
+            {
+                _netAt = DateTime.Now;
+                bool wifiUp = false, ethUp = false;
+                try
+                {
+                    foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
+                    {
+                        if (n.OperationalStatus != OperationalStatus.Up) continue;
+                        if (n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211) wifiUp = true;
+                        else if (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet && !n.Description.Contains("Virtual") && !n.Description.Contains("Hyper-V")) ethUp = true;
+                    }
+                }
+                catch { }
+                _netWifi = wifiUp; _netEth = ethUp;
+            }
+            bool wifi = _netWifi, eth = _netEth;
             // Barres du Wi-Fi en direct (1, 2, 3 ou 4 barres comme Windows)
             int bars = -1;
             if (wifi)
@@ -1503,8 +1637,7 @@ namespace WaveIsland
 
             // Son
             var (lvl, muted) = App.Volume?.Read() ?? (0.5f, false);
-            _vol.Text = muted || lvl < 0.01 ? "" : lvl < 0.34 ? "" : lvl < 0.67 ? "" : "";
-            _status.Content.ToolTip = $"Volume {Math.Round(lvl * 100)} %";
+            ShowVolume(lvl, muted);
 
             // Batterie (cachee sur un PC de bureau)
             var ps = System.Windows.Forms.SystemInformation.PowerStatus;
@@ -1519,6 +1652,20 @@ namespace WaveIsland
                 _bat.ToolTip = $"Batterie {pct} %{(charging ? " (en charge)" : "")}";
             }
 
+        }
+
+        /// <summary>Icone du son (aussi appelee des que le volume change, sans attendre).</summary>
+        private void ShowVolume(float lvl, bool muted)
+        {
+            _vol.Text = muted || lvl < 0.01 ? "" : lvl < 0.34 ? "" : lvl < 0.67 ? "" : "";
+            _status.Content.ToolTip = $"Volume {Math.Round(lvl * 100)} %";
+        }
+
+        /// <summary>Toutes les 3 s : etat, zone de l'ecran, barre de Windows, et la liste des applis par securite.</summary>
+        private void Tick()
+        {
+            if (++_areaTick % 2 == 1) CheckWorkArea();
+            UpdateStatus();
             // La barre de Windows ne doit pas revenir
             if (_tray != IntPtr.Zero && IsWindowVisible(_tray)) Native.ShowWindow(_tray, 0);
             RefreshApps();

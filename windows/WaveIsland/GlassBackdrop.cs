@@ -21,6 +21,7 @@ namespace WaveIsland
         private readonly Window _w;
         private readonly double _radius, _tint;
         private DispatcherTimer _timer;
+        private Pacer _pacer;
         private IntPtr _hwnd;
         private bool _excluded;
 
@@ -33,7 +34,7 @@ namespace WaveIsland
             w.SourceInitialized += (a, b) => Setup();
             w.SizeChanged += (a, b) => Update();
             Image.SizeChanged += (a, b) => Update();
-            w.Closed += (a, b) => { _timer?.Stop(); _cap.Dispose(); };
+            w.Closed += (a, b) => { _timer?.Stop(); Power.Unregister(_timer); _cap.Dispose(); };
         }
 
         private void Setup()
@@ -47,9 +48,13 @@ namespace WaveIsland
                 flat.Freeze();
                 Image.Source = flat;
             }
-            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = Frames.Interval };
+            // Avant : copie du fond a chaque image (jusqu'a 120 fois par seconde). Le panneau ne bouge pas :
+            // 30 fois par seconde quand le fond change, puis de moins en moins s'il reste immobile.
+            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
             _timer.Tick += (a, b) => { Perf.Hit("panneau-capture"); Grab(); };
-            _timer.Start();
+            _pacer = new Pacer(_timer, 33, 250);
+            Power.Register(_timer);
+            if (_excluded && Settings.Current.Refraction) _timer.Start();   // verre opaque : aucune copie a faire
             Update();
         }
 
@@ -62,8 +67,9 @@ namespace WaveIsland
             if (!Native.ClientToScreen(_hwnd, ref o)) return;
             try
             {
-                if (_cap.Grab(o.X, o.Y, c.Right - c.Left, c.Bottom - c.Top) && Image.Source != _cap.Bitmap)
-                    Image.Source = _cap.Bitmap;
+                bool changed = _cap.Grab(o.X, o.Y, c.Right - c.Left, c.Bottom - c.Top);
+                if (changed && Image.Source != _cap.Bitmap) Image.Source = _cap.Bitmap;
+                _pacer?.Result(changed);
             }
             catch { }
         }

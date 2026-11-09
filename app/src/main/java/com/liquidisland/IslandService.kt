@@ -636,6 +636,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         fullscreen = !visible
         Log.i(TAG, "Plein ecran : ${if (fullscreen) "oui" else "non"}")
         main.post {
+            if (!fullscreen && screenOn && tiltOn) registerTilt(true)
             if (mode == Mode.COLLAPSED) {
                 applyWindow(big = false)
                 val (w, h) = restSize()
@@ -978,12 +979,39 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
 
     // ---------- Reflets et refraction en direct ----------
 
+    // ---------- Capteur d'inclinaison economique ----------
+    // Avant : capteur a 50 Hz en permanence (50 reveils du processeur par seconde, meme telephone pose sur la table).
+    // Maintenant : ~30 Hz quand le telephone bouge ; immobile depuis 2 s (ou ilot cache) : 5 Hz livres par paquets d'1 s.
+    private var tiltSensor: android.hardware.Sensor? = null
+    private var tiltOn = false
+    private var tiltFast = true
+    private var tiltRefX = 0f
+    private var tiltRefY = 0f
+    private var tiltStillSince = 0L
+    private var tiltSwitching = false
+
+    private fun registerTilt(fast: Boolean) {
+        tiltSwitching = false
+        val sm = sensors ?: return
+        val s = tiltSensor ?: (sm.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY)
+            ?: sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER))?.also { tiltSensor = it } ?: return
+        if (tiltOn && fast == tiltFast) return
+        if (tiltOn) sm.unregisterListener(this)
+        tiltFast = fast
+        tiltStillSince = 0L
+        tiltOn = if (fast) sm.registerListener(this, s, 33_000)
+        else sm.registerListener(this, s, 200_000, 1_000_000)
+        Log.i(TAG, "Inclinaison : capteur ${if (fast) "rapide (le telephone bouge)" else "au ralenti (immobile)"}")
+    }
+
+    private fun switchTilt(fast: Boolean) {
+        if (tiltSwitching) return
+        tiltSwitching = true
+        main.post { if (screenOn) registerTilt(fast) else tiltSwitching = false }
+    }
+
     private fun startLive() {
-        sensors?.let { sm ->
-            val s = sm.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY)
-                ?: sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
-            if (s != null) sm.registerListener(this, s, android.hardware.SensorManager.SENSOR_DELAY_GAME)
-        }
+        registerTilt(fast = true)
         main.removeCallbacks(captureRunnable)
         if (liveActive) { live?.resume(); return }
         if (Prefs.refraction(this) && Build.VERSION.SDK_INT >= 33) main.post(captureRunnable)
@@ -992,6 +1020,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     private fun stopLive() {
         live?.pause()
         sensors?.unregisterListener(this)
+        tiltOn = false
         main.removeCallbacks(captureRunnable)
     }
 
@@ -999,8 +1028,19 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
         // Gravite -> direction de la lumiere ; lissage pour un mouvement doux
         val tx = (-e.values[0] / 9.81f).coerceIn(-1f, 1f)
         val ty = (e.values[1] / 9.81f - 0.7f).coerceIn(-1f, 1f)
-        val nx = lightX + (tx - lightX) * 0.18f
-        val ny = lightY + (ty - lightY) * 0.18f
+        // Immobile ? (on compare a une reference, pas a la mesure precedente : le bruit du capteur ne compte pas)
+        val drift = kotlin.math.abs(tx - tiltRefX) + kotlin.math.abs(ty - tiltRefY)
+        val now = android.os.SystemClock.uptimeMillis()
+        if (tiltFast) {
+            if (drift > 0.02f) { tiltRefX = tx; tiltRefY = ty; tiltStillSince = now }
+            else if (tiltStillSince == 0L) tiltStillSince = now
+            if (hidden || now - tiltStillSince > 2000) switchTilt(false)
+        } else if (drift > 0.04f && !hidden) { tiltRefX = tx; tiltRefY = ty; switchTilt(true) }
+        if (hidden) return   // ilot cache (plein ecran) : rien a dessiner
+        // Lissage equivalent a l'ancien (0,18 a 50 Hz) a la nouvelle cadence
+        val k = if (tiltFast) 0.28f else 0.6f
+        val nx = lightX + (tx - lightX) * k
+        val ny = lightY + (ty - lightY) * k
         if (kotlin.math.abs(nx - lightX) + kotlin.math.abs(ny - lightY) < 0.008f) return
         lightX = nx
         lightY = ny
@@ -1057,7 +1097,30 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
     }
 
     /** Animation terminee : on recapture tout de suite si le bord est cache. */
+    // ---------- Frequence d'ecran adaptee ----------
+    // Pendant une animation de l'ilot : on demande la frequence maximale de l'ecran (90/120/144 Hz) ;
+    // au repos : aucune demande, Android peut redescendre (economie de batterie sur les ecrans adaptatifs).
+    private val maxHz: Float by lazy {
+        try {
+            @Suppress("DEPRECATION")
+            val d = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+            val cur = d.mode
+            d.supportedModes.filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+                .maxOfOrNull { it.refreshRate } ?: d.refreshRate
+        } catch (e: Exception) { 60f }
+    }
+    private var highRate = false
+
+    private fun wantHighRate(on: Boolean) {
+        if (on == highRate || maxHz <= 61f || !::lp.isInitialized) return
+        val v = rootView ?: return
+        highRate = on
+        lp.preferredRefreshRate = if (on) maxHz else 0f
+        try { wm.updateViewLayout(v, lp) } catch (e: Exception) { }
+    }
+
     private fun afterSettle() {
+        if (running.isEmpty()) wantHighRate(false)
         if (!waitingFresh || !screenOn) return
         val wait = max(0L, lastCapture + CAPTURE_MS - android.os.SystemClock.uptimeMillis())
         main.removeCallbacks(captureRunnable)
@@ -1301,6 +1364,7 @@ class IslandService : Service(), IslandGestures, android.hardware.SensorEventLis
             addUpdateListener { set(it.animatedValue as Float); view?.invalidate() }
             // Une animation terminee ne compte plus (sinon les captures du fond resteraient bloquees)
             addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationStart(animation: Animator) { wantHighRate(true) }
                 override fun onAnimationEnd(animation: Animator) {
                     running.remove(animation)
                     if (running.isEmpty()) afterSettle()

@@ -67,11 +67,21 @@ namespace WaveIsland
             catch { return 0; }
         }
 
+        private DateTime _resolvedAt = DateTime.MinValue, _noDeviceUntil = DateTime.MinValue;
+
         private AudioEndpointVolume Endpoint()
         {
+            // Sortie deja connue et verifiee il y a peu : pas de nouvel appel a Windows (avant : a chaque lecture du volume)
+            if (_device != null && (DateTime.Now - _resolvedAt).TotalSeconds < 5)
+            {
+                try { return _device.AudioEndpointVolume; } catch { _device = null; }
+            }
+            // Aucune sortie audio : on ne reessaie qu'une fois par minute (avant : une erreur et une ligne de journal chaque seconde)
+            if (_device == null && DateTime.Now < _noDeviceUntil) return null;
             try
             {
                 _enumerator ??= new MMDeviceEnumerator();
+                _resolvedAt = DateTime.Now;
                 var dev = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
                 if (dev.ID != _deviceId)
                 {
@@ -84,7 +94,8 @@ namespace WaveIsland
             }
             catch (Exception e)
             {
-                Log.I("Aucune sortie audio : " + e.Message);
+                if (_noDeviceUntil == DateTime.MinValue) Log.I("Aucune sortie audio : " + e.Message);
+                _noDeviceUntil = DateTime.Now.AddMinutes(1);
                 return null;
             }
         }

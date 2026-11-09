@@ -44,7 +44,32 @@ namespace WaveIsland
                       ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             Log.I("Telechargements surveilles : " + _folder);
             _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (a, b) => { Perf.Hit("telechargements"); Tick(); }, _ui);
+            Power.Register(_timer);
+            // Le dossier n'est relu chaque seconde que pendant un telechargement : Windows previent quand un fichier
+            // y apparait ou change (avant : relu chaque seconde en permanence)
+            try
+            {
+                if (Directory.Exists(_folder))
+                {
+                    _fsw = new FileSystemWatcher(_folder) { NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite, IncludeSubdirectories = false };
+                    FileSystemEventHandler wake = (a, e) => { if (IsTemp(e.FullPath) || (e is RenamedEventArgs r && IsTemp(r.OldFullPath))) Wake(); };
+                    _fsw.Created += wake;
+                    _fsw.Changed += wake;
+                    _fsw.Deleted += wake;
+                    _fsw.Renamed += (a, e) => wake(a, e);
+                    _fsw.Error += (a, e) => Wake();
+                    _fsw.EnableRaisingEvents = true;
+                    _eventDriven = true;
+                }
+            }
+            catch (Exception e) { Log.I("Telechargements : surveillance par evenements impossible (" + e.Message + ")"); }
         }
+
+        private FileSystemWatcher _fsw;
+        private bool _eventDriven;
+
+        /// <summary>Un fichier temporaire de telechargement a bouge : la surveillance seconde par seconde reprend.</summary>
+        private void Wake() => _ui.BeginInvoke(new Action(() => { if (!_timer.IsEnabled && !Power.Asleep) { _timer.Start(); Tick(); } }));
 
         public static bool IsTemp(string path) => TempExt.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
@@ -60,6 +85,7 @@ namespace WaveIsland
             if (!Settings.Current.LiveDownloads || _folder == null || !Directory.Exists(_folder))
             {
                 if (_active.Count > 0) { _active.Clear(); Publish(); }
+                if (_eventDriven) _timer.Stop();
                 return;
             }
             var now = DateTime.Now;
@@ -121,6 +147,8 @@ namespace WaveIsland
                 if (unknown.Total > 0) Log.I($"Taille totale trouvee : {unknown.Total} octets");
             }
             Publish();
+            // Plus rien en cours : on attend le prochain evenement du dossier
+            if (_eventDriven && _active.Count == 0) _timer.Stop();
         }
 
         private void Publish()

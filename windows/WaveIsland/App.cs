@@ -32,6 +32,8 @@ namespace WaveIsland
             bool firstRun = !File.Exists(Path.Combine(Log.Folder, "reglages.json"));
 
             if (Program.Demo) new Backdrop().Show();
+            // Ecran eteint / session verrouillee : les minuteurs se mettent en pause
+            Power.Start();
             // Temps de demarrage : jusqu'a ce que l'interface soit au repos (tout est lance et affiche)
             Dispatcher.BeginInvoke(new Action(() => { Perf.StartupMs = (DateTime.Now - Perf.ProcessStart).TotalMilliseconds; Log.I($"Demarrage : pret en {Perf.StartupMs:0} ms"); }),
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);

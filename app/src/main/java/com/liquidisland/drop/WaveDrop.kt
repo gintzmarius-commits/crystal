@@ -95,6 +95,26 @@ object WaveDrop {
     /** Appareil a qui on destine le fichier (pour qu'un PC sans Wi-Fi commun vienne le chercher : pas utilise cote telephone). */
     @Volatile var fastScan = false
         set(v) { field = v; if (running) restartScan() }
+    /** Ecran eteint : recherche Bluetooth economique (la balise, elle, reste allumee pour qu'on nous trouve). */
+    @Volatile private var screenOff = false
+    private var screenRx: android.content.BroadcastReceiver? = null
+
+    private fun watchScreen() {
+        if (screenRx != null) return
+        val rx = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: android.content.Intent) {
+                val off = i.action == android.content.Intent.ACTION_SCREEN_OFF
+                if (off == screenOff) return
+                screenOff = off
+                if (running && scan != null) restartScan()
+            }
+        }
+        try {
+            val f = android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF).apply { addAction(android.content.Intent.ACTION_SCREEN_ON) }
+            if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED) else app.registerReceiver(rx, f)
+            screenRx = rx
+        } catch (e: Exception) { }
+    }
 
     private var server: ServerSocket? = null
     private var l2cap: BluetoothServerSocket? = null
@@ -151,6 +171,7 @@ object WaveDrop {
         Log.i(TAG, "Wave Drop : demarrage (${myName})")
         startServer()
         watchNetwork()
+        watchScreen()
         if (hasPermissions(app) && adapter?.isEnabled == true) {
             startL2cap()
             startAdvertising()
@@ -239,7 +260,12 @@ object WaveDrop {
         val sc = adapter?.bluetoothLeScanner ?: return
         val filter = ScanFilter.Builder().setManufacturerData(WaveDropProtocol.COMPANY_ID, byteArrayOf('W'.code.toByte(), 'D'.code.toByte()), byteArrayOf(-1, -1)).build()
         val settings = ScanSettings.Builder()
-            .setScanMode(if (fastScan) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_BALANCED)
+            // Ecran eteint : 10 % du temps radio (au lieu de 25 %) ; onglet Wave Drop ouvert : en continu
+            .setScanMode(when {
+                fastScan -> ScanSettings.SCAN_MODE_LOW_LATENCY
+                screenOff -> ScanSettings.SCAN_MODE_LOW_POWER
+                else -> ScanSettings.SCAN_MODE_BALANCED
+            })
             .build()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) = seen(result)

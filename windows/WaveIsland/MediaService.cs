@@ -49,19 +49,75 @@ namespace WaveIsland
         private DateTime _pausedSince = DateTime.MinValue;
         private bool _busy;
         /// <summary>Tests automatiques : un faux morceau.</summary>
-        public MediaInfo Fake;
+        private MediaInfo _fake;
+        /// <summary>Musique simulee (tests) : relue tout de suite quand elle change.</summary>
+        public MediaInfo Fake { get => _fake; set { _fake = value; Soon(); } }
 
         public MediaService(Dispatcher ui) { _ui = ui; }
 
+        private DispatcherTimer _soon;
+        /// <summary>Sources suivies (Spotify, navigateur...) avec leurs abonnements, pour pouvoir se desabonner proprement.</summary>
+        private readonly System.Collections.Generic.List<GlobalSystemMediaTransportControlsSession> _watched =
+            new System.Collections.Generic.List<GlobalSystemMediaTransportControlsSession>();
+        private volatile bool _rewatch = true;
+
+        /// <summary>
+        /// Windows previent quand un morceau change, demarre ou se met en pause : on relit a ce moment-la
+        /// (avant : 1,4 fois par seconde en permanence, meme sans musique). Une verification lente reste par securite.
+        /// </summary>
         public async void Start()
         {
+            _soon = new DispatcherTimer(DispatcherPriority.Background, _ui) { Interval = TimeSpan.FromMilliseconds(150) };
+            _soon.Tick += async (a, b) => { _soon.Stop(); Perf.Hit("media-evenement"); await Refresh(); };
             try
             {
                 _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+                _mgr.SessionsChanged += (a, b) => { _rewatch = true; Soon(); };
+                _mgr.CurrentSessionChanged += (a, b) => Soon();
                 Log.I("Musique : commandes multimedia de Windows disponibles");
             }
             catch (Exception e) { Log.I("Musique : indisponible (" + e.Message + ")"); }
-            _poll = new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Background, async (a, b) => { Perf.Hit("media-sondage"); await Refresh(); }, _ui);
+            _poll = new DispatcherTimer(TimeSpan.FromSeconds(3), DispatcherPriority.Background, async (a, b) => { Perf.Hit("media-sondage"); await Refresh(); }, _ui);
+            Power.Register(_poll);
+            Soon();
+        }
+
+        private void OnMediaProps(GlobalSystemMediaTransportControlsSession s, MediaPropertiesChangedEventArgs e) => Soon();
+        private void OnPlayback(GlobalSystemMediaTransportControlsSession s, PlaybackInfoChangedEventArgs e) => Soon();
+        private void OnTimeline(GlobalSystemMediaTransportControlsSession s, TimelinePropertiesChangedEventArgs e) => Soon();
+
+        /// <summary>Relecture dans 150 ms (une seule pour une rafale d'evenements).</summary>
+        private void Soon() => _ui.BeginInvoke(new Action(() => { if (_soon != null && !_soon.IsEnabled) _soon.Start(); }));
+
+        /// <summary>S'abonne aux changements de chaque source (Spotify, navigateur...).</summary>
+        private void WatchSessions()
+        {
+            if (_mgr == null) return;
+            try
+            {
+                if (!_rewatch) return;   // les sources n'ont pas change depuis le dernier abonnement
+                _rewatch = false;
+                // Une seule serie d'abonnements a la fois : on se desabonne des anciennes sources avant
+                foreach (var old in _watched)
+                {
+                    try
+                    {
+                        old.MediaPropertiesChanged -= OnMediaProps;
+                        old.PlaybackInfoChanged -= OnPlayback;
+                        old.TimelinePropertiesChanged -= OnTimeline;
+                    }
+                    catch { }
+                }
+                _watched.Clear();
+                foreach (var s in _mgr.GetSessions())
+                {
+                    s.MediaPropertiesChanged += OnMediaProps;
+                    s.PlaybackInfoChanged += OnPlayback;
+                    s.TimelinePropertiesChanged += OnTimeline;
+                    _watched.Add(s);
+                }
+            }
+            catch { }
         }
 
         private GlobalSystemMediaTransportControlsSession Pick()
@@ -139,6 +195,10 @@ namespace WaveIsland
                     Changed?.Invoke(info);
                 }
                 else Current = info;
+                WatchSessions();
+                // Verification de securite : plus frequente quand quelque chose joue
+                var iv = TimeSpan.FromSeconds(info == null ? 10 : info.Playing ? 3 : 5);
+                if (_poll != null && _poll.Interval != iv) _poll.Interval = iv;
             }
             catch (Exception e) { Log.I("Musique : " + e.Message); }
             finally { _busy = false; }
@@ -175,7 +235,7 @@ namespace WaveIsland
 
         public async void PlayPause()
         {
-            if (Fake != null) { Fake.Playing = !Fake.Playing; return; }
+            if (Fake != null) { Fake.Playing = !Fake.Playing; Soon(); return; }
             try { if (_session != null) await _session.TryTogglePlayPauseAsync(); } catch { }
             await Refresh();
         }

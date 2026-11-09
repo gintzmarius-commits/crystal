@@ -34,6 +34,7 @@ namespace WaveIsland
         private readonly Image _glass = new Image { Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly DropEffect _fx = new DropEffect();
         private readonly ScreenCapture _cap = new ScreenCapture { Name = "menu" };
+        private readonly Pacer _pacer;
         private readonly Border _content = new Border { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly RectangleGeometry _clip = new RectangleGeometry();
         private readonly DispatcherTimer _captureTimer;
@@ -115,7 +116,8 @@ namespace WaveIsland
             Content = _root;
 
             _captureTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(66) };
-            _captureTimer.Tick += (a, b) => Capture();
+            _captureTimer.Tick += (a, b) => { Perf.Hit("menu-capture"); Capture(); };
+            _pacer = new Pacer(_captureTimer, 66, 250);
 
             SourceInitialized += (a, b) =>
             {
@@ -310,7 +312,7 @@ namespace WaveIsland
         {
             if (_animating) return;
             _animating = true;
-            _captureTimer.Interval = Frames.Interval;   // fond recopie a pleine cadence pendant l'animation
+            _pacer.Hold(Frames.Interval);   // fond recopie a pleine cadence pendant l'animation
             CompositionTarget.Rendering += OnFrame;
         }
 
@@ -323,8 +325,8 @@ namespace WaveIsland
             {
                 CompositionTarget.Rendering -= OnFrame;
                 _animating = false;
-                // Au repos : 15 copies du fond par seconde suffisent (moins de travail pour les petits PC)
-                _captureTimer.Interval = TimeSpan.FromMilliseconds(66);
+                // Au repos : 15 copies du fond par seconde au plus, moins si rien ne bouge derriere
+                _pacer.Release();
             }
         }
 
@@ -384,8 +386,9 @@ namespace WaveIsland
                 int sx = Math.Max(0, (int)(x0 * k) & ~15), sw = Math.Min(ww - sx, (int)Math.Ceiling((x1 - x0) * k) + 32);
                 int sy = Math.Max(0, (int)(y0 * k) & ~15);
                 var sub = new Int32Rect(sx, sy, Math.Max(16, sw), Math.Max(16, Math.Min(wh - sy, (int)Math.Ceiling(y1 * k) + 16 - sy)));
-                if (_cap.Grab(r.Left, r.Top, ww, wh, sub) && _glass.Source != _cap.Bitmap)
-                    _glass.Source = _cap.Bitmap;
+                bool changed = _cap.Grab(r.Left, r.Top, ww, wh, sub);
+                if (changed && _glass.Source != _cap.Bitmap) _glass.Source = _cap.Bitmap;
+                _pacer.Result(changed);
             }
             catch { }
         }

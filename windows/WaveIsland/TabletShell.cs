@@ -60,11 +60,24 @@ namespace WaveIsland
             {
                 Perf.Hit("tablette-surveillance");
                 Apply();
+                // Hors mode tablette : on ne fait que surveiller l'ecran retourne, toutes les 3 s suffisent
+                var iv = TimeSpan.FromMilliseconds(Active ? 1200 : 3000);
+                if (_watch.Interval != iv) _watch.Interval = iv;
+                if (!Active) return;
                 // Image recente de l'appli au premier plan : l'animation de fermeture demarre sans attendre
-                if (Active) { var fgApp = AppInFront(); WatchTitle(fgApp); ExtendToBottom(fgApp); }
-                if (Active && AppMotion.Current == null) AppMotion.Cache(AppInFront());   // ~1 image / s : pages precedentes du geste retour
+                var fgApp = AppInFront();
+                WatchTitle(fgApp);
+                ExtendToBottom(fgApp);
+                // Nouvelle image seulement si l'utilisateur a fait quelque chose depuis la derniere
+                // (avant : une copie complete de la fenetre chaque seconde, meme sans toucher a rien)
+                if (AppMotion.Current == null)
+                {
+                    uint input = LastInput();
+                    if (input != _cachedAtInput) { _cachedAtInput = input; AppMotion.Cache(fgApp); }
+                }
             };
             _watch.Start();
+            Power.Register(_watch);
             // Contour et coins arrondis des fenetres : surveille l'appli au premier plan (dans tous les modes)
             _hookProc ??= OnForeground;
             _hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _hookProc, 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -308,13 +321,26 @@ namespace WaveIsland
             finally { _closingTv = false; }
         }
 
+        [StructLayout(LayoutKind.Sequential)] private struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+        [DllImport("user32.dll")] private static extern bool GetLastInputInfo(ref LASTINPUTINFO l);
+        private static uint _cachedAtInput;
+
+        /// <summary>Moment de la derniere action au clavier, a la souris ou au toucher.</summary>
+        private static uint LastInput()
+        {
+            var l = new LASTINPUTINFO { cbSize = 8 };
+            return GetLastInputInfo(ref l) ? l.dwTime : 0;
+        }
+
         private static System.Windows.Threading.DispatcherTimer _tvPoll;
         /// <summary>Le geste du pave tactile ne previent pas toujours : on regarde aussi toutes les 150 ms.</summary>
         internal static void WatchTaskView()
         {
             if (_tvPoll != null) return;
             IntPtr last = IntPtr.Zero;
-            _tvPoll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            // 300 ms (avant 150) : la vue des taches de Windows est remplacee aussi vite a l'oeil, deux fois moins de reveils
+            _tvPoll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            Power.Register(_tvPoll);
             _tvPoll.Tick += (a, b) =>
             {
                 Perf.Hit("vue-taches-sondage");
